@@ -4,7 +4,7 @@
 
 TokenHub 位于企业 AI 调用链路的中心，必须默认安全：
 
-- 不泄露 Provider 凭证。
+- 不泄露 Provider 资源凭证。
 - 不泄露内部 API Key。
 - 不默认保存原始 Prompt 和 Response。
 - 所有关键操作可审计。
@@ -23,9 +23,9 @@ TokenHub 位于企业 AI 调用链路的中心，必须默认安全：
 | 吊销 | 吊销后立即失效 |
 | 最小权限 | 默认限制模型、额度、并发和项目范围 |
 
-## Provider 凭证安全
+## Provider 资源凭证安全
 
-- Provider Secret 必须加密保存。
+- Provider 资源 Secret 必须加密保存。
 - 本地部署可使用 `TOKENHUB_SECRET_KEY` 做 envelope encryption。
 - 企业环境建议接入 KMS、Vault 或云厂商密钥服务。
 - 凭证读取只允许后端 Provider 调用链路使用。
@@ -175,4 +175,3 @@ MVP 上线前至少完成：
 - 后端所有 Admin API 做权限校验。
 - 日志中没有 Key、Secret、Authorization header。
 - Docker 默认配置不使用弱口令。
-

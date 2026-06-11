@@ -1,9 +1,17 @@
 package server
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -44,6 +52,11 @@ type Store interface {
 	UpdateProvider(id string, patch Provider) (Provider, error)
 	DeleteProvider(id string) error
 	SetProviderHealth(providerID string, healthy bool) (Provider, error)
+	AddProviderResource(resource ProviderResource) (ProviderResource, error)
+	ListProviderResources() []ProviderResource
+	UpdateProviderResource(id string, patch ProviderResource) (ProviderResource, error)
+	DeleteProviderResource(id string) error
+	SetProviderResourceHealth(resourceID string, healthy bool) (ProviderResource, error)
 	AddModel(model Model) Model
 	ListModels() []Model
 	UpdateModel(name string, patch Model) (Model, error)
@@ -55,6 +68,7 @@ type Store interface {
 	SelectRoute(modelName string) (RouteSelection, error)
 	SelectRouteCandidates(modelName string) ([]RouteSelection, error)
 	MarkRouteUsed(routeID string)
+	MarkProviderResourceUsed(resourceID string)
 	StartCall(project Project, key APIKey, modelName string) (CallContext, error)
 	FinishCall(call CallContext, route RouteSelection, usage Usage, statusCode int, errorCode string, clientIP string, userAgent string)
 	RecordRejectedRequest(project Project, key APIKey, modelName string, statusCode int, errorCode string, clientIP string, userAgent string)
@@ -63,6 +77,8 @@ type Store interface {
 	UsageTimeseries(days int) []map[string]any
 	ListRequestLogs() []RequestLog
 	ListAlerts() []AlertEvent
+	ListAuditEvents() []AuditEvent
+	RecordAuditEvent(event AuditEvent)
 	CreateResource(kind string, resource AdminResource) AdminResource
 	ListResources(kind string) []AdminResource
 	UpdateResource(kind string, id string, patch AdminResource) (AdminResource, error)
@@ -75,12 +91,20 @@ type Store interface {
 	ValidateAdminSession(token string) (AdminUser, bool)
 	RevokeAdminSession(token string)
 	AccessibleModels(key APIKey) []Model
+	CheckProviderResourceCapacity(resourceID string) error
+	FinishProviderResourceAttempt(resourceID string, success bool, usage Usage)
+	TestProvider(id string) (Provider, error)
+	TestProviderResource(id string) (ProviderResource, error)
 }
 
 type GormStore struct {
-	db       *gorm.DB
-	mu       sync.Mutex
-	inFlight map[string]int64
+	db               *gorm.DB
+	mu               sync.Mutex
+	inFlight         map[string]int64
+	resourceInFlight map[string]int64
+	secretKey        string
+	failureThreshold int
+	cooldownDuration time.Duration
 }
 
 // MemoryStore is kept as a compatibility alias for existing tests and callers.
@@ -88,13 +112,21 @@ type GormStore struct {
 type MemoryStore = GormStore
 
 func OpenStore(databaseURL string) (*GormStore, error) {
+	return OpenStoreWithConfig(databaseURL, ConfigFromEnv())
+}
+
+func OpenStoreWithConfig(databaseURL string, config Config) (*GormStore, error) {
 	if strings.TrimSpace(databaseURL) == "" {
 		databaseURL = defaultSQLiteDatabaseURL
 	}
-	return NewSQLiteStore(databaseURL)
+	return NewSQLiteStoreWithConfig(databaseURL, config)
 }
 
 func NewSQLiteStore(databaseURL string) (*GormStore, error) {
+	return NewSQLiteStoreWithConfig(databaseURL, ConfigFromEnv())
+}
+
+func NewSQLiteStoreWithConfig(databaseURL string, config Config) (*GormStore, error) {
 	dsn, err := sqliteDSN(databaseURL)
 	if err != nil {
 		return nil, err
@@ -128,12 +160,15 @@ func NewSQLiteStore(databaseURL string) (*GormStore, error) {
 		&Project{},
 		&APIKey{},
 		&Provider{},
+		&ProviderResource{},
 		&Model{},
 		&ModelRoute{},
 		&QuotaBucket{},
 		&UsageRecord{},
 		&RequestLog{},
 		&AlertEvent{},
+		&ProviderResourceBucket{},
+		&AuditEvent{},
 		&AdminResource{},
 		&AdminUser{},
 		&AdminSession{},
@@ -141,13 +176,17 @@ func NewSQLiteStore(databaseURL string) (*GormStore, error) {
 		return nil, err
 	}
 	return &GormStore{
-		db:       db,
-		inFlight: map[string]int64{},
+		db:               db,
+		inFlight:         map[string]int64{},
+		resourceInFlight: map[string]int64{},
+		secretKey:        config.SecretKey,
+		failureThreshold: defaultInt(config.ResourceFailureThreshold, 3),
+		cooldownDuration: time.Duration(defaultInt(config.ResourceCooldownSeconds, 300)) * time.Second,
 	}, nil
 }
 
 func NewMemoryStore() *MemoryStore {
-	store, err := NewSQLiteStore(fmt.Sprintf("file:%s?mode=memory&cache=shared", NewID("mem")))
+	store, err := NewSQLiteStoreWithConfig(fmt.Sprintf("file:%s?mode=memory&cache=shared", NewID("mem")), ConfigFromEnv())
 	if err != nil {
 		panic(err)
 	}
@@ -426,6 +465,7 @@ func (s *GormStore) AddProvider(provider Provider) Provider {
 	if provider.CreatedAt.IsZero() {
 		provider.CreatedAt = time.Now().UTC()
 	}
+	provider.APIKey = s.encryptSecret(provider.APIKey)
 	_ = s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&provider).Error
 	return provider
 }
@@ -455,7 +495,7 @@ func (s *GormStore) UpdateProvider(id string, patch Provider) (Provider, error) 
 	}
 	provider.BaseURL = patch.BaseURL
 	if patch.APIKey != "" {
-		provider.APIKey = patch.APIKey
+		provider.APIKey = s.encryptSecret(patch.APIKey)
 	}
 	if patch.Status != "" {
 		provider.Status = patch.Status
@@ -489,6 +529,9 @@ func (s *GormStore) DeleteProvider(id string) error {
 		if err := tx.Where("provider_id = ?", id).Delete(&ModelRoute{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("provider_id = ?", id).Delete(&ProviderResource{}).Error; err != nil {
+			return err
+		}
 		return tx.Delete(&provider).Error
 	})
 }
@@ -507,6 +550,279 @@ func (s *GormStore) SetProviderHealth(providerID string, healthy bool) (Provider
 	provider.Healthy = healthy
 	provider.APIKey = ""
 	return provider, nil
+}
+
+func (s *GormStore) AddProviderResource(resource ProviderResource) (ProviderResource, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.db.First(&Provider{}, "id = ?", resource.ProviderID).Error; err != nil {
+		return ProviderResource{}, notFound(err, "provider_not_found", "Provider not found")
+	}
+	now := time.Now().UTC()
+	if resource.ID == "" {
+		resource.ID = NewID("rsrc")
+	}
+	if resource.Status == "" {
+		resource.Status = StatusActive
+	}
+	if resource.ResourceType == "" {
+		resource.ResourceType = "api_key"
+	}
+	if !resource.Healthy {
+		resource.Healthy = true
+	}
+	if resource.Weight <= 0 {
+		resource.Weight = 100
+	}
+	if resource.CreatedAt.IsZero() {
+		resource.CreatedAt = now
+	}
+	resource.UpdatedAt = now
+	resource.APIKey = s.encryptSecret(resource.APIKey)
+	if err := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&resource).Error; err != nil {
+		return ProviderResource{}, err
+	}
+	resource.APIKey = ""
+	return resource, nil
+}
+
+func (s *GormStore) ListProviderResources() []ProviderResource {
+	var items []ProviderResource
+	_ = s.db.Order("provider_id asc, priority asc, weight desc, created_at asc").Find(&items).Error
+	for i := range items {
+		items[i].APIKey = ""
+	}
+	return items
+}
+
+func (s *GormStore) UpdateProviderResource(id string, patch ProviderResource) (ProviderResource, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var resource ProviderResource
+	if err := s.db.First(&resource, "id = ?", id).Error; err != nil {
+		return ProviderResource{}, notFound(err, "provider_resource_not_found", "Provider resource not found")
+	}
+	if patch.ProviderID != "" && patch.ProviderID != resource.ProviderID {
+		if err := s.db.First(&Provider{}, "id = ?", patch.ProviderID).Error; err != nil {
+			return ProviderResource{}, notFound(err, "provider_not_found", "Provider not found")
+		}
+		resource.ProviderID = patch.ProviderID
+	}
+	if patch.Name != "" {
+		resource.Name = patch.Name
+	}
+	if patch.ResourceType != "" {
+		resource.ResourceType = patch.ResourceType
+	}
+	resource.BaseURL = patch.BaseURL
+	if patch.APIKey != "" {
+		resource.APIKey = s.encryptSecret(patch.APIKey)
+	}
+	resource.Region = patch.Region
+	resource.Environment = patch.Environment
+	if patch.Status != "" {
+		resource.Status = patch.Status
+	}
+	resource.Healthy = patch.Healthy
+	if patch.Priority != 0 {
+		resource.Priority = patch.Priority
+	}
+	if patch.Weight != 0 {
+		resource.Weight = patch.Weight
+	}
+	resource.RateLimitRPM = patch.RateLimitRPM
+	resource.TokenLimitTPM = patch.TokenLimitTPM
+	resource.MaxConcurrency = patch.MaxConcurrency
+	if patch.Headers != nil {
+		resource.Headers = patch.Headers
+	}
+	if patch.Options != nil {
+		resource.Options = patch.Options
+	}
+	resource.UpdatedAt = time.Now().UTC()
+	if err := s.db.Save(&resource).Error; err != nil {
+		return ProviderResource{}, err
+	}
+	resource.APIKey = ""
+	return resource, nil
+}
+
+func (s *GormStore) DeleteProviderResource(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var resource ProviderResource
+		if err := tx.First(&resource, "id = ?", id).Error; err != nil {
+			return notFound(err, "provider_resource_not_found", "Provider resource not found")
+		}
+		if err := tx.Model(&ModelRoute{}).
+			Where("provider_resource_id = ?", id).
+			Update("provider_resource_id", "").Error; err != nil {
+			return err
+		}
+		return tx.Delete(&resource).Error
+	})
+}
+
+func (s *GormStore) SetProviderResourceHealth(resourceID string, healthy bool) (ProviderResource, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var resource ProviderResource
+	if err := s.db.First(&resource, "id = ?", resourceID).Error; err != nil {
+		return ProviderResource{}, notFound(err, "provider_resource_not_found", "Provider resource not found")
+	}
+	now := time.Now().UTC()
+	if err := s.db.Model(&ProviderResource{}).
+		Where("id = ?", resourceID).
+		Updates(map[string]any{"healthy": healthy, "last_checked_at": now, "updated_at": now}).Error; err != nil {
+		return ProviderResource{}, err
+	}
+	resource.Healthy = healthy
+	resource.LastCheckedAt = &now
+	resource.UpdatedAt = now
+	resource.APIKey = ""
+	return resource, nil
+}
+
+func (s *GormStore) CheckProviderResourceCapacity(resourceID string) error {
+	if resourceID == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var resource ProviderResource
+	if err := s.db.First(&resource, "id = ?", resourceID).Error; err != nil {
+		return notFound(err, "provider_resource_not_found", "Provider resource not found")
+	}
+	now := time.Now().UTC()
+	if resource.CooldownUntil != nil && now.Before(*resource.CooldownUntil) {
+		return NewHTTPError(http.StatusTooManyRequests, "provider_resource_cooling_down", "Provider resource is cooling down")
+	}
+	if resource.MaxConcurrency > 0 && s.resourceInFlight[resource.ID] >= resource.MaxConcurrency {
+		return NewHTTPError(http.StatusTooManyRequests, "provider_resource_concurrency_exceeded", "Provider resource concurrency limit exceeded")
+	}
+	if resource.RateLimitRPM > 0 || resource.TokenLimitTPM > 0 {
+		bucket, err := providerResourceBucket(s.db, resource.ID, minuteBucket(now))
+		if err != nil {
+			return err
+		}
+		if resource.RateLimitRPM > 0 && bucket.Requests >= resource.RateLimitRPM {
+			return NewHTTPError(http.StatusTooManyRequests, "provider_resource_rpm_exceeded", "Provider resource RPM limit exceeded")
+		}
+		if resource.TokenLimitTPM > 0 && bucket.Tokens >= resource.TokenLimitTPM {
+			return NewHTTPError(http.StatusTooManyRequests, "provider_resource_tpm_exceeded", "Provider resource TPM limit exceeded")
+		}
+		bucket.Requests++
+		bucket.UpdatedAt = now
+		if err := s.db.Save(&bucket).Error; err != nil {
+			return err
+		}
+	}
+	s.resourceInFlight[resource.ID]++
+	return nil
+}
+
+func (s *GormStore) FinishProviderResourceAttempt(resourceID string, success bool, usage Usage) {
+	if resourceID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.resourceInFlight[resourceID] > 0 {
+		s.resourceInFlight[resourceID]--
+	}
+	var resource ProviderResource
+	if err := s.db.First(&resource, "id = ?", resourceID).Error; err != nil {
+		return
+	}
+	now := time.Now().UTC()
+	updates := map[string]any{"updated_at": now}
+	if success {
+		if usage.TotalTokens == 0 {
+			usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+		}
+		if usage.TotalTokens > 0 {
+			_ = addProviderResourceTokens(s.db, resourceID, minuteBucket(now), usage.TotalTokens)
+		}
+		updates["failure_count"] = 0
+		if resource.CooldownUntil != nil && now.After(*resource.CooldownUntil) {
+			updates["cooldown_until"] = nil
+		}
+	} else {
+		nextFailures := resource.FailureCount + 1
+		updates["failure_count"] = nextFailures
+		if nextFailures >= s.failureThreshold {
+			cooldownUntil := now.Add(s.cooldownDuration)
+			updates["healthy"] = false
+			updates["cooldown_until"] = &cooldownUntil
+			updates["last_checked_at"] = now
+			_ = s.db.Create(&AlertEvent{
+				ID:         NewID("alt"),
+				ScopeType:  "provider_resource",
+				ScopeID:    resource.ID,
+				Severity:   "warning",
+				Code:       "provider_resource_cooling_down",
+				Message:    "Provider resource entered cooldown after repeated failures",
+				ResourceID: resource.ProviderID,
+				CreatedAt:  now,
+			}).Error
+		}
+	}
+	_ = s.db.Model(&ProviderResource{}).Where("id = ?", resourceID).Updates(updates).Error
+}
+
+func (s *GormStore) TestProvider(id string) (Provider, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var provider Provider
+	if err := s.db.First(&provider, "id = ?", id).Error; err != nil {
+		return Provider{}, notFound(err, "provider_not_found", "Provider not found")
+	}
+	healthy := provider.Status == StatusActive
+	if err := s.db.Model(&Provider{}).Where("id = ?", id).Update("healthy", healthy).Error; err != nil {
+		return Provider{}, err
+	}
+	provider.Healthy = healthy
+	provider.APIKey = ""
+	return provider, nil
+}
+
+func (s *GormStore) TestProviderResource(id string) (ProviderResource, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var resource ProviderResource
+	if err := s.db.First(&resource, "id = ?", id).Error; err != nil {
+		return ProviderResource{}, notFound(err, "provider_resource_not_found", "Provider resource not found")
+	}
+	now := time.Now().UTC()
+	healthy := resource.Status == StatusActive
+	updates := map[string]any{
+		"healthy":         healthy,
+		"last_checked_at": now,
+		"updated_at":      now,
+	}
+	if healthy {
+		updates["failure_count"] = 0
+		updates["cooldown_until"] = nil
+	}
+	if err := s.db.Model(&ProviderResource{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		return ProviderResource{}, err
+	}
+	resource.Healthy = healthy
+	resource.LastCheckedAt = &now
+	resource.FailureCount = 0
+	resource.CooldownUntil = nil
+	resource.UpdatedAt = now
+	resource.APIKey = ""
+	return resource, nil
 }
 
 func (s *GormStore) AddModel(model Model) Model {
@@ -642,6 +958,7 @@ func (s *GormStore) UpdateRoute(id string, patch ModelRoute) (ModelRoute, error)
 	if patch.ProviderID != "" {
 		route.ProviderID = patch.ProviderID
 	}
+	route.ProviderResourceID = patch.ProviderResourceID
 	if patch.ProviderModel != "" {
 		route.ProviderModel = patch.ProviderModel
 	}
@@ -701,16 +1018,87 @@ func (s *GormStore) SelectRouteCandidates(modelName string) ([]RouteSelection, e
 		if provider.Status != StatusActive || !provider.Healthy {
 			continue
 		}
-		selections = append(selections, RouteSelection{
-			Provider:      provider,
-			ProviderModel: route.ProviderModel,
-			Route:         route,
-		})
+		if route.ProviderResourceID != "" {
+			var resource ProviderResource
+			if err := s.db.First(&resource, "id = ? AND provider_id = ?", route.ProviderResourceID, provider.ID).Error; err != nil {
+				continue
+			}
+			if resource.Status != StatusActive || !resource.Healthy {
+				continue
+			}
+			selections = append(selections, s.routeSelection(provider, &resource, route))
+			continue
+		}
+
+		var resources []ProviderResource
+		if err := s.db.Where("provider_id = ? AND status = ? AND healthy = ?", provider.ID, StatusActive, true).
+			Order("priority asc, weight desc, created_at asc").
+			Find(&resources).Error; err != nil {
+			return nil, err
+		}
+		if len(resources) == 0 {
+			selections = append(selections, s.routeSelection(provider, nil, route))
+			continue
+		}
+		for _, resource := range resources {
+			resourceRoute := route
+			resourceRoute.ProviderResourceID = resource.ID
+			if resource.Weight > 0 {
+				resourceRoute.Weight = resource.Weight
+			}
+			selections = append(selections, s.routeSelection(provider, &resource, resourceRoute))
+		}
 	}
 	if len(selections) == 0 {
 		return nil, ErrProviderMissing
 	}
 	return selections, nil
+}
+
+func (s *GormStore) routeSelection(provider Provider, resource *ProviderResource, route ModelRoute) RouteSelection {
+	provider.APIKey = s.decryptSecret(provider.APIKey)
+	if resource == nil {
+		return RouteSelection{
+			Provider:      provider,
+			ProviderModel: route.ProviderModel,
+			Route:         route,
+		}
+	}
+	effective := provider
+	if resource.BaseURL != "" {
+		effective.BaseURL = resource.BaseURL
+	}
+	if resource.APIKey != "" {
+		effective.APIKey = s.decryptSecret(resource.APIKey)
+	}
+	if len(resource.Headers) > 0 {
+		headers := map[string]string{}
+		for key, value := range provider.Headers {
+			headers[key] = value
+		}
+		for key, value := range resource.Headers {
+			headers[key] = value
+		}
+		effective.Headers = headers
+	}
+	if len(resource.Options) > 0 {
+		options := map[string]string{}
+		for key, value := range provider.Options {
+			options[key] = value
+		}
+		for key, value := range resource.Options {
+			options[key] = value
+		}
+		effective.Options = options
+	}
+	publicResource := *resource
+	publicResource.APIKey = ""
+	return RouteSelection{
+		Provider:      effective,
+		Resource:      &publicResource,
+		ProviderModel: route.ProviderModel,
+		Route:         route,
+	}
 }
 
 func (s *GormStore) MarkRouteUsed(routeID string) {
@@ -722,6 +1110,19 @@ func (s *GormStore) MarkRouteUsed(routeID string) {
 
 	now := time.Now().UTC()
 	_ = s.db.Model(&ModelRoute{}).Where("id = ?", routeID).Update("last_used_at", now).Error
+}
+
+func (s *GormStore) MarkProviderResourceUsed(resourceID string) {
+	if resourceID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	_ = s.db.Model(&ProviderResource{}).
+		Where("id = ?", resourceID).
+		Updates(map[string]any{"last_used_at": now, "updated_at": now}).Error
 }
 
 func (s *GormStore) StartCall(project Project, key APIKey, modelName string) (CallContext, error) {
@@ -743,6 +1144,7 @@ func (s *GormStore) StartCall(project Project, key APIKey, modelName string) (Ca
 		if len(privateKey.AllowedModels) > 0 && !privateKey.AllowedModels[modelName] {
 			return ErrModelNotAllowed
 		}
+		effectiveLimits := mergeQuotaLimits(privateKey.Limits, quotaPolicyLimits(tx, project, privateKey))
 		now := time.Now().UTC()
 		dayCounter, err := quotaBucket(tx, privateKey.ID, "day", dayBucket(now))
 		if err != nil {
@@ -752,12 +1154,12 @@ func (s *GormStore) StartCall(project Project, key APIKey, modelName string) (Ca
 		if err != nil {
 			return err
 		}
-		if privateKey.Limits.MaxConcurrency > 0 && s.inFlight[privateKey.ID] >= privateKey.Limits.MaxConcurrency {
+		if effectiveLimits.MaxConcurrency > 0 && s.inFlight[privateKey.ID] >= effectiveLimits.MaxConcurrency {
 			return ErrRateLimitExceeded
 		}
-		if exceedsRequestQuota(privateKey.Limits, &dayCounter.QuotaCounter, &monthCounter.QuotaCounter) ||
-			exceedsTokenQuota(privateKey.Limits, &dayCounter.QuotaCounter, &monthCounter.QuotaCounter) ||
-			exceedsCostQuota(privateKey.Limits, &dayCounter.QuotaCounter, &monthCounter.QuotaCounter) {
+		if exceedsRequestQuota(effectiveLimits, &dayCounter.QuotaCounter, &monthCounter.QuotaCounter) ||
+			exceedsTokenQuota(effectiveLimits, &dayCounter.QuotaCounter, &monthCounter.QuotaCounter) ||
+			exceedsCostQuota(effectiveLimits, &dayCounter.QuotaCounter, &monthCounter.QuotaCounter) {
 			return ErrQuotaExceeded
 		}
 		dayCounter.Requests++
@@ -819,35 +1221,37 @@ func (s *GormStore) FinishCall(call CallContext, route RouteSelection, usage Usa
 		}
 		if usage.TotalTokens > 0 || usage.CostUSD > 0 {
 			if err := tx.Create(&UsageRecord{
-				ID:           NewID("use"),
-				RequestID:    call.RequestID,
-				ProjectID:    call.Project.ID,
-				APIKeyID:     call.Key.ID,
-				ModelName:    call.Model.Name,
-				ProviderID:   route.Provider.ID,
-				InputTokens:  usage.PromptTokens,
-				OutputTokens: usage.CompletionTokens,
-				TotalTokens:  usage.TotalTokens,
-				CostUSD:      usage.CostUSD,
-				CreatedAt:    now,
+				ID:                 NewID("use"),
+				RequestID:          call.RequestID,
+				ProjectID:          call.Project.ID,
+				APIKeyID:           call.Key.ID,
+				ModelName:          call.Model.Name,
+				ProviderID:         route.Provider.ID,
+				ProviderResourceID: routeResourceID(route),
+				InputTokens:        usage.PromptTokens,
+				OutputTokens:       usage.CompletionTokens,
+				TotalTokens:        usage.TotalTokens,
+				CostUSD:            usage.CostUSD,
+				CreatedAt:          now,
 			}).Error; err != nil {
 				return err
 			}
 		}
 		return tx.Create(&RequestLog{
-			ID:            NewID("log"),
-			RequestID:     call.RequestID,
-			ProjectID:     call.Project.ID,
-			APIKeyID:      call.Key.ID,
-			ModelName:     call.Model.Name,
-			ProviderID:    route.Provider.ID,
-			ProviderModel: route.ProviderModel,
-			StatusCode:    statusCode,
-			ErrorCode:     errorCode,
-			LatencyMS:     time.Since(call.StartedAt).Milliseconds(),
-			ClientIP:      clientIP,
-			UserAgent:     userAgent,
-			CreatedAt:     now,
+			ID:                 NewID("log"),
+			RequestID:          call.RequestID,
+			ProjectID:          call.Project.ID,
+			APIKeyID:           call.Key.ID,
+			ModelName:          call.Model.Name,
+			ProviderID:         route.Provider.ID,
+			ProviderResourceID: routeResourceID(route),
+			ProviderModel:      route.ProviderModel,
+			StatusCode:         statusCode,
+			ErrorCode:          errorCode,
+			LatencyMS:          time.Since(call.StartedAt).Milliseconds(),
+			ClientIP:           clientIP,
+			UserAgent:          userAgent,
+			CreatedAt:          now,
 		}).Error
 	})
 }
@@ -905,6 +1309,9 @@ func (s *GormStore) UsageBreakdown() map[string]any {
 		"projects":  aggregateUsage(records, func(record UsageRecord) string { return record.ProjectID }),
 		"models":    aggregateUsage(records, func(record UsageRecord) string { return record.ModelName }),
 		"providers": aggregateUsage(records, func(record UsageRecord) string { return record.ProviderID }),
+		"provider_resources": aggregateUsage(records, func(record UsageRecord) string {
+			return record.ProviderResourceID
+		}),
 	}
 }
 
@@ -957,6 +1364,25 @@ func (s *GormStore) ListAlerts() []AlertEvent {
 	var items []AlertEvent
 	_ = s.db.Order("created_at desc").Find(&items).Error
 	return items
+}
+
+func (s *GormStore) ListAuditEvents() []AuditEvent {
+	var items []AuditEvent
+	_ = s.db.Order("created_at desc").Limit(500).Find(&items).Error
+	return items
+}
+
+func (s *GormStore) RecordAuditEvent(event AuditEvent) {
+	if event.ID == "" {
+		event.ID = NewID("audit")
+	}
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = time.Now().UTC()
+	}
+	if event.Status == "" {
+		event.Status = "success"
+	}
+	_ = s.db.Create(&event).Error
 }
 
 func (s *GormStore) CreateResource(kind string, resource AdminResource) AdminResource {
@@ -1208,6 +1634,35 @@ func quotaBucket(tx *gorm.DB, keyID, scope, bucket string) (QuotaBucket, error) 
 	return item, nil
 }
 
+func providerResourceBucket(tx *gorm.DB, resourceID, bucket string) (ProviderResourceBucket, error) {
+	item := ProviderResourceBucket{ResourceID: resourceID, Bucket: bucket}
+	err := tx.First(&item, "resource_id = ? AND bucket = ?", resourceID, bucket).Error
+	if err == nil {
+		return item, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return ProviderResourceBucket{}, err
+	}
+	item.UpdatedAt = time.Now().UTC()
+	if err := tx.Create(&item).Error; err != nil {
+		return ProviderResourceBucket{}, err
+	}
+	return item, nil
+}
+
+func addProviderResourceTokens(tx *gorm.DB, resourceID string, bucket string, tokens int64) error {
+	if tokens <= 0 {
+		return nil
+	}
+	item, err := providerResourceBucket(tx, resourceID, bucket)
+	if err != nil {
+		return err
+	}
+	item.Tokens += tokens
+	item.UpdatedAt = time.Now().UTC()
+	return tx.Save(&item).Error
+}
+
 func priceUsage(model Model, usage Usage) Usage {
 	if usage.TotalTokens == 0 {
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
@@ -1254,6 +1709,176 @@ func raiseQuotaAlerts(tx *gorm.DB, key APIKey, dayCounter, monthCounter *QuotaCo
 		}
 	}
 	return nil
+}
+
+func quotaPolicyLimits(tx *gorm.DB, project Project, key APIKey) QuotaLimits {
+	var resources []AdminResource
+	_ = tx.Where("kind = ? AND status = ?", "quota-policies", StatusActive).Find(&resources).Error
+	var limits QuotaLimits
+	for _, resource := range resources {
+		scope := strings.ToLower(strings.TrimSpace(stringField(resource.Fields, "scope")))
+		if scope == "" {
+			scope = strings.ToLower(strings.TrimSpace(stringField(resource.Fields, "scope_type")))
+		}
+		scopeID := strings.TrimSpace(stringField(resource.Fields, "scope_id"))
+		if !quotaPolicyApplies(scope, scopeID, project, key) {
+			continue
+		}
+		limits = mergeQuotaLimits(limits, QuotaLimits{
+			DailyRequests:   int64Field(resource.Fields, "daily_requests"),
+			MonthlyRequests: int64Field(resource.Fields, "monthly_requests"),
+			DailyTokens:     int64Field(resource.Fields, "daily_tokens"),
+			MonthlyTokens:   int64Field(resource.Fields, "monthly_tokens"),
+			DailyCostUSD:    float64Field(resource.Fields, "daily_cost_usd"),
+			MonthlyCostUSD:  float64Field(resource.Fields, "monthly_cost_usd"),
+			MaxConcurrency:  int64Field(resource.Fields, "max_concurrency"),
+		})
+	}
+	return limits
+}
+
+func quotaPolicyApplies(scope string, scopeID string, project Project, key APIKey) bool {
+	if scope == "" || scope == "global" || scope == "organization" {
+		return scopeID == "" || scopeID == "default" || scopeID == "global"
+	}
+	switch scope {
+	case "project":
+		return scopeID == "" || scopeID == project.ID
+	case "api_key", "key":
+		return scopeID == "" || scopeID == key.ID
+	case "team":
+		return scopeID == "" || scopeID == project.TeamID
+	default:
+		return false
+	}
+}
+
+func mergeQuotaLimits(base QuotaLimits, override QuotaLimits) QuotaLimits {
+	return QuotaLimits{
+		DailyRequests:   strictInt64(base.DailyRequests, override.DailyRequests),
+		MonthlyRequests: strictInt64(base.MonthlyRequests, override.MonthlyRequests),
+		DailyTokens:     strictInt64(base.DailyTokens, override.DailyTokens),
+		MonthlyTokens:   strictInt64(base.MonthlyTokens, override.MonthlyTokens),
+		DailyCostUSD:    strictFloat64(base.DailyCostUSD, override.DailyCostUSD),
+		MonthlyCostUSD:  strictFloat64(base.MonthlyCostUSD, override.MonthlyCostUSD),
+		MaxConcurrency:  strictInt64(base.MaxConcurrency, override.MaxConcurrency),
+	}
+}
+
+func strictInt64(a int64, b int64) int64 {
+	if a <= 0 {
+		return b
+	}
+	if b <= 0 {
+		return a
+	}
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func strictFloat64(a float64, b float64) float64 {
+	if a <= 0 {
+		return b
+	}
+	if b <= 0 {
+		return a
+	}
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func stringField(fields map[string]any, key string) string {
+	if fields == nil {
+		return ""
+	}
+	value, ok := fields[key]
+	if !ok || value == nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return typed
+	default:
+		return fmt.Sprint(typed)
+	}
+}
+
+func int64Field(fields map[string]any, key string) int64 {
+	if fields == nil {
+		return 0
+	}
+	value, ok := fields[key]
+	if !ok || value == nil {
+		return 0
+	}
+	switch typed := value.(type) {
+	case int:
+		return int64(typed)
+	case int64:
+		return typed
+	case float64:
+		return int64(typed)
+	case json.Number:
+		parsed, _ := typed.Int64()
+		return parsed
+	case string:
+		var parsed int64
+		for _, ch := range strings.TrimSpace(typed) {
+			if ch < '0' || ch > '9' {
+				return 0
+			}
+			parsed = parsed*10 + int64(ch-'0')
+		}
+		return parsed
+	default:
+		return 0
+	}
+}
+
+func float64Field(fields map[string]any, key string) float64 {
+	if fields == nil {
+		return 0
+	}
+	value, ok := fields[key]
+	if !ok || value == nil {
+		return 0
+	}
+	switch typed := value.(type) {
+	case int:
+		return float64(typed)
+	case int64:
+		return float64(typed)
+	case float64:
+		return typed
+	case json.Number:
+		parsed, _ := typed.Float64()
+		return parsed
+	case string:
+		var parsed float64
+		var scale float64
+		for _, ch := range strings.TrimSpace(typed) {
+			if ch == '.' && scale == 0 {
+				scale = 1
+				continue
+			}
+			if ch < '0' || ch > '9' {
+				return 0
+			}
+			if scale > 0 {
+				scale *= 10
+				parsed += float64(ch-'0') / scale
+			} else {
+				parsed = parsed*10 + float64(ch-'0')
+			}
+		}
+		return parsed
+	default:
+		return 0
+	}
 }
 
 func createAdminUser(db *gorm.DB, user AdminUser, password string) (AdminUser, error) {
@@ -1345,6 +1970,66 @@ func writeConflict(err error, code, message string) error {
 	return err
 }
 
+func (s *GormStore) encryptSecret(secret string) string {
+	if strings.TrimSpace(secret) == "" || strings.HasPrefix(secret, "enc:v1:") {
+		return secret
+	}
+	block, err := aes.NewCipher(secretKeyBytes(s.secretKey))
+	if err != nil {
+		return secret
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return secret
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return secret
+	}
+	ciphertext := gcm.Seal(nil, nonce, []byte(secret), nil)
+	return "enc:v1:" + base64.RawURLEncoding.EncodeToString(append(nonce, ciphertext...))
+}
+
+func (s *GormStore) decryptSecret(secret string) string {
+	if !strings.HasPrefix(secret, "enc:v1:") {
+		return secret
+	}
+	data, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(secret, "enc:v1:"))
+	if err != nil {
+		return ""
+	}
+	block, err := aes.NewCipher(secretKeyBytes(s.secretKey))
+	if err != nil {
+		return ""
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return ""
+	}
+	if len(data) < gcm.NonceSize() {
+		return ""
+	}
+	nonce := data[:gcm.NonceSize()]
+	ciphertext := data[gcm.NonceSize():]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return ""
+	}
+	return string(plaintext)
+}
+
+func secretKeyBytes(secret string) []byte {
+	sum := sha256.Sum256([]byte(secret))
+	return sum[:]
+}
+
+func defaultInt(value int, fallback int) int {
+	if value <= 0 {
+		return fallback
+	}
+	return value
+}
+
 func exceedsRequestQuota(limits QuotaLimits, day, month *QuotaCounter) bool {
 	return (limits.DailyRequests > 0 && day.Requests >= limits.DailyRequests) ||
 		(limits.MonthlyRequests > 0 && month.Requests >= limits.MonthlyRequests)
@@ -1425,14 +2110,16 @@ func monthBucket(t time.Time) string {
 	return t.UTC().Format("2006-01")
 }
 
+func minuteBucket(t time.Time) string {
+	return t.UTC().Format("2006-01-02T15:04")
+}
+
 func resourcePrefix(kind string) string {
 	switch kind {
 	case "teams":
 		return "team"
 	case "users":
 		return "usr"
-	case "provider-accounts":
-		return "acct"
 	case "monitors":
 		return "mon"
 	case "proxies":

@@ -133,17 +133,44 @@ type Provider struct {
 	CreatedAt time.Time         `json:"created_at"`
 }
 
+type ProviderResource struct {
+	ID             string            `json:"id" gorm:"primaryKey"`
+	ProviderID     string            `json:"provider_id" gorm:"index"`
+	Name           string            `json:"name"`
+	ResourceType   string            `json:"resource_type"`
+	BaseURL        string            `json:"base_url,omitempty"`
+	APIKey         string            `json:"api_key,omitempty"`
+	Region         string            `json:"region,omitempty"`
+	Environment    string            `json:"environment,omitempty"`
+	Status         string            `json:"status"`
+	Healthy        bool              `json:"healthy"`
+	Priority       int               `json:"priority"`
+	Weight         int               `json:"weight"`
+	RateLimitRPM   int64             `json:"rate_limit_rpm"`
+	TokenLimitTPM  int64             `json:"token_limit_tpm"`
+	MaxConcurrency int64             `json:"max_concurrency"`
+	Headers        map[string]string `json:"headers,omitempty" gorm:"serializer:json"`
+	Options        map[string]string `json:"options,omitempty" gorm:"serializer:json"`
+	FailureCount   int               `json:"failure_count"`
+	CooldownUntil  *time.Time        `json:"cooldown_until,omitempty"`
+	LastUsedAt     *time.Time        `json:"last_used_at,omitempty"`
+	LastCheckedAt  *time.Time        `json:"last_checked_at,omitempty"`
+	CreatedAt      time.Time         `json:"created_at"`
+	UpdatedAt      time.Time         `json:"updated_at"`
+}
+
 type ModelRoute struct {
-	ID            string    `json:"id" gorm:"primaryKey"`
-	ModelName     string    `json:"model_name" gorm:"index"`
-	ProviderID    string    `json:"provider_id" gorm:"index"`
-	ProviderModel string    `json:"provider_model"`
-	Priority      int       `json:"priority"`
-	Weight        int       `json:"weight"`
-	Status        string    `json:"status"`
-	Strategy      string    `json:"strategy,omitempty"`
-	LastUsedAt    *time.Time `json:"last_used_at,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID                 string     `json:"id" gorm:"primaryKey"`
+	ModelName          string     `json:"model_name" gorm:"index"`
+	ProviderID         string     `json:"provider_id" gorm:"index"`
+	ProviderResourceID string     `json:"provider_resource_id,omitempty" gorm:"index"`
+	ProviderModel      string     `json:"provider_model"`
+	Priority           int        `json:"priority"`
+	Weight             int        `json:"weight"`
+	Status             string     `json:"status"`
+	Strategy           string     `json:"strategy,omitempty"`
+	LastUsedAt         *time.Time `json:"last_used_at,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
 }
 
 type Usage struct {
@@ -154,33 +181,35 @@ type Usage struct {
 }
 
 type UsageRecord struct {
-	ID           string    `json:"id" gorm:"primaryKey"`
-	RequestID    string    `json:"request_id" gorm:"index"`
-	ProjectID    string    `json:"project_id" gorm:"index"`
-	APIKeyID     string    `json:"api_key_id" gorm:"index"`
-	ModelName    string    `json:"model" gorm:"index"`
-	ProviderID   string    `json:"provider_id" gorm:"index"`
-	InputTokens  int64     `json:"input_tokens"`
-	OutputTokens int64     `json:"output_tokens"`
-	TotalTokens  int64     `json:"total_tokens"`
-	CostUSD      float64   `json:"estimated_cost_usd"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID                 string    `json:"id" gorm:"primaryKey"`
+	RequestID          string    `json:"request_id" gorm:"index"`
+	ProjectID          string    `json:"project_id" gorm:"index"`
+	APIKeyID           string    `json:"api_key_id" gorm:"index"`
+	ModelName          string    `json:"model" gorm:"index"`
+	ProviderID         string    `json:"provider_id" gorm:"index"`
+	ProviderResourceID string    `json:"provider_resource_id,omitempty" gorm:"index"`
+	InputTokens        int64     `json:"input_tokens"`
+	OutputTokens       int64     `json:"output_tokens"`
+	TotalTokens        int64     `json:"total_tokens"`
+	CostUSD            float64   `json:"estimated_cost_usd"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 type RequestLog struct {
-	ID            string    `json:"id" gorm:"primaryKey"`
-	RequestID     string    `json:"request_id" gorm:"index"`
-	ProjectID     string    `json:"project_id" gorm:"index"`
-	APIKeyID      string    `json:"api_key_id" gorm:"index"`
-	ModelName     string    `json:"model" gorm:"index"`
-	ProviderID    string    `json:"provider_id,omitempty" gorm:"index"`
-	ProviderModel string    `json:"provider_model,omitempty"`
-	StatusCode    int       `json:"status_code"`
-	ErrorCode     string    `json:"error_code,omitempty"`
-	LatencyMS     int64     `json:"latency_ms"`
-	ClientIP      string    `json:"client_ip,omitempty"`
-	UserAgent     string    `json:"user_agent,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID                 string    `json:"id" gorm:"primaryKey"`
+	RequestID          string    `json:"request_id" gorm:"index"`
+	ProjectID          string    `json:"project_id" gorm:"index"`
+	APIKeyID           string    `json:"api_key_id" gorm:"index"`
+	ModelName          string    `json:"model" gorm:"index"`
+	ProviderID         string    `json:"provider_id,omitempty" gorm:"index"`
+	ProviderResourceID string    `json:"provider_resource_id,omitempty" gorm:"index"`
+	ProviderModel      string    `json:"provider_model,omitempty"`
+	StatusCode         int       `json:"status_code"`
+	ErrorCode          string    `json:"error_code,omitempty"`
+	LatencyMS          int64     `json:"latency_ms"`
+	ClientIP           string    `json:"client_ip,omitempty"`
+	UserAgent          string    `json:"user_agent,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 type AlertEvent struct {
@@ -192,6 +221,31 @@ type AlertEvent struct {
 	Message    string    `json:"message"`
 	ResourceID string    `json:"resource_id,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
+}
+
+type ProviderResourceBucket struct {
+	ResourceID string `gorm:"primaryKey;index"`
+	Bucket     string `gorm:"primaryKey;index"`
+	Requests   int64  `json:"requests"`
+	Tokens     int64  `json:"tokens"`
+	UpdatedAt  time.Time
+}
+
+type AuditEvent struct {
+	ID             string    `json:"id" gorm:"primaryKey"`
+	ActorUserID    string    `json:"actor_user_id" gorm:"index"`
+	ActorName      string    `json:"actor_name,omitempty"`
+	ActorRole      string    `json:"actor_role,omitempty"`
+	Action         string    `json:"action" gorm:"index"`
+	ResourceType   string    `json:"resource_type" gorm:"index"`
+	ResourceID     string    `json:"resource_id" gorm:"index"`
+	Status         string    `json:"status"`
+	Message        string    `json:"message,omitempty"`
+	BeforeSnapshot string    `json:"before_snapshot,omitempty"`
+	AfterSnapshot  string    `json:"after_snapshot,omitempty"`
+	IP             string    `json:"ip,omitempty"`
+	UserAgent      string    `json:"user_agent,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 type AdminResource struct {
@@ -255,6 +309,7 @@ type EmbeddingsRequest struct {
 
 type RouteSelection struct {
 	Provider      Provider
+	Resource      *ProviderResource
 	ProviderModel string
 	Route         ModelRoute
 }

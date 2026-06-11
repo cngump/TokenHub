@@ -30,7 +30,7 @@ Admin Console
   API Keys
   Providers
     Provider Detail
-    Credentials
+    Resources
     Health
   Models
     Model Catalog
@@ -108,7 +108,7 @@ Admin Console
 | --- | --- |
 | Provider 列表 | 类型、状态、健康、优先级 |
 | Provider 配置 | base_url、认证方式、超时、重试 |
-| 凭证管理 | 加密保存，支持启停和轮换 |
+| 资源池 | 管理 API Key、云厂商区域资源、本地推理集群、权重和健康状态 |
 | 健康检查 | 手动测试和定时探测 |
 | 模型映射 | Provider 模型到统一模型的映射 |
 
@@ -210,4 +210,3 @@ Admin Console
 - 审计详情中默认不展示原始 Prompt 和 Response。
 - 成本数字需要展示币种、统计周期和估算说明。
 - 所有策略页面都应提供“测试命中结果”，降低配置不可见风险。
-

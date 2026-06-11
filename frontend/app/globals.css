@@ -560,6 +560,10 @@ h2 {
   color: var(--red);
 }
 
+.status-line.success {
+  color: #15803d;
+}
+
 .divider {
   height: 1px;
   background: var(--border);

@@ -3,7 +3,7 @@
 ## 设计原则
 
 - API Key 明文不入库，只保存哈希和前后缀。
-- Provider 凭证加密保存，密钥由环境变量或外部 KMS 管理。
+- Provider 资源凭证加密保存，密钥由环境变量或外部 KMS 管理。
 - 请求正文默认不完整落库，优先保存摘要、哈希、Token、元信息和策略命中结果。
 - 用量明细与聚合表分离，避免 Dashboard 查询拖慢网关写入。
 - 高频额度计数走 Redis，PostgreSQL 作为配置源和统计归档。
@@ -18,7 +18,7 @@ erDiagram
     PROJECT ||--o{ API_KEY : issues
     PROJECT ||--o{ QUOTA_POLICY : uses
     API_KEY ||--o{ REQUEST_LOG : creates
-    PROVIDER ||--o{ PROVIDER_CREDENTIAL : has
+    PROVIDER ||--o{ PROVIDER_RESOURCE : has
     PROVIDER ||--o{ MODEL_MAPPING : serves
     MODEL ||--o{ MODEL_MAPPING : maps
     ROUTING_RULE ||--o{ MODEL_MAPPING : selects
@@ -114,18 +114,29 @@ erDiagram
 | health_status | healthy、degraded、down |
 | priority | 默认优先级 |
 
-### provider_credentials
+### provider_resources
 
-Provider 凭证。
+Provider 资源池。一个 Provider 可以挂多个企业授权资源实例，例如 OpenAI 项目 Key、Azure OpenAI 区域资源、Gemini service account、本地 vLLM 集群。
 
 | 字段 | 说明 |
 | --- | --- |
 | id | 主键 |
 | provider_id | Provider ID |
-| name | 凭证名称 |
-| encrypted_secret | 加密后的凭证 |
+| name | 资源实例名称 |
+| resource_type | api_key、azure_resource、service_account、local_cluster |
+| base_url | 资源级地址，可覆盖 Provider 默认地址 |
+| encrypted_secret | 加密后的资源凭证 |
+| region | 区域 |
+| environment | prod、staging、dev、backup |
+| priority | 资源级优先级 |
+| weight | 资源级权重 |
+| rate_limit_rpm | 请求频率上限 |
+| token_limit_tpm | Token 速率上限 |
+| max_concurrency | 最大并发 |
+| health_status | healthy、degraded、down |
 | status | active、disabled |
-| expires_at | 过期时间，可空 |
+| last_used_at | 最近命中时间 |
+| last_checked_at | 最近健康检查时间 |
 
 ### models
 
@@ -151,6 +162,7 @@ TokenHub 对外暴露的统一模型目录。
 | id | 主键 |
 | model_id | 统一模型 ID |
 | provider_id | Provider ID |
+| provider_resource_id | 可选，指定资源实例；为空时由该 Provider 资源池自动选择 |
 | provider_model | Provider 模型名或 deployment |
 | weight | 权重 |
 | priority | 优先级 |
@@ -202,6 +214,7 @@ TokenHub 对外暴露的统一模型目录。
 | api_key_id | Key ID |
 | model_id | 统一模型 ID |
 | provider_id | Provider ID |
+| provider_resource_id | 实际命中的 Provider 资源实例 |
 | provider_model | 实际模型 |
 | status_code | HTTP 状态 |
 | error_code | 错误码 |
@@ -224,6 +237,7 @@ TokenHub 对外暴露的统一模型目录。
 | api_key_id | Key ID |
 | model_id | 模型 ID |
 | provider_id | Provider ID |
+| provider_resource_id | Provider 资源实例 ID |
 | input_tokens | 输入 Token |
 | output_tokens | 输出 Token |
 | total_tokens | 总 Token |
@@ -242,6 +256,7 @@ TokenHub 对外暴露的统一模型目录。
 - api_key_id
 - model_id
 - provider_id
+- provider_resource_id
 - time_bucket
 
 指标建议：
@@ -308,4 +323,3 @@ TokenHub 对外暴露的统一模型目录。
 | audit_events | 365 天或按企业合规要求 |
 | 原始 Prompt/Response | 默认不保存 |
 | 脱敏摘要 | 可配置保存 |
-

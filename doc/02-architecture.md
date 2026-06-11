@@ -175,7 +175,7 @@ sequenceDiagram
 | --- | --- |
 | ModelRequest | 统一请求，包含模型、消息、输入、工具、流式参数、元数据 |
 | ModelResponse | 统一响应，包含文本、工具调用、Token 用量、停止原因 |
-| ProviderRoute | 一次调用选择的 Provider、凭证、模型映射和策略信息 |
+| ProviderRoute | 一次调用选择的 Provider、资源实例、模型映射和策略信息 |
 | UsageEvent | 请求完成后的 Token、成本、延迟、状态、错误信息 |
 | AuditEvent | 用于审计的调用元信息、主体、项目、IP、策略命中 |
 
@@ -199,7 +199,7 @@ MVP 阶段支持以下策略：
 - 质量评分。
 - 灰度路由。
 - 多 Provider 预算均衡。
-- Provider Account 账号池、粘性会话、账号级熔断和冷却。
+- Provider 资源池调度、粘性会话、资源级熔断和冷却。
 
 ## 数据流
 

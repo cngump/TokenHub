@@ -24,6 +24,7 @@
   - 请求额度
   - 并发限制
   - 多候选模型路由
+  - Provider 资源池路由与资源实例命中审计
   - 非流式 Provider 失败切换
   - 优先级 + 权重调度策略
   - 流式 SSE 响应
@@ -47,6 +48,7 @@
   - `GET|POST /api/admin/projects`
   - `GET|POST /api/admin/projects/{id}/keys`
   - `GET|POST /api/admin/providers`
+  - `GET|POST /api/admin/provider-resources`
   - `GET|POST /api/admin/models`
   - `GET /api/admin/usage/summary`
   - `GET /api/admin/usage/breakdown`
@@ -67,6 +69,7 @@
 - 用量柱状图：日粒度 Token 趋势。
 - 项目表。
 - Provider 表。
+- Provider 资源池表。
 - 模型表。
 - 请求审计表。
 - 成本归因表：按项目、模型、Provider 展示 Token 与成本。
@@ -94,6 +97,7 @@
 - API Key：`thk_demo_local`
 - Admin Token：`dev_admin_token`
 - Provider：`Mock Provider`
+- Provider 资源实例：`rsrc_mock_primary`
 - Chat 模型：`gpt-4.1-mini`
 - Embedding 模型：`text-embedding-3-small`
 
@@ -160,7 +164,7 @@ curl http://localhost:8080/api/admin/overview \
 
 - 默认使用 SQLite 持久化；当前尚未支持多节点共享数据库和外部缓存。
 - 管理后台已接入本地管理员登录；RBAC、OIDC、LDAP 仍待生产化补齐。
-- Provider 凭证暂未接入加密存储和 KMS。
+- Provider 资源凭证暂未接入加密存储和 KMS。
 - Token 统计是估算，真实 Provider 以响应 usage 为准。
 - 流式上游 Provider 的 usage 可能无法从 SSE 中提取，当前会记录为 0 或估算值。
 - 流式请求暂不做响应开始后的 Provider failover，避免污染 SSE 协议；后续可实现首字节前 failover。
@@ -173,8 +177,8 @@ curl http://localhost:8080/api/admin/overview \
 1. 增加 PostgreSQL 配置：在 GORM 存储层上支持生产主库。
 2. 接入 Redis：Key 缓存、额度计数、并发计数、Provider 健康状态。
 3. 增加 RBAC、OIDC、LDAP 与企业 SSO。
-4. 引入 Provider Account 账号池，支持账号级粘性会话、运行时熔断、冷却和限流。
-5. 完善 Provider 配置后台，包括凭证加密、健康检查、模型映射。
+4. 深化 Provider 资源池，支持资源级粘性会话、运行时熔断、冷却和限流。
+5. 完善 Provider 配置后台，包括资源凭证加密、健康检查、模型映射。
 6. 增加 OpenAPI 文档和跨端类型生成。
 7. 增加真实 Provider 的 contract tests。
 8. 增加 Helm Chart 与生产配置模板。

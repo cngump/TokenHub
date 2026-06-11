@@ -75,6 +75,29 @@ type Provider = {
   priority: number;
 };
 
+type ProviderResource = {
+  id: string;
+  provider_id: string;
+  name: string;
+  resource_type: string;
+  base_url?: string;
+  region?: string;
+  environment?: string;
+  status: string;
+  healthy: boolean;
+  priority: number;
+  weight: number;
+  rate_limit_rpm?: number;
+  token_limit_tpm?: number;
+  max_concurrency?: number;
+  failure_count?: number;
+  cooldown_until?: string;
+  last_used_at?: string;
+  last_checked_at?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
 type Model = {
   id: string;
   name: string;
@@ -91,6 +114,7 @@ type ModelRoute = {
   id: string;
   model_name: string;
   provider_id: string;
+  provider_resource_id?: string;
   provider_model: string;
   priority: number;
   weight: number;
@@ -140,10 +164,26 @@ type RequestLog = {
   api_key_id: string;
   model: string;
   provider_id?: string;
+  provider_resource_id?: string;
   provider_model?: string;
   status_code: number;
   error_code?: string;
   latency_ms: number;
+  created_at: string;
+};
+
+type AuditEvent = {
+  id: string;
+  actor_user_id?: string;
+  actor_name?: string;
+  actor_role?: string;
+  action: string;
+  resource_type: string;
+  resource_id: string;
+  status: string;
+  message?: string;
+  ip?: string;
+  user_agent?: string;
   created_at: string;
 };
 
@@ -160,6 +200,7 @@ type UsageBreakdown = {
   projects: UsageBreakdownRow[];
   models: UsageBreakdownRow[];
   providers: UsageBreakdownRow[];
+  provider_resources: UsageBreakdownRow[];
 };
 
 type UsagePoint = {
@@ -175,7 +216,7 @@ type ViewKey =
   | "overview"
   | "gateway"
   | "providers"
-  | "provider-accounts"
+  | "provider-resources"
   | "models"
   | "routes"
   | "projects"
@@ -222,7 +263,15 @@ type ResourceConfig<T> = {
   create?: (ctx: ApiContext, values: Record<string, string>) => Promise<void>;
   update?: (ctx: ApiContext, item: T, values: Record<string, string>) => Promise<void>;
   remove?: (ctx: ApiContext, item: T) => Promise<void>;
+  actions?: ResourceAction<T>[];
   toForm?: (item: T) => Record<string, string>;
+};
+
+type ResourceAction<T> = {
+  label: string;
+  title?: string;
+  run: (ctx: ApiContext, item: T) => Promise<void>;
+  doneMessage?: (item: T) => string;
 };
 
 type AppData = {
@@ -230,9 +279,11 @@ type AppData = {
   projects: Project[];
   keys: APIKey[];
   providers: Provider[];
+  providerResources: ProviderResource[];
   models: Model[];
   routes: ModelRoute[];
   logs: RequestLog[];
+  auditEvents: AuditEvent[];
   alerts: AlertEvent[];
   users: AdminUser[];
   breakdown: UsageBreakdown;
@@ -261,7 +312,6 @@ const sessionStorageKey = "tokenhub.admin.session";
 
 const resourceKinds = [
   "teams",
-  "provider-accounts",
   "quota-policies",
   "monitors",
   "proxies",
@@ -286,7 +336,7 @@ const navGroups: Array<{
     title: "AI 接入",
     items: [
       { view: "providers", label: "Provider 渠道", icon: Server },
-      { view: "provider-accounts", label: "Provider 账号", icon: Globe2 },
+      { view: "provider-resources", label: "Provider 资源池", icon: Globe2 },
       { view: "models", label: "模型目录", icon: Boxes },
       { view: "routes", label: "路由策略", icon: Gauge },
     ],
@@ -349,7 +399,7 @@ export default function AdminHome() {
   const [baseURL, setBaseURL] = useState(defaultBaseURL);
   const [adminToken, setAdminToken] = useState("");
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
-  const [bootstrapped, setBootstrapped] = useState(false);
+  const [bootstrapped, setBootstrapped] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [openNavGroups, setOpenNavGroups] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(navGroups.map((group) => [group.title, true])),
@@ -357,6 +407,7 @@ export default function AdminHome() {
   const [activeView, setActiveView] = useState<ViewKey>("overview");
   const [data, setData] = useState<AppData>(emptyData());
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [modal, setModal] = useState<ModalState<any> | null>(null);
@@ -390,18 +441,22 @@ export default function AdminHome() {
     try {
       const [
         overviewResp,
+        providerResourcesResp,
         keysResp,
         routesResp,
         logsResp,
+        auditEventsResp,
         breakdownResp,
         timeseriesResp,
         usersResp,
         ...resourceResps
       ] = await Promise.all([
         adminFetch(api, "/api/admin/overview"),
+        adminFetch(api, "/api/admin/provider-resources"),
         adminFetch(api, "/api/admin/api-keys"),
         adminFetch(api, "/api/admin/routing-rules"),
         adminFetch(api, "/api/admin/audit/requests"),
+        adminFetch(api, "/api/admin/audit/events"),
         adminFetch(api, "/api/admin/usage/breakdown"),
         adminFetch(api, "/api/admin/usage/timeseries"),
         adminFetch(api, "/api/admin/users"),
@@ -409,9 +464,11 @@ export default function AdminHome() {
       ]);
       for (const [name, resp] of [
         ["overview", overviewResp],
+        ["provider-resources", providerResourcesResp],
         ["api-keys", keysResp],
         ["routes", routesResp],
         ["audit", logsResp],
+        ["audit-events", auditEventsResp],
         ["breakdown", breakdownResp],
         ["timeseries", timeseriesResp],
         ["users", usersResp],
@@ -428,9 +485,11 @@ export default function AdminHome() {
       }
 
       const overview = await overviewResp.json();
+      const providerResources = (await providerResourcesResp.json()) as { data: ProviderResource[] };
       const keys = (await keysResp.json()) as { data: APIKey[] };
       const routes = (await routesResp.json()) as { data: ModelRoute[] };
       const logs = (await logsResp.json()) as { data: RequestLog[] };
+      const auditEvents = (await auditEventsResp.json()) as { data: AuditEvent[] };
       const breakdown = (await breakdownResp.json()) as UsageBreakdown;
       const timeseries = (await timeseriesResp.json()) as { data: UsagePoint[] };
       const users = (await usersResp.json()) as { data: AdminUser[] };
@@ -444,11 +503,13 @@ export default function AdminHome() {
         summary: overview.summary ?? emptySummary(),
         projects: overview.projects ?? [],
         providers: overview.providers ?? [],
+        providerResources: providerResources.data ?? overview.provider_resources ?? [],
         models: overview.models ?? [],
         alerts: overview.alerts ?? [],
         keys: keys.data ?? [],
         routes: routes.data ?? [],
         logs: logs.data ?? [],
+        auditEvents: auditEvents.data ?? [],
         breakdown,
         timeseries: timeseries.data ?? [],
         users: users.data ?? [],
@@ -565,7 +626,7 @@ export default function AdminHome() {
       />
 
       <section className="workspace">
-        <TopNav onSelect={setActiveView} />
+        <TopNav />
 
         <div className="content-panel">
           <header className="page-header">
@@ -577,6 +638,7 @@ export default function AdminHome() {
           </header>
 
           {error ? <div className="status-line error">{error}</div> : null}
+          {notice ? <div className="status-line success">{notice}</div> : null}
 
           <div className="divider" />
 
@@ -602,6 +664,7 @@ export default function AdminHome() {
               onCreate={() => setModal({ config: activeConfig })}
               onEdit={(item) => setModal({ config: activeConfig, item })}
               onDelete={(item) => setConfirmDelete({ config: activeConfig, item })}
+              onAction={(action, item) => void runResourceAction(action, item)}
             />
           ) : null}
         </div>
@@ -634,6 +697,21 @@ export default function AdminHome() {
 
     </main>
   );
+
+  async function runResourceAction<T>(action: ResourceAction<T>, item: T) {
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      await action.run(api, item);
+      setNotice(action.doneMessage?.(item) ?? "操作已完成");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "操作失败");
+    } finally {
+      setLoading(false);
+    }
+  }
 }
 
 function LoginView({
@@ -645,8 +723,8 @@ function LoginView({
   error: string;
   onLogin: (identity: string, password: string) => void;
 }) {
-  const [identity, setIdentity] = useState("admin@tokenhub.local");
-  const [password, setPassword] = useState("admin123456");
+  const [identity, setIdentity] = useState("");
+  const [password, setPassword] = useState("");
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -769,25 +847,13 @@ function Sidebar({
   );
 }
 
-function TopNav({
-  onSelect,
-}: {
-  onSelect: (view: ViewKey) => void;
-}) {
+function TopNav() {
   return (
     <header className="topbar">
       <div className="top-context">
         <strong>TokenHub 控制台</strong>
         <small>Enterprise AI Gateway</small>
       </div>
-      <nav className="top-links">
-        <button onClick={() => onSelect("gateway")} type="button">调用入口</button>
-        <button onClick={() => onSelect("providers")} type="button">Provider</button>
-        <button onClick={() => onSelect("routes")} type="button">模型路由</button>
-        <button onClick={() => onSelect("api-keys")} type="button">项目 Key</button>
-        <button onClick={() => onSelect("usage")} type="button">成本报表</button>
-        <button onClick={() => onSelect("audit")} type="button">审计告警</button>
-      </nav>
     </header>
   );
 }
@@ -803,10 +869,11 @@ function OverviewView({
     { label: "总请求", value: formatNumber(data.summary.request_count), icon: BarChart3 },
     { label: "总 Token", value: compactNumber(data.summary.total_tokens), icon: Database },
     { label: "总成本", value: `$${formatMoney(data.summary.estimated_cost_usd)}`, icon: CircleDollarSign },
-    { label: "Provider", value: formatNumber(data.providers.length), icon: Server },
+    { label: "资源实例", value: formatNumber(data.providerResources.length), icon: Server },
   ];
   const steps: Array<[string, string, ViewKey]> = [
     ["接入 Provider", "配置 OpenAI、Azure、Claude、Gemini、DeepSeek、Qwen 或本地模型服务。", "providers"],
+    ["配置资源池", "把企业授权的凭证、区域资源、本地集群作为可调度资源实例。", "provider-resources"],
     ["维护模型目录", "定义内部统一模型名、上下文窗口和计价口径。", "models"],
     ["建立路由策略", "把统一模型映射到 Provider 上游模型，并配置优先级与权重。", "routes"],
     ["发放项目 Key", "按项目、团队、模型白名单和额度发放内部 API Key。", "api-keys"],
@@ -850,6 +917,8 @@ function OverviewView({
             rows={[
               ["项目", data.projects.length, "企业内部应用治理单元"],
               ["API Key", data.keys.length, "内部调用凭证"],
+              ["Provider", data.providers.length, "上游厂商与协议渠道"],
+              ["资源池", data.providerResources.length, "企业授权资源实例"],
               ["模型", data.models.length, "统一模型目录"],
               ["路由", data.routes.length, "Provider 调度规则"],
               ["告警", data.alerts.length, "治理事件"],
@@ -881,7 +950,8 @@ function GatewayView({ data }: { data: AppData }) {
           rows={[
             ["认证", "Bearer API Key", `${data.keys.length} keys`],
             ["权限", "模型白名单 + 项目状态", `${data.projects.length} projects`],
-            ["路由", "Provider 优先级/健康状态", `${data.routes.length} rules`],
+            ["资源池", "Provider 资源实例、区域、健康状态", `${data.providerResources.length} resources`],
+            ["路由", "模型路由 + 资源实例 failover", `${data.routes.length} rules`],
             ["治理", "额度、审计、成本统计", `${data.logs.length} logs`],
           ]}
         />
@@ -962,14 +1032,15 @@ function BillingView({ data }: { data: AppData }) {
           ])}
         />
       </DataSection>
-      <DataSection title="账单策略">
+      <DataSection title="资源池成本">
         <SimpleTable
-          columns={["项目", "Key 数", "状态"]}
-          paginationKey="billing-projects"
-          rows={data.projects.map((project) => [
-            project.name,
-            data.keys.filter((key) => key.project_id === project.id).length,
-            <StatusPill key={project.id} status={project.status} />,
+          columns={["资源实例", "请求", "Token", "估算成本"]}
+          paginationKey="billing-provider-resources"
+          rows={(data.breakdown.provider_resources ?? []).map((row) => [
+            row.id,
+            formatNumber(row.request_count),
+            compactNumber(row.total_tokens),
+            `$${formatMoney(row.estimated_cost_usd)}`,
           ])}
         />
       </DataSection>
@@ -979,21 +1050,39 @@ function BillingView({ data }: { data: AppData }) {
 
 function AuditView({ data }: { data: AppData }) {
   return (
-    <DataSection title="请求审计日志">
-      <SimpleTable
-        columns={["时间", "请求 ID", "项目", "模型", "Provider", "状态", "延迟"]}
-        paginationKey="audit-logs"
-        rows={data.logs.map((log) => [
-          formatTime(log.created_at),
-          log.request_id,
-          log.project_id,
-          log.model,
-          log.provider_id || "-",
-          <StatusPill key={log.id} status={log.status_code >= 400 ? "error" : "ok"} label={String(log.status_code)} />,
-          `${log.latency_ms}ms`,
-        ])}
-      />
-    </DataSection>
+    <>
+      <DataSection title="请求审计日志">
+        <SimpleTable
+          columns={["时间", "请求 ID", "项目", "模型", "Provider", "资源实例", "状态", "延迟"]}
+          paginationKey="audit-logs"
+          rows={data.logs.map((log) => [
+            formatTime(log.created_at),
+            log.request_id,
+            log.project_id,
+            log.model,
+            log.provider_id || "-",
+            log.provider_resource_id || "-",
+            <StatusPill key={log.id} status={log.status_code >= 400 ? "error" : "ok"} label={String(log.status_code)} />,
+            `${log.latency_ms}ms`,
+          ])}
+        />
+      </DataSection>
+      <DataSection title="后台操作审计">
+        <SimpleTable
+          columns={["时间", "操作人", "动作", "对象", "对象 ID", "状态", "来源 IP"]}
+          paginationKey="admin-audit-events"
+          rows={data.auditEvents.map((event) => [
+            formatTime(event.created_at),
+            event.actor_name || event.actor_user_id || "-",
+            actionLabel(event.action),
+            resourceTypeLabel(event.resource_type),
+            event.resource_id || "-",
+            <StatusPill key={event.id} status={event.status === "success" ? "ok" : "error"} label={event.status} />,
+            event.ip || "-",
+          ])}
+        />
+      </DataSection>
+    </>
   );
 }
 
@@ -1008,6 +1097,7 @@ function CrudView<T>({
   onCreate,
   onEdit,
   onDelete,
+  onAction,
 }: {
   config: ResourceConfig<T>;
   items: T[];
@@ -1019,6 +1109,7 @@ function CrudView<T>({
   onCreate: () => void;
   onEdit: (item: T) => void;
   onDelete: (item: T) => void;
+  onAction: (action: ResourceAction<T>, item: T) => void;
 }) {
   return (
     <DataSection title={config.eyebrow}>
@@ -1035,7 +1126,7 @@ function CrudView<T>({
         ) : null}
       </div>
       {issuedKey ? <div className="secret">新 Key 仅展示一次：{issuedKey}</div> : null}
-      <EntityTable config={config} items={items} onEdit={onEdit} onDelete={onDelete} />
+      <EntityTable config={config} items={items} onEdit={onEdit} onDelete={onDelete} onAction={onAction} />
       <PaginationControls pagination={pagination} totalItems={totalItems} />
     </DataSection>
   );
@@ -1046,11 +1137,13 @@ function EntityTable<T>({
   items,
   onEdit,
   onDelete,
+  onAction,
 }: {
   config: ResourceConfig<T>;
   items: T[];
   onEdit: (item: T) => void;
   onDelete: (item: T) => void;
+  onAction: (action: ResourceAction<T>, item: T) => void;
 }) {
   if (items.length === 0) {
     return <div className="empty">暂无数据</div>;
@@ -1074,6 +1167,17 @@ function EntityTable<T>({
               ))}
               <td>
                 <div className="row-actions">
+                  {(config.actions ?? []).map((action) => (
+                    <button
+                      className="text-button"
+                      key={action.label}
+                      onClick={() => onAction(action, item)}
+                      title={action.title ?? action.label}
+                      type="button"
+                    >
+                      {action.label}
+                    </button>
+                  ))}
                   {config.update ? (
                     <button className="text-button" onClick={() => onEdit(item)} type="button">
                       编辑
@@ -1464,12 +1568,7 @@ function StatusPill({ status, label }: { status: string; label?: string }) {
 
 const resourceConfigs: Partial<Record<ViewKey, ResourceConfig<any>>> = {
   providers: providerConfig(),
-  "provider-accounts": genericResourceConfig("provider-accounts", "Provider 账号", "Provider 凭证与账号池", [
-    { key: "provider_id", label: "Provider ID", required: true },
-    { key: "auth_type", label: "认证类型", type: "select", options: ["api_key", "oauth", "service_account"], required: true },
-    { key: "priority", label: "优先级", type: "number" },
-    { key: "groups", label: "分组" },
-  ]),
+  "provider-resources": providerResourceConfig(),
   models: modelConfig(),
   routes: routeConfig(),
   projects: projectConfig(),
@@ -1481,10 +1580,14 @@ const resourceConfigs: Partial<Record<ViewKey, ResourceConfig<any>>> = {
   ]),
   users: adminUserConfig(),
   "quota-policies": genericResourceConfig("quota-policies", "额度策略", "项目、Key、用户维度的请求、Token、成本与并发上限", [
-    { key: "scope", label: "作用域", type: "select", options: ["project", "api_key", "user", "team"], required: true },
+    { key: "scope", label: "作用域", type: "select", options: ["global", "project", "api_key", "team"], required: true },
+    { key: "scope_id", label: "作用域 ID" },
     { key: "daily_requests", label: "日请求", type: "number" },
+    { key: "monthly_requests", label: "月请求", type: "number" },
     { key: "daily_tokens", label: "日 Token", type: "number" },
+    { key: "monthly_tokens", label: "月 Token", type: "number" },
     { key: "daily_cost_usd", label: "日成本 USD", type: "number" },
+    { key: "monthly_cost_usd", label: "月成本 USD", type: "number" },
     { key: "max_concurrency", label: "最大并发", type: "number" },
   ]),
   monitors: genericResourceConfig("monitors", "健康监控", "Provider、模型和 Endpoint 心跳测试任务", [
@@ -1547,11 +1650,88 @@ function providerConfig(): ResourceConfig<Provider> {
     create: (ctx, values) => adminMutate(ctx, "/api/admin/providers", "POST", providerPayload(values)),
     update: (ctx, item, values) => adminMutate(ctx, `/api/admin/providers/${item.id}`, "PATCH", providerPayload(values)),
     remove: (ctx, item) => adminDelete(ctx, `/api/admin/providers/${item.id}`),
+    actions: [
+      {
+        label: "测试",
+        title: "检测 Provider 可用性",
+        run: (ctx, item) => adminMutate(ctx, `/api/admin/providers/${item.id}/test`, "POST", {}),
+        doneMessage: (item) => `${item.name} 检测完成`,
+      },
+    ],
     toForm: (item) => ({
       name: item.name,
       type: item.type,
       base_url: item.base_url ?? "",
       priority: String(item.priority ?? 10),
+      status: item.status,
+      healthy: String(item.healthy),
+    }),
+  };
+}
+
+function providerResourceConfig(): ResourceConfig<ProviderResource> {
+  return {
+    view: "provider-resources",
+    title: "Provider 资源池",
+    eyebrow: "资源实例列表",
+    description: "管理企业授权的 Provider 资源实例、区域、凭证、健康状态和调度权重。",
+    createLabel: "新增资源实例",
+    columns: [
+      { key: "name", label: "名称" },
+      { key: "provider_id", label: "Provider" },
+      { key: "resource_type", label: "资源类型" },
+      { key: "region", label: "区域", render: (item) => item.region || "-" },
+      { key: "environment", label: "环境", render: (item) => item.environment || "-" },
+      { key: "priority", label: "优先级" },
+      { key: "weight", label: "权重" },
+      { key: "healthy", label: "健康", render: (item) => <StatusPill status={item.healthy ? "healthy" : "down"} /> },
+      { key: "failure_count", label: "失败", render: (item) => item.failure_count ?? 0 },
+      { key: "cooldown_until", label: "冷却至", render: (item) => formatTime(item.cooldown_until ?? "") },
+      { key: "last_checked_at", label: "最近检测", render: (item) => formatTime(item.last_checked_at ?? "") },
+      { key: "last_used_at", label: "最近命中", render: (item) => formatTime(item.last_used_at ?? "") },
+      { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
+    ],
+    fields: [
+      { key: "provider_id", label: "Provider ID", required: true },
+      { key: "name", label: "资源名称", required: true },
+      { key: "resource_type", label: "资源类型", type: "select", options: ["api_key", "azure_resource", "service_account", "local_cluster", "mock"], required: true },
+      { key: "base_url", label: "资源 Base URL" },
+      { key: "api_key", label: "资源 API Key", type: "password", placeholder: "编辑时留空则不修改" },
+      { key: "region", label: "区域" },
+      { key: "environment", label: "环境", type: "select", options: ["prod", "staging", "dev", "backup"], required: true },
+      { key: "priority", label: "资源优先级", type: "number" },
+      { key: "weight", label: "调度权重", type: "number" },
+      { key: "rate_limit_rpm", label: "RPM 上限", type: "number" },
+      { key: "token_limit_tpm", label: "TPM 上限", type: "number" },
+      { key: "max_concurrency", label: "最大并发", type: "number" },
+      { key: "status", label: "状态", type: "select", options: ["active", "disabled"], required: true },
+      { key: "healthy", label: "健康 true/false" },
+    ],
+    list: (ctx) => ctx.providerResources,
+    create: (ctx, values) => adminMutate(ctx, "/api/admin/provider-resources", "POST", providerResourcePayload(values)),
+    update: (ctx, item, values) => adminMutate(ctx, `/api/admin/provider-resources/${item.id}`, "PATCH", providerResourcePayload(values)),
+    remove: (ctx, item) => adminDelete(ctx, `/api/admin/provider-resources/${item.id}`),
+    actions: [
+      {
+        label: "测试",
+        title: "检测资源实例并刷新健康状态",
+        run: (ctx, item) => adminMutate(ctx, `/api/admin/provider-resources/${item.id}/test`, "POST", {}),
+        doneMessage: (item) => `${item.name} 检测完成`,
+      },
+    ],
+    toForm: (item) => ({
+      provider_id: item.provider_id,
+      name: item.name,
+      resource_type: item.resource_type,
+      base_url: item.base_url ?? "",
+      api_key: "",
+      region: item.region ?? "",
+      environment: item.environment ?? "",
+      priority: String(item.priority ?? 1),
+      weight: String(item.weight ?? 100),
+      rate_limit_rpm: String(item.rate_limit_rpm ?? ""),
+      token_limit_tpm: String(item.token_limit_tpm ?? ""),
+      max_concurrency: String(item.max_concurrency ?? ""),
       status: item.status,
       healthy: String(item.healthy),
     }),
@@ -1597,11 +1777,12 @@ function routeConfig(): ResourceConfig<ModelRoute> {
     view: "routes",
     title: "路由策略",
     eyebrow: "模型路由规则",
-    description: "配置统一模型到 Provider 上游模型的映射、优先级、权重和启停状态。",
+    description: "配置统一模型到 Provider 或具体资源实例的映射、优先级、权重和启停状态。",
     createLabel: "新增路由",
     columns: [
       { key: "model_name", label: "统一模型" },
       { key: "provider_id", label: "Provider" },
+      { key: "provider_resource_id", label: "资源实例", render: (item) => item.provider_resource_id || "自动选择" },
       { key: "provider_model", label: "上游模型" },
       { key: "priority", label: "优先级" },
       { key: "weight", label: "权重" },
@@ -1612,6 +1793,7 @@ function routeConfig(): ResourceConfig<ModelRoute> {
     fields: [
       { key: "model_name", label: "统一模型", required: true },
       { key: "provider_id", label: "Provider ID", required: true },
+      { key: "provider_resource_id", label: "资源实例 ID", placeholder: "可选，不填则从该 Provider 资源池自动选择" },
       { key: "provider_model", label: "上游模型/部署名", required: true },
       { key: "priority", label: "优先级", type: "number" },
       { key: "weight", label: "权重", type: "number" },
@@ -1675,8 +1857,11 @@ function apiKeyConfig(): ResourceConfig<APIKey> {
       { key: "name", label: "Key 名称", required: true },
       { key: "allowed_models", label: "模型白名单，逗号分隔" },
       { key: "daily_requests", label: "日请求", type: "number" },
+      { key: "monthly_requests", label: "月请求", type: "number" },
       { key: "daily_tokens", label: "日 Token", type: "number" },
+      { key: "monthly_tokens", label: "月 Token", type: "number" },
       { key: "daily_cost_usd", label: "日成本 USD", type: "number" },
+      { key: "monthly_cost_usd", label: "月成本 USD", type: "number" },
       { key: "max_concurrency", label: "最大并发", type: "number" },
       { key: "status", label: "状态", type: "select", options: ["active", "disabled", "revoked"], required: true },
     ],
@@ -1689,8 +1874,11 @@ function apiKeyConfig(): ResourceConfig<APIKey> {
       name: item.name,
       allowed_models: (item.allowed_models ?? []).join(", "),
       daily_requests: String(item.limits?.daily_requests ?? ""),
+      monthly_requests: String(item.limits?.monthly_requests ?? ""),
       daily_tokens: String(item.limits?.daily_tokens ?? ""),
+      monthly_tokens: String(item.limits?.monthly_tokens ?? ""),
       daily_cost_usd: String(item.limits?.daily_cost_usd ?? ""),
+      monthly_cost_usd: String(item.limits?.monthly_cost_usd ?? ""),
       max_concurrency: String(item.limits?.max_concurrency ?? ""),
       status: item.status,
     }),
@@ -1817,18 +2005,45 @@ function providerPayload(values: Record<string, string>) {
   };
 }
 
+function providerResourcePayload(values: Record<string, string>) {
+  const payload: Record<string, unknown> = {
+    provider_id: values.provider_id,
+    name: values.name,
+    resource_type: values.resource_type || "api_key",
+    base_url: values.base_url,
+    region: values.region,
+    environment: values.environment || "prod",
+    status: values.status || "active",
+    healthy: values.healthy !== "false",
+    priority: numberOr(values.priority, 1),
+    weight: numberOr(values.weight, 100),
+    rate_limit_rpm: numberOr(values.rate_limit_rpm, 0),
+    token_limit_tpm: numberOr(values.token_limit_tpm, 0),
+    max_concurrency: numberOr(values.max_concurrency, 0),
+  };
+  if (values.api_key) payload.api_key = values.api_key;
+  return payload;
+}
+
 function defaultFormValues<T>(config: ResourceConfig<T>) {
   const values: Record<string, string> = {};
   for (const field of config.fields) {
     if (field.key === "status") values[field.key] = "active";
     if (field.key === "healthy") values[field.key] = "true";
-    if (field.key === "priority") values[field.key] = config.view === "routes" ? "1" : "10";
+    if (field.key === "priority") values[field.key] =
+      config.view === "routes" || config.view === "provider-resources" ? "1" : "10";
     if (field.key === "weight") values[field.key] = "100";
+    if (field.key === "provider_id") values[field.key] = "prv_mock";
+    if (field.key === "resource_type") values[field.key] = "api_key";
+    if (field.key === "environment") values[field.key] = "prod";
     if (field.key === "project_id") values[field.key] = "prj_demo";
     if (field.key === "allowed_models") values[field.key] = "gpt-4.1-mini";
     if (field.key === "daily_requests") values[field.key] = "1000";
+    if (field.key === "monthly_requests") values[field.key] = "30000";
     if (field.key === "daily_tokens") values[field.key] = "1000000";
+    if (field.key === "monthly_tokens") values[field.key] = "20000000";
     if (field.key === "daily_cost_usd") values[field.key] = "100";
+    if (field.key === "monthly_cost_usd") values[field.key] = "2000";
     if (field.key === "max_concurrency") values[field.key] = "20";
     if (field.key === "modality") values[field.key] = "chat";
     if (field.key === "type") values[field.key] = "openai_compatible";
@@ -1862,11 +2077,11 @@ function keyPatchPayload(values: Record<string, string>) {
 function keyLimits(values: Record<string, string>) {
   return {
     daily_requests: numberOr(values.daily_requests, 0),
-    monthly_requests: 0,
+    monthly_requests: numberOr(values.monthly_requests, 0),
     daily_tokens: numberOr(values.daily_tokens, 0),
-    monthly_tokens: 0,
+    monthly_tokens: numberOr(values.monthly_tokens, 0),
     daily_cost_usd: numberOr(values.daily_cost_usd, 0),
-    monthly_cost_usd: 0,
+    monthly_cost_usd: numberOr(values.monthly_cost_usd, 0),
     max_concurrency: numberOr(values.max_concurrency, 0),
   };
 }
@@ -1933,12 +2148,14 @@ function emptyData(): AppData {
     projects: [],
     keys: [],
     providers: [],
+    providerResources: [],
     models: [],
     routes: [],
     logs: [],
+    auditEvents: [],
     alerts: [],
     users: [],
-    breakdown: { projects: [], models: [], providers: [] },
+    breakdown: { projects: [], models: [], providers: [], provider_resources: [] },
     timeseries: [],
     resources: {},
   };
@@ -2014,11 +2231,40 @@ function parseLooseValue(value: string) {
 function roleLabel(role: string) {
   const labels: Record<string, string> = {
     admin: "系统管理员",
+    system_admin: "系统管理员",
     security: "安全审计",
+    security_admin: "安全审计",
     project_admin: "项目管理员",
     viewer: "只读成员",
   };
   return labels[role] ?? role;
+}
+
+function actionLabel(action: string) {
+  const labels: Record<string, string> = {
+    create: "新增",
+    update: "编辑",
+    delete: "删除",
+    test: "测试",
+    health: "健康变更",
+  };
+  return labels[action] ?? action;
+}
+
+function resourceTypeLabel(type: string) {
+  const labels: Record<string, string> = {
+    provider: "Provider",
+    provider_resource: "资源实例",
+    project: "项目",
+    api_key: "API Key",
+    model: "模型",
+    routing_rule: "路由",
+    users: "用户",
+    "quota-policies": "额度策略",
+    "security-policies": "安全策略",
+    "alert-rules": "告警规则",
+  };
+  return labels[type] ?? type;
 }
 
 function userInitial(user: AdminUser) {

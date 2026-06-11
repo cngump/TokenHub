@@ -29,6 +29,7 @@ TokenHub 的核心价值是企业级 AI 基础设施：
 | --- | --- |
 | 统一 API 网关 | 对外兼容 OpenAI API，并预留 Anthropic、Gemini、自定义协议入口 |
 | Provider 管理 | 管理 OpenAI、Azure OpenAI、Claude、Gemini、DeepSeek、Qwen、本地模型等 |
+| Provider 资源池 | 管理企业授权 API、云厂商区域资源、本地推理集群、权重和健康状态 |
 | Key 管理 | 按企业内部用户、团队、项目维度发放和吊销 API Key |
 | 额度管理 | 为 Key、用户、项目设置日额度、月额度、模型白名单、并发上限 |
 | 路由策略 | 按模型、成本、可用性、延迟、区域、优先级进行路由 |
@@ -142,7 +143,7 @@ TokenHub 只面向企业自有、合规授权的模型 API 访问场景：
 - 不以规避上游服务条款、风控或计费规则作为产品卖点。
 - 不承诺规避官方 API 费用。
 - 不把个人 Claude、ChatGPT、Gemini 等订阅转成API 分发 分发作为核心功能。
-- Provider 凭证应来自企业自有账号、官方 API、云厂商实例或企业授权的私有模型服务。
+- Provider 资源池应来自企业自有官方 API、云厂商实例或企业授权的私有模型服务。
 
 ## 当前状态
 
@@ -157,8 +158,8 @@ TokenHub 只面向企业自有、合规授权的模型 API 访问场景：
 - 用量统计、成本估算、请求审计、额度告警。
 - Admin API Bearer Token 认证。
 - 日粒度用量趋势接口与后台柱状图。
-- Admin API：项目、Key、Provider、模型、用量、审计、告警。
-- Next.js 管理后台：参考用量分析类企业后台风格，包含总览、项目、Provider、模型、路由、审计、告警、创建项目、创建 Provider、创建模型路由、发放 Key。
+- Admin API：项目、Key、Provider、Provider 资源池、模型、路由、用量、审计、告警。
+- Next.js 管理后台：参考用量分析类企业后台风格，包含总览、项目、Provider、Provider 资源池、模型、路由、审计、告警、创建项目、创建 Provider、创建资源实例、创建模型路由、发放 Key。
 
 MVP 当前已使用 GORM + SQLite 做默认持久化，项目、Key、Provider、模型、路由、审计、用量、告警、后台用户与会话都会落库。后续生产化仍建议补齐 PostgreSQL、Redis、RBAC 和更完整的 Provider 配置管理。
 

@@ -66,6 +66,7 @@ Content-Type: application/json
 | `x-request-id` | TokenHub 请求 ID |
 | `x-tokenhub-project-id` | 项目 ID |
 | `x-tokenhub-provider` | 实际路由到的 Provider |
+| `x-tokenhub-provider-resource-id` | 实际命中的 Provider 资源实例 |
 | `x-tokenhub-model` | 实际调用的 Provider 模型 |
 | `x-tokenhub-route-id` | 实际命中的路由规则 |
 | `x-tokenhub-route-attempts` | 本次请求尝试过的路由次数 |
@@ -133,6 +134,8 @@ MVP 当前已支持一个统一模型对应多个候选路由：
 - 默认策略 `priority_weighted`：同一优先级内按 `weight` 做加权选择，未命中的同级候选作为后续 failover 候选。
 - 可选策略 `priority_only`：同一优先级内按权重和创建顺序稳定排序，不做加权选择。
 - Provider 必须是 `active` 且健康状态为 healthy。
+- 路由可绑定具体 `provider_resource_id`；未绑定时会从该 Provider 的可用资源池自动展开候选。
+- Provider 资源实例可覆盖 Provider 默认的 base_url、API Key、Headers、区域、资源级优先级和权重。
 - 非流式请求遇到 429、502、503、504 或 5xx 会尝试下一个候选路由。
 - 流式请求在 SSE 开始写入后不会切换 Provider，后续版本可实现首字节前 failover。
 
@@ -181,6 +184,10 @@ MVP 可以先使用管理员账号密码 + Session/JWT。企业版本支持 OIDC
 | POST | `/api/admin/providers` | 创建 Provider |
 | PATCH | `/api/admin/providers/{id}` | 更新 Provider |
 | POST | `/api/admin/providers/{id}/test` | 测试 Provider 连接 |
+| GET | `/api/admin/provider-resources` | Provider 资源池列表 |
+| POST | `/api/admin/provider-resources` | 创建 Provider 资源实例 |
+| PATCH | `/api/admin/provider-resources/{id}` | 更新 Provider 资源实例 |
+| POST | `/api/admin/provider-resources/{id}/health` | 更新资源实例健康状态 |
 | GET | `/api/admin/models` | 统一模型列表 |
 | POST | `/api/admin/models` | 创建统一模型 |
 | GET | `/api/admin/routing-rules` | 路由规则列表 |

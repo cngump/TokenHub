@@ -56,6 +56,21 @@ func SeedDemoData(store Store) error {
 		Healthy:  true,
 		Priority: 1,
 	})
+	mockResource, err := store.AddProviderResource(ProviderResource{
+		ID:           "rsrc_mock_primary",
+		ProviderID:   mock.ID,
+		Name:         "Mock 主资源",
+		ResourceType: "mock",
+		Region:       "local",
+		Environment:  "dev",
+		Status:       StatusActive,
+		Healthy:      true,
+		Priority:     1,
+		Weight:       100,
+	})
+	if err != nil {
+		return err
+	}
 
 	store.AddModel(Model{
 		ID:                  "gpt-4.1-mini",
@@ -78,22 +93,24 @@ func SeedDemoData(store Store) error {
 	})
 
 	store.AddRoute(ModelRoute{
-		ID:            "route_demo_chat",
-		ModelName:     "gpt-4.1-mini",
-		ProviderID:    mock.ID,
-		ProviderModel: "mock-chat",
-		Priority:      1,
-		Weight:        100,
-		Status:        StatusActive,
+		ID:                 "route_demo_chat",
+		ModelName:          "gpt-4.1-mini",
+		ProviderID:         mock.ID,
+		ProviderResourceID: mockResource.ID,
+		ProviderModel:      "mock-chat",
+		Priority:           1,
+		Weight:             100,
+		Status:             StatusActive,
 	})
 	store.AddRoute(ModelRoute{
-		ID:            "route_demo_embedding",
-		ModelName:     "text-embedding-3-small",
-		ProviderID:    mock.ID,
-		ProviderModel: "mock-embedding",
-		Priority:      1,
-		Weight:        100,
-		Status:        StatusActive,
+		ID:                 "route_demo_embedding",
+		ModelName:          "text-embedding-3-small",
+		ProviderID:         mock.ID,
+		ProviderResourceID: mockResource.ID,
+		ProviderModel:      "mock-embedding",
+		Priority:           1,
+		Weight:             100,
+		Status:             StatusActive,
 	})
 
 	seedAdminResources(store)
@@ -115,18 +132,6 @@ func seedAdminResources(store Store) {
 			"owner":       "张工",
 			"cost_center": "AI-PLATFORM",
 			"members":     12,
-		},
-	})
-	store.CreateResource("provider-accounts", AdminResource{
-		ID:          "acct_mock",
-		Name:        "Mock 企业凭证",
-		Description: "本地开发与验收用 Provider 凭证",
-		Status:      StatusActive,
-		Fields: map[string]any{
-			"provider_id": "prv_mock",
-			"auth_type":   "api_key",
-			"priority":    1,
-			"groups":      "default",
 		},
 	})
 	store.CreateResource("monitors", AdminResource{
@@ -155,7 +160,7 @@ func seedAdminResources(store Store) {
 	store.CreateResource("announcements", AdminResource{
 		ID:          "ann_mvp",
 		Name:        "MVP 试运行公告",
-		Description: "TokenHub 内部试运行，Provider 凭证仅用于企业授权 API。",
+		Description: "TokenHub 内部试运行，Provider 资源凭证仅用于企业授权 API。",
 		Status:      StatusActive,
 		Fields: map[string]any{
 			"notify_mode": "silent",
@@ -258,7 +263,7 @@ func seedMockData(store Store) error {
 	}
 	for i := 1; i <= 36; i++ {
 		providerType := providerTypes[(i-1)%len(providerTypes)]
-		store.AddProvider(Provider{
+		provider := store.AddProvider(Provider{
 			ID:       fmt.Sprintf("prv_mock_%03d", i),
 			Name:     fmt.Sprintf("Mock Provider %03d", i),
 			Type:     providerType,
@@ -273,6 +278,33 @@ func seedMockData(store Store) error {
 				"tier": mockTier(i),
 			},
 		})
+		for resourceIndex := 1; resourceIndex <= 2; resourceIndex++ {
+			_, err := store.AddProviderResource(ProviderResource{
+				ID:             fmt.Sprintf("rsrc_mock_%03d_%d", i, resourceIndex),
+				ProviderID:     provider.ID,
+				Name:           fmt.Sprintf("Mock 资源实例 %03d-%d", i, resourceIndex),
+				ResourceType:   mockResourceType(providerType),
+				BaseURL:        provider.BaseURL,
+				Region:         mockRegion(i + resourceIndex),
+				Environment:    mockEnvironment(resourceIndex),
+				Status:         activeEvery(i+resourceIndex, 12),
+				Healthy:        true,
+				Priority:       resourceIndex,
+				Weight:         120 - resourceIndex*20 - (i % 15),
+				RateLimitRPM:   int64(600 + i*20 + resourceIndex*50),
+				TokenLimitTPM:  int64(90000 + i*1500),
+				MaxConcurrency: int64(10 + (i % 12)),
+				Headers: map[string]string{
+					"x-tokenhub-resource-region": mockRegion(i + resourceIndex),
+				},
+				Options: map[string]string{
+					"owner": fmt.Sprintf("team_mock_%02d", ((i-1)%24)+1),
+				},
+			})
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	for i := 1; i <= 96; i++ {
@@ -295,22 +327,24 @@ func seedMockData(store Store) error {
 			Status:                 activeEvery(i, 17),
 		})
 		store.AddRoute(ModelRoute{
-			ID:            fmt.Sprintf("route_mock_%03d_primary", i),
-			ModelName:     name,
-			ProviderID:    fmt.Sprintf("prv_mock_%03d", ((i-1)%36)+1),
-			ProviderModel: fmt.Sprintf("upstream-%s", name),
-			Priority:      1,
-			Weight:        100 - (i % 20),
-			Status:        activeEvery(i, 23),
+			ID:                 fmt.Sprintf("route_mock_%03d_primary", i),
+			ModelName:          name,
+			ProviderID:         fmt.Sprintf("prv_mock_%03d", ((i-1)%36)+1),
+			ProviderResourceID: fmt.Sprintf("rsrc_mock_%03d_1", ((i-1)%36)+1),
+			ProviderModel:      fmt.Sprintf("upstream-%s", name),
+			Priority:           1,
+			Weight:             100 - (i % 20),
+			Status:             activeEvery(i, 23),
 		})
 		store.AddRoute(ModelRoute{
-			ID:            fmt.Sprintf("route_mock_%03d_backup", i),
-			ModelName:     name,
-			ProviderID:    fmt.Sprintf("prv_mock_%03d", ((i+7)%36)+1),
-			ProviderModel: fmt.Sprintf("backup-%s", name),
-			Priority:      2,
-			Weight:        60 + (i % 30),
-			Status:        activeEvery(i, 29),
+			ID:                 fmt.Sprintf("route_mock_%03d_backup", i),
+			ModelName:          name,
+			ProviderID:         fmt.Sprintf("prv_mock_%03d", ((i+7)%36)+1),
+			ProviderResourceID: fmt.Sprintf("rsrc_mock_%03d_2", ((i+7)%36)+1),
+			ProviderModel:      fmt.Sprintf("backup-%s", name),
+			Priority:           2,
+			Weight:             60 + (i % 30),
+			Status:             activeEvery(i, 29),
 		})
 	}
 
@@ -345,20 +379,6 @@ func seedMockResources(store Store) {
 				"owner":       fmt.Sprintf("Mock 负责人 %02d", i),
 				"cost_center": fmt.Sprintf("MOCK-CC-%03d", i),
 				"members":     6 + (i % 45),
-			},
-		})
-	}
-	for i := 1; i <= 80; i++ {
-		store.CreateResource("provider-accounts", AdminResource{
-			ID:          fmt.Sprintf("acct_mock_%03d", i),
-			Name:        fmt.Sprintf("Mock Provider 账号 %03d", i),
-			Description: fmt.Sprintf("用于区域 %s 的企业授权 Provider 凭证", mockRegion(i)),
-			Status:      activeEvery(i, 12),
-			Fields: map[string]any{
-				"provider_id": fmt.Sprintf("prv_mock_%03d", ((i-1)%36)+1),
-				"auth_type":   "api_key",
-				"priority":    1 + (i % 5),
-				"groups":      fmt.Sprintf("group-%02d", ((i-1)%10)+1),
 			},
 		})
 	}
@@ -523,6 +543,26 @@ func mockRegion(index int) string {
 func mockTier(index int) string {
 	tiers := []string{"standard", "priority", "backup", "experimental"}
 	return tiers[(index-1)%len(tiers)]
+}
+
+func mockResourceType(providerType string) string {
+	switch providerType {
+	case ProviderAzureOpenAI:
+		return "azure_resource"
+	case ProviderGemini:
+		return "service_account"
+	case "local":
+		return "local_cluster"
+	case ProviderMock:
+		return "mock"
+	default:
+		return "api_key"
+	}
+}
+
+func mockEnvironment(index int) string {
+	environments := []string{"prod", "backup", "staging"}
+	return environments[(index-1)%len(environments)]
 }
 
 func mockModelFamily(index int) string {

@@ -12,7 +12,7 @@ func main() {
 	addr := getenv("TOKENHUB_HTTP_ADDR", ":8080")
 	config := server.ConfigFromEnv()
 
-	store, err := server.OpenStore(config.DatabaseURL)
+	store, err := server.OpenStoreWithConfig(config.DatabaseURL, config)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -69,6 +69,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/admin/api-keys/", s.handleAdminAPIKeyItem)
 	s.mux.HandleFunc("/api/admin/providers", s.handleAdminProviders)
 	s.mux.HandleFunc("/api/admin/providers/", s.handleAdminProviderNested)
+	s.mux.HandleFunc("/api/admin/provider-resources", s.handleAdminProviderResources)
+	s.mux.HandleFunc("/api/admin/provider-resources/", s.handleAdminProviderResourceNested)
 	s.mux.HandleFunc("/api/admin/models", s.handleAdminModels)
 	s.mux.HandleFunc("/api/admin/models/", s.handleAdminModelItem)
 	s.mux.HandleFunc("/api/admin/routing-rules", s.handleAdminRoutes)
@@ -78,6 +80,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/admin/usage/breakdown", s.handleAdminUsageBreakdown)
 	s.mux.HandleFunc("/api/admin/usage/timeseries", s.handleAdminUsageTimeseries)
 	s.mux.HandleFunc("/api/admin/audit/requests", s.handleAdminRequestLogs)
+	s.mux.HandleFunc("/api/admin/audit/events", s.handleAdminAuditEvents)
 	s.mux.HandleFunc("/api/admin/alerts", s.handleAdminAlerts)
 }
 
@@ -138,8 +141,20 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	if req.Stream {
 		route := routed.Routes[0]
+		resourceID := routeResourceID(route)
+		if err := s.store.CheckProviderResourceCapacity(resourceID); err != nil {
+			s.finishFailedRoutedCall(r, routed, []RouteAttempt{{
+				Selection: route,
+				Status:    AsHTTPError(err).Status,
+				ErrorCode: AsHTTPError(err).Code,
+				Error:     err.Error(),
+			}}, err)
+			writeError(w, r, err)
+			return
+		}
 		adapter, err := s.adapterForRoute(route)
 		if err != nil {
+			s.store.FinishProviderResourceAttempt(resourceID, false, Usage{})
 			httpErr := AsHTTPError(err)
 			s.store.FinishCall(routed.Call, route, Usage{}, httpErr.Status, httpErr.Code, clientIP(r), r.UserAgent())
 			writeError(w, r, err)
@@ -150,9 +165,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("x-request-id", routed.Call.RequestID)
 		s.writeRouteHeaders(w, routed.Call, route, 1)
 		usage, err := adapter.ChatStream(r.Context(), route.Provider, route.ProviderModel, req, w)
+		s.store.FinishProviderResourceAttempt(resourceID, err == nil, usage)
 		status, code := statusAndCode(err)
 		if err == nil {
 			s.store.MarkRouteUsed(route.Route.ID)
+			s.store.MarkProviderResourceUsed(routeResourceID(route))
 		}
 		s.store.FinishCall(routed.Call, route, usage, status, code, clientIP(r), r.UserAgent())
 		return
@@ -165,6 +182,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.store.MarkRouteUsed(route.Route.ID)
+	s.store.MarkProviderResourceUsed(routeResourceID(route))
 	s.store.FinishCall(routed.Call, route, usage, http.StatusOK, "", clientIP(r), r.UserAgent())
 	w.Header().Set("x-request-id", routed.Call.RequestID)
 	s.writeRouteHeaders(w, routed.Call, route, len(attempts))
@@ -201,6 +219,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.store.MarkRouteUsed(route.Route.ID)
+	s.store.MarkProviderResourceUsed(routeResourceID(route))
 	s.store.FinishCall(routed.Call, route, usage, http.StatusOK, "", clientIP(r), r.UserAgent())
 	w.Header().Set("x-request-id", routed.Call.RequestID)
 	s.writeRouteHeaders(w, routed.Call, route, len(attempts))
@@ -237,6 +256,7 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.store.MarkRouteUsed(route.Route.ID)
+	s.store.MarkProviderResourceUsed(routeResourceID(route))
 	s.store.FinishCall(routed.Call, route, usage, http.StatusOK, "", clientIP(r), r.UserAgent())
 	w.Header().Set("x-request-id", routed.Call.RequestID)
 	s.writeRouteHeaders(w, routed.Call, route, len(attempts))
@@ -262,7 +282,7 @@ func (s *Server) startRoutedCall(w http.ResponseWriter, r *http.Request, project
 }
 
 func (s *Server) executeRoutedChat(r *http.Request, routed RoutedCall, req ChatCompletionRequest) (any, RouteSelection, Usage, []RouteAttempt, error) {
-	return executeRouted(routed, func(route RouteSelection) (any, Usage, error) {
+	return executeRoutedWithStore(s.store, routed, func(route RouteSelection) (any, Usage, error) {
 		adapter, err := s.adapterForRoute(route)
 		if err != nil {
 			return nil, Usage{}, err
@@ -272,7 +292,7 @@ func (s *Server) executeRoutedChat(r *http.Request, routed RoutedCall, req ChatC
 }
 
 func (s *Server) executeRoutedResponses(r *http.Request, routed RoutedCall, req ResponsesRequest) (any, RouteSelection, Usage, []RouteAttempt, error) {
-	return executeRouted(routed, func(route RouteSelection) (any, Usage, error) {
+	return executeRoutedWithStore(s.store, routed, func(route RouteSelection) (any, Usage, error) {
 		adapter, err := s.adapterForRoute(route)
 		if err != nil {
 			return nil, Usage{}, err
@@ -282,7 +302,7 @@ func (s *Server) executeRoutedResponses(r *http.Request, routed RoutedCall, req 
 }
 
 func (s *Server) executeRoutedEmbeddings(r *http.Request, routed RoutedCall, req EmbeddingsRequest) (any, RouteSelection, Usage, []RouteAttempt, error) {
-	return executeRouted(routed, func(route RouteSelection) (any, Usage, error) {
+	return executeRoutedWithStore(s.store, routed, func(route RouteSelection) (any, Usage, error) {
 		adapter, err := s.adapterForRoute(route)
 		if err != nil {
 			return nil, Usage{}, err
@@ -291,12 +311,30 @@ func (s *Server) executeRoutedEmbeddings(r *http.Request, routed RoutedCall, req
 	})
 }
 
-func executeRouted[T any](routed RoutedCall, call func(RouteSelection) (T, Usage, error)) (T, RouteSelection, Usage, []RouteAttempt, error) {
+func executeRoutedWithStore[T any](store Store, routed RoutedCall, call func(RouteSelection) (T, Usage, error)) (T, RouteSelection, Usage, []RouteAttempt, error) {
 	var zero T
 	var lastErr error = ErrProviderMissing
 	attempts := make([]RouteAttempt, 0, len(routed.Routes))
 	for _, route := range routed.Routes {
+		resourceID := routeResourceID(route)
+		if err := store.CheckProviderResourceCapacity(resourceID); err != nil {
+			status, code := statusAndCode(err)
+			attempts = append(attempts, RouteAttempt{
+				Selection: route,
+				Status:    status,
+				ErrorCode: code,
+				Error:     errorMessage(err),
+			})
+			lastErr = err
+			if !shouldFailoverProviderError(err) {
+				return zero, route, Usage{}, attempts, err
+			}
+			continue
+		}
 		resp, usage, err := call(route)
+		if resourceID != "" {
+			store.FinishProviderResourceAttempt(resourceID, err == nil, usage)
+		}
 		status, code := statusAndCode(err)
 		attempts = append(attempts, RouteAttempt{
 			Selection: route,
@@ -335,10 +373,13 @@ func (s *Server) planRouteOrder(requestID string, routes []RouteSelection) []Rou
 		if ordered[i].Route.Priority != ordered[j].Route.Priority {
 			return ordered[i].Route.Priority < ordered[j].Route.Priority
 		}
+		if routeResourcePriority(ordered[i]) != routeResourcePriority(ordered[j]) {
+			return routeResourcePriority(ordered[i]) < routeResourcePriority(ordered[j])
+		}
 		if routeWeight(ordered[i].Route) != routeWeight(ordered[j].Route) {
 			return routeWeight(ordered[i].Route) > routeWeight(ordered[j].Route)
 		}
-		return ordered[i].Route.ID < ordered[j].Route.ID
+		return routeSortID(ordered[i]) < routeSortID(ordered[j])
 	})
 
 	var planned []RouteSelection
@@ -348,16 +389,25 @@ func (s *Server) planRouteOrder(requestID string, routes []RouteSelection) []Rou
 		for end < len(ordered) && ordered[end].Route.Priority == priority {
 			end++
 		}
-		group := append([]RouteSelection(nil), ordered[:end]...)
-		if routeStrategy(group[0].Route) == "priority_only" {
-			planned = append(planned, group...)
-			ordered = ordered[end:]
-			continue
-		}
-		for len(group) > 0 {
-			index := weightedRouteIndex(requestID, len(planned), group)
-			planned = append(planned, group[index])
-			group = append(group[:index], group[index+1:]...)
+		priorityGroup := append([]RouteSelection(nil), ordered[:end]...)
+		for len(priorityGroup) > 0 {
+			resourcePriority := routeResourcePriority(priorityGroup[0])
+			groupEnd := 0
+			for groupEnd < len(priorityGroup) && routeResourcePriority(priorityGroup[groupEnd]) == resourcePriority {
+				groupEnd++
+			}
+			group := append([]RouteSelection(nil), priorityGroup[:groupEnd]...)
+			if routeStrategy(group[0].Route) == "priority_only" {
+				planned = append(planned, group...)
+				priorityGroup = priorityGroup[groupEnd:]
+				continue
+			}
+			for len(group) > 0 {
+				index := weightedRouteIndex(requestID, len(planned), group)
+				planned = append(planned, group[index])
+				group = append(group[:index], group[index+1:]...)
+			}
+			priorityGroup = priorityGroup[groupEnd:]
 		}
 		ordered = ordered[end:]
 	}
@@ -400,6 +450,27 @@ func routeWeight(route ModelRoute) int {
 	return route.Weight
 }
 
+func routeResourcePriority(route RouteSelection) int {
+	if route.Resource == nil || route.Resource.Priority == 0 {
+		return 9999
+	}
+	return route.Resource.Priority
+}
+
+func routeResourceID(route RouteSelection) string {
+	if route.Resource != nil {
+		return route.Resource.ID
+	}
+	return route.Route.ProviderResourceID
+}
+
+func routeSortID(route RouteSelection) string {
+	if resourceID := routeResourceID(route); resourceID != "" {
+		return route.Route.ID + ":" + resourceID
+	}
+	return route.Route.ID
+}
+
 func routeStrategy(route ModelRoute) string {
 	if strings.TrimSpace(route.Strategy) == "" {
 		return "priority_weighted"
@@ -437,6 +508,9 @@ func errorMessage(err error) string {
 func (s *Server) writeRouteHeaders(w http.ResponseWriter, call CallContext, route RouteSelection, attempts int) {
 	w.Header().Set("x-tokenhub-project-id", call.Project.ID)
 	w.Header().Set("x-tokenhub-provider", route.Provider.ID)
+	if resourceID := routeResourceID(route); resourceID != "" {
+		w.Header().Set("x-tokenhub-provider-resource-id", resourceID)
+	}
 	w.Header().Set("x-tokenhub-model", route.ProviderModel)
 	w.Header().Set("x-tokenhub-route-id", route.Route.ID)
 	w.Header().Set("x-tokenhub-route-attempts", strconv.Itoa(attempts))
@@ -508,7 +582,7 @@ func (s *Server) handleAdminMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminOverview(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(w, r) {
+	if _, ok := s.requireAdmin(w, r, "overview", r.Method); !ok {
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -516,16 +590,18 @@ func (s *Server) handleAdminOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"summary":   s.store.UsageSummary(),
-		"projects":  s.store.ListProjects(),
-		"providers": s.store.ListProviders(),
-		"models":    s.store.ListModels(),
-		"alerts":    s.store.ListAlerts(),
+		"summary":            s.store.UsageSummary(),
+		"projects":           s.store.ListProjects(),
+		"providers":          s.store.ListProviders(),
+		"provider_resources": s.store.ListProviderResources(),
+		"models":             s.store.ListModels(),
+		"alerts":             s.store.ListAlerts(),
 	})
 }
 
 func (s *Server) handleAdminProjects(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(w, r) {
+	user, ok := s.requireAdmin(w, r, "project", r.Method)
+	if !ok {
 		return
 	}
 	switch r.Method {
@@ -537,14 +613,17 @@ func (s *Server) handleAdminProjects(w http.ResponseWriter, r *http.Request) {
 			writeError(w, r, NewHTTPError(400, "invalid_request", err.Error()))
 			return
 		}
-		writeJSON(w, http.StatusCreated, s.store.CreateProject(req))
+		project := s.store.CreateProject(req)
+		s.recordAdminAudit(r, user, "create", "project", project.ID, "", project)
+		writeJSON(w, http.StatusCreated, project)
 	default:
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
 	}
 }
 
 func (s *Server) handleAdminProjectNested(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(w, r) {
+	user, ok := s.requireAdmin(w, r, "project", r.Method)
+	if !ok {
 		return
 	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/admin/projects/"), "/")
@@ -562,12 +641,14 @@ func (s *Server) handleAdminProjectNested(w http.ResponseWriter, r *http.Request
 				writeError(w, r, err)
 				return
 			}
+			s.recordAdminAudit(r, user, "update", "project", project.ID, "", project)
 			writeJSON(w, http.StatusOK, project)
 		case http.MethodDelete:
 			if err := s.store.DeleteProject(projectID); err != nil {
 				writeError(w, r, err)
 				return
 			}
+			s.recordAdminAudit(r, user, "delete", "project", projectID, "", nil)
 			w.WriteHeader(http.StatusNoContent)
 		default:
 			writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
@@ -603,6 +684,7 @@ func (s *Server) handleAdminProjectNested(w http.ResponseWriter, r *http.Request
 			writeError(w, r, err)
 			return
 		}
+		s.recordAdminAudit(r, user, "create", "api_key", key.ID, "", map[string]any{"project_id": key.ProjectID, "name": key.Name})
 		writeJSON(w, http.StatusCreated, map[string]any{
 			"id":                      key.ID,
 			"api_key":                 secret,
@@ -616,7 +698,8 @@ func (s *Server) handleAdminProjectNested(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(w, r) {
+	actor, ok := s.requireAdmin(w, r, "identity", r.Method)
+	if !ok {
 		return
 	}
 	switch r.Method {
@@ -648,6 +731,7 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 			writeError(w, r, err)
 			return
 		}
+		s.recordAdminAudit(r, actor, "create", "admin_user", user.ID, "", user)
 		writeJSON(w, http.StatusCreated, user)
 	default:
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
@@ -655,7 +739,8 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminUserItem(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(w, r) {
+	user, ok := s.requireAdmin(w, r, "identity", r.Method)
+	if !ok {
 		return
 	}
 	userID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/admin/users/"), "/")
@@ -690,12 +775,14 @@ func (s *Server) handleAdminUserItem(w http.ResponseWriter, r *http.Request) {
 			writeError(w, r, err)
 			return
 		}
+		s.recordAdminAudit(r, user, "update", "admin_user", userID, "", user)
 		writeJSON(w, http.StatusOK, user)
 	case http.MethodDelete:
 		if err := s.store.DeleteAdminUser(userID); err != nil {
 			writeError(w, r, err)
 			return
 		}
+		s.recordAdminAudit(r, user, "delete", "admin_user", userID, "", nil)
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
@@ -703,7 +790,7 @@ func (s *Server) handleAdminUserItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminAPIKeys(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(w, r) {
+	if _, ok := s.requireAdmin(w, r, "api_key", r.Method); !ok {
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -714,7 +801,8 @@ func (s *Server) handleAdminAPIKeys(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminAPIKeyItem(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(w, r) {
+	user, ok := s.requireAdmin(w, r, "api_key", r.Method)
+	if !ok {
 		return
 	}
 	keyID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/admin/api-keys/"), "/")
@@ -734,12 +822,14 @@ func (s *Server) handleAdminAPIKeyItem(w http.ResponseWriter, r *http.Request) {
 			writeError(w, r, err)
 			return
 		}
+		s.recordAdminAudit(r, user, "update", "api_key", keyID, "", key)
 		writeJSON(w, http.StatusOK, key)
 	case http.MethodDelete:
 		if err := s.store.DeleteAPIKey(keyID); err != nil {
 			writeError(w, r, err)
 			return
 		}
+		s.recordAdminAudit(r, user, "delete", "api_key", keyID, "", nil)
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
@@ -747,7 +837,8 @@ func (s *Server) handleAdminAPIKeyItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminProviders(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(w, r) {
+	user, ok := s.requireAdmin(w, r, "provider", r.Method)
+	if !ok {
 		return
 	}
 	switch r.Method {
@@ -786,14 +877,17 @@ func (s *Server) handleAdminProviders(w http.ResponseWriter, r *http.Request) {
 			writeError(w, r, NewHTTPError(400, "invalid_provider", "name and type are required"))
 			return
 		}
-		writeJSON(w, http.StatusCreated, s.store.AddProvider(provider))
+		created := s.store.AddProvider(provider)
+		s.recordAdminAudit(r, user, "create", "provider", created.ID, "", created)
+		writeJSON(w, http.StatusCreated, created)
 	default:
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
 	}
 }
 
 func (s *Server) handleAdminProviderNested(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(w, r) {
+	user, ok := s.requireAdmin(w, r, "provider", r.Method)
+	if !ok {
 		return
 	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/admin/providers/"), "/")
@@ -810,24 +904,36 @@ func (s *Server) handleAdminProviderNested(w http.ResponseWriter, r *http.Reques
 				writeError(w, r, err)
 				return
 			}
+			s.recordAdminAudit(r, user, "update", "provider", parts[0], "", provider)
 			writeJSON(w, http.StatusOK, provider)
 		case http.MethodDelete:
 			if err := s.store.DeleteProvider(parts[0]); err != nil {
 				writeError(w, r, err)
 				return
 			}
+			s.recordAdminAudit(r, user, "delete", "provider", parts[0], "", nil)
 			w.WriteHeader(http.StatusNoContent)
 		default:
 			writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
 		}
 		return
 	}
-	if len(parts) != 2 || parts[1] != "health" {
+	if len(parts) != 2 || (parts[1] != "health" && parts[1] != "test") {
 		writeError(w, r, NewHTTPError(404, "not_found", "Not found"))
 		return
 	}
 	if r.Method != http.MethodPost {
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
+		return
+	}
+	if parts[1] == "test" {
+		provider, err := s.store.TestProvider(parts[0])
+		if err != nil {
+			writeError(w, r, err)
+			return
+		}
+		s.recordAdminAudit(r, user, "test", "provider", parts[0], "", map[string]any{"healthy": provider.Healthy})
+		writeJSON(w, http.StatusOK, provider)
 		return
 	}
 	var req struct {
@@ -842,11 +948,110 @@ func (s *Server) handleAdminProviderNested(w http.ResponseWriter, r *http.Reques
 		writeError(w, r, err)
 		return
 	}
+	s.recordAdminAudit(r, user, "health", "provider", parts[0], "", provider)
 	writeJSON(w, http.StatusOK, provider)
 }
 
+func (s *Server) handleAdminProviderResources(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requireAdmin(w, r, "provider", r.Method)
+	if !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListProviderResources()})
+	case http.MethodPost:
+		var req ProviderResource
+		if err := decodeJSON(r, &req); err != nil {
+			writeError(w, r, NewHTTPError(400, "invalid_request", err.Error()))
+			return
+		}
+		if req.ProviderID == "" || req.Name == "" {
+			writeError(w, r, NewHTTPError(400, "invalid_provider_resource", "provider_id and name are required"))
+			return
+		}
+		resource, err := s.store.AddProviderResource(req)
+		if err != nil {
+			writeError(w, r, err)
+			return
+		}
+		s.recordAdminAudit(r, user, "create", "provider_resource", resource.ID, "", resource)
+		writeJSON(w, http.StatusCreated, resource)
+	default:
+		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
+	}
+}
+
+func (s *Server) handleAdminProviderResourceNested(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requireAdmin(w, r, "provider", r.Method)
+	if !ok {
+		return
+	}
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/admin/provider-resources/"), "/")
+	if len(parts) == 1 {
+		switch r.Method {
+		case http.MethodPatch:
+			var req ProviderResource
+			if err := decodeJSON(r, &req); err != nil {
+				writeError(w, r, NewHTTPError(400, "invalid_request", err.Error()))
+				return
+			}
+			resource, err := s.store.UpdateProviderResource(parts[0], req)
+			if err != nil {
+				writeError(w, r, err)
+				return
+			}
+			s.recordAdminAudit(r, user, "update", "provider_resource", parts[0], "", resource)
+			writeJSON(w, http.StatusOK, resource)
+		case http.MethodDelete:
+			if err := s.store.DeleteProviderResource(parts[0]); err != nil {
+				writeError(w, r, err)
+				return
+			}
+			s.recordAdminAudit(r, user, "delete", "provider_resource", parts[0], "", nil)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
+		}
+		return
+	}
+	if len(parts) != 2 || (parts[1] != "health" && parts[1] != "test") {
+		writeError(w, r, NewHTTPError(404, "not_found", "Not found"))
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
+		return
+	}
+	if parts[1] == "test" {
+		resource, err := s.store.TestProviderResource(parts[0])
+		if err != nil {
+			writeError(w, r, err)
+			return
+		}
+		s.recordAdminAudit(r, user, "test", "provider_resource", parts[0], "", map[string]any{"healthy": resource.Healthy})
+		writeJSON(w, http.StatusOK, resource)
+		return
+	}
+	var req struct {
+		Healthy bool `json:"healthy"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, r, NewHTTPError(400, "invalid_request", err.Error()))
+		return
+	}
+	resource, err := s.store.SetProviderResourceHealth(parts[0], req.Healthy)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	s.recordAdminAudit(r, user, "health", "provider_resource", parts[0], "", resource)
+	writeJSON(w, http.StatusOK, resource)
+}
+
 func (s *Server) handleAdminModels(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(w, r) {
+	user, ok := s.requireAdmin(w, r, "model", r.Method)
+	if !ok {
 		return
 	}
 	switch r.Method {
@@ -866,6 +1071,7 @@ func (s *Server) handleAdminModels(w http.ResponseWriter, r *http.Request) {
 			route.ModelName = model.Name
 			s.store.AddRoute(route)
 		}
+		s.recordAdminAudit(r, user, "create", "model", model.Name, "", model)
 		writeJSON(w, http.StatusCreated, model)
 	default:
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
@@ -873,7 +1079,8 @@ func (s *Server) handleAdminModels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminModelItem(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(w, r) {
+	user, ok := s.requireAdmin(w, r, "model", r.Method)
+	if !ok {
 		return
 	}
 	modelName := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/admin/models/"), "/")
@@ -893,12 +1100,14 @@ func (s *Server) handleAdminModelItem(w http.ResponseWriter, r *http.Request) {
 			writeError(w, r, err)
 			return
 		}
+		s.recordAdminAudit(r, user, "update", "model", modelName, "", model)
 		writeJSON(w, http.StatusOK, model)
 	case http.MethodDelete:
 		if err := s.store.DeleteModel(modelName); err != nil {
 			writeError(w, r, err)
 			return
 		}
+		s.recordAdminAudit(r, user, "delete", "model", modelName, "", nil)
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
@@ -906,7 +1115,8 @@ func (s *Server) handleAdminModelItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminRoutes(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(w, r) {
+	user, ok := s.requireAdmin(w, r, "routing", r.Method)
+	if !ok {
 		return
 	}
 	switch r.Method {
@@ -922,14 +1132,17 @@ func (s *Server) handleAdminRoutes(w http.ResponseWriter, r *http.Request) {
 			writeError(w, r, NewHTTPError(400, "invalid_route", "model_name, provider_id and provider_model are required"))
 			return
 		}
-		writeJSON(w, http.StatusCreated, s.store.AddRoute(req))
+		route := s.store.AddRoute(req)
+		s.recordAdminAudit(r, user, "create", "routing_rule", route.ID, "", route)
+		writeJSON(w, http.StatusCreated, route)
 	default:
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
 	}
 }
 
 func (s *Server) handleAdminRouteItem(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(w, r) {
+	user, ok := s.requireAdmin(w, r, "routing", r.Method)
+	if !ok {
 		return
 	}
 	routeID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/admin/routing-rules/"), "/")
@@ -949,12 +1162,14 @@ func (s *Server) handleAdminRouteItem(w http.ResponseWriter, r *http.Request) {
 			writeError(w, r, err)
 			return
 		}
+		s.recordAdminAudit(r, user, "update", "routing_rule", routeID, "", route)
 		writeJSON(w, http.StatusOK, route)
 	case http.MethodDelete:
 		if err := s.store.DeleteRoute(routeID); err != nil {
 			writeError(w, r, err)
 			return
 		}
+		s.recordAdminAudit(r, user, "delete", "routing_rule", routeID, "", nil)
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
@@ -962,7 +1177,8 @@ func (s *Server) handleAdminRouteItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(w, r) {
+	user, ok := s.requireAdmin(w, r, adminResourcePermission(r.URL.Path), r.Method)
+	if !ok {
 		return
 	}
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/admin/resources/"), "/"), "/")
@@ -985,7 +1201,9 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 				writeError(w, r, NewHTTPError(400, "invalid_resource", "name is required"))
 				return
 			}
-			writeJSON(w, http.StatusCreated, s.store.CreateResource(kind, req))
+			resource := s.store.CreateResource(kind, req)
+			s.recordAdminAudit(r, user, "create", kind, resource.ID, "", resource)
+			writeJSON(w, http.StatusCreated, resource)
 		default:
 			writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
 		}
@@ -1007,12 +1225,14 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 			writeError(w, r, err)
 			return
 		}
+		s.recordAdminAudit(r, user, "update", kind, parts[1], "", resource)
 		writeJSON(w, http.StatusOK, resource)
 	case http.MethodDelete:
 		if err := s.store.DeleteResource(kind, parts[1]); err != nil {
 			writeError(w, r, err)
 			return
 		}
+		s.recordAdminAudit(r, user, "delete", kind, parts[1], "", nil)
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
@@ -1020,7 +1240,7 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminUsageSummary(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(w, r) {
+	if _, ok := s.requireAdmin(w, r, "usage", r.Method); !ok {
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -1031,7 +1251,7 @@ func (s *Server) handleAdminUsageSummary(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleAdminUsageBreakdown(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(w, r) {
+	if _, ok := s.requireAdmin(w, r, "usage", r.Method); !ok {
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -1042,7 +1262,7 @@ func (s *Server) handleAdminUsageBreakdown(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleAdminUsageTimeseries(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(w, r) {
+	if _, ok := s.requireAdmin(w, r, "usage", r.Method); !ok {
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -1053,7 +1273,7 @@ func (s *Server) handleAdminUsageTimeseries(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleAdminRequestLogs(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(w, r) {
+	if _, ok := s.requireAdmin(w, r, "audit", r.Method); !ok {
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -1063,8 +1283,19 @@ func (s *Server) handleAdminRequestLogs(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListRequestLogs()})
 }
 
+func (s *Server) handleAdminAuditEvents(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requireAdmin(w, r, "audit", r.Method); !ok {
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListAuditEvents()})
+}
+
 func (s *Server) handleAdminAlerts(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAdmin(w, r) {
+	if _, ok := s.requireAdmin(w, r, "alert", r.Method); !ok {
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -1075,20 +1306,8 @@ func (s *Server) handleAdminAlerts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) authorizeAdmin(w http.ResponseWriter, r *http.Request) bool {
-	expected := strings.TrimSpace(s.config.AdminToken)
-	if expected == "" {
-		writeError(w, r, NewHTTPError(500, "admin_auth_not_configured", "Admin token is not configured"))
-		return false
-	}
-	token := bearerToken(r)
-	if token == expected {
-		return true
-	}
-	if _, ok := s.store.ValidateAdminSession(token); ok {
-		return true
-	}
-	writeError(w, r, NewHTTPError(401, "invalid_admin_token", "Invalid admin token"))
-	return false
+	_, ok := s.requireAdmin(w, r, "overview", r.Method)
+	return ok
 }
 
 func (s *Server) authorizeAdminUser(w http.ResponseWriter, r *http.Request) (AdminUser, bool) {
@@ -1110,6 +1329,91 @@ func (s *Server) authorizeAdminUser(w http.ResponseWriter, r *http.Request) (Adm
 		return AdminUser{}, false
 	}
 	return user, true
+}
+
+func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request, resource string, method string) (AdminUser, bool) {
+	user, ok := s.authorizeAdminUser(w, r)
+	if !ok {
+		return AdminUser{}, false
+	}
+	if !canAdmin(user.Role, resource, method) {
+		writeError(w, r, NewHTTPError(403, "admin_forbidden", "Admin role is not allowed to perform this action"))
+		return AdminUser{}, false
+	}
+	return user, true
+}
+
+func canAdmin(role string, resource string, method string) bool {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if role == "" {
+		role = "viewer"
+	}
+	resource = strings.ToLower(strings.TrimSpace(resource))
+	write := method != http.MethodGet
+	switch role {
+	case "admin", "system_admin":
+		return true
+	case "security_admin":
+		if write {
+			return resource == "alert" || resource == "security" || resource == "audit"
+		}
+		return resource == "overview" || resource == "usage" || resource == "audit" || resource == "alert" || resource == "security"
+	case "project_admin":
+		if write {
+			return resource == "project" || resource == "api_key" || resource == "quota"
+		}
+		return resource == "overview" || resource == "project" || resource == "api_key" || resource == "quota" || resource == "usage" || resource == "audit"
+	case "viewer", "readonly", "read_only":
+		return !write && resource != "identity" && resource != "provider"
+	default:
+		return !write && resource == "overview"
+	}
+}
+
+func adminResourcePermission(path string) string {
+	if strings.Contains(path, "/quota-policies") {
+		return "quota"
+	}
+	if strings.Contains(path, "/security-policies") {
+		return "security"
+	}
+	if strings.Contains(path, "/alert-rules") {
+		return "alert"
+	}
+	if strings.Contains(path, "/teams") {
+		return "identity"
+	}
+	if strings.Contains(path, "/monitors") || strings.Contains(path, "/proxies") || strings.Contains(path, "/settings") {
+		return "provider"
+	}
+	return "overview"
+}
+
+func (s *Server) recordAdminAudit(r *http.Request, user AdminUser, action string, resourceType string, resourceID string, before any, after any) {
+	s.store.RecordAuditEvent(AuditEvent{
+		ActorUserID:    user.ID,
+		ActorName:      user.Name,
+		ActorRole:      user.Role,
+		Action:         action,
+		ResourceType:   resourceType,
+		ResourceID:     resourceID,
+		Status:         "success",
+		BeforeSnapshot: snapshotJSON(before),
+		AfterSnapshot:  snapshotJSON(after),
+		IP:             clientIP(r),
+		UserAgent:      r.UserAgent(),
+	})
+}
+
+func snapshotJSON(value any) string {
+	if value == nil {
+		return ""
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 func bearerToken(r *http.Request) string {

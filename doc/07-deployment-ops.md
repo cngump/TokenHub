@@ -122,13 +122,13 @@ tokenhub migrate status
 | --- | --- |
 | PostgreSQL | 每日全量 + WAL 增量 |
 | Redis | 可选持久化，关键配置不以 Redis 为唯一来源 |
-| Provider 凭证 | 随数据库备份，但依赖主密钥或 KMS 恢复 |
+| Provider 资源凭证 | 随数据库备份，但依赖主密钥或 KMS 恢复 |
 | 配置文件 | 版本化管理 |
 
 恢复演练要求：
 
 - 能在新环境恢复数据库。
-- 能验证 Provider 凭证可解密。
+- 能验证 Provider 资源凭证可解密。
 - 能恢复管理后台登录。
 - 能恢复最近聚合用量。
 
