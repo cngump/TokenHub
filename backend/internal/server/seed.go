@@ -1,0 +1,582 @@
+package server
+
+import (
+	"fmt"
+	"net/http"
+)
+
+func SeedDemoData(store Store) error {
+	if _, err := store.CreateAdminUser(AdminUser{
+		ID:       "usr_admin",
+		Username: "admin",
+		Name:     "平台管理员",
+		Email:    "admin@tokenhub.local",
+		Role:     "admin",
+		TeamID:   "team_platform",
+		Status:   StatusActive,
+	}, "admin123456"); err != nil {
+		if AsHTTPError(err).Code != "admin_user_conflict" {
+			return err
+		}
+	}
+
+	project := store.CreateProject(Project{
+		ID:     "prj_demo",
+		Name:   "Demo Project",
+		TeamID: "team_platform",
+		Status: StatusActive,
+	})
+
+	_, _, err := store.CreateAPIKey(project.ID, APIKey{
+		ID:      "key_demo",
+		Name:    "Demo Local Key",
+		Allowed: []string{"gpt-4.1-mini", "text-embedding-3-small"},
+		Limits: QuotaLimits{
+			DailyRequests:   1000,
+			MonthlyRequests: 30000,
+			DailyTokens:     1_000_000,
+			MonthlyTokens:   20_000_000,
+			DailyCostUSD:    100,
+			MonthlyCostUSD:  2000,
+			MaxConcurrency:  20,
+		},
+		Status: StatusActive,
+	}, "thk_demo_local")
+	if err != nil {
+		if AsHTTPError(err).Code != "api_key_conflict" {
+			return err
+		}
+	}
+
+	mock := store.AddProvider(Provider{
+		ID:       "prv_mock",
+		Name:     "Mock Provider",
+		Type:     ProviderMock,
+		Status:   StatusActive,
+		Healthy:  true,
+		Priority: 1,
+	})
+
+	store.AddModel(Model{
+		ID:                  "gpt-4.1-mini",
+		Name:                "gpt-4.1-mini",
+		Family:              "gpt",
+		Modality:            "chat",
+		ContextWindow:       128000,
+		InputPriceUSDPer1M:  0.4,
+		OutputPriceUSDPer1M: 1.6,
+		Status:              StatusActive,
+	})
+	store.AddModel(Model{
+		ID:                     "text-embedding-3-small",
+		Name:                   "text-embedding-3-small",
+		Family:                 "gpt",
+		Modality:               "embedding",
+		ContextWindow:          8192,
+		EmbeddingPriceUSDPer1M: 0.02,
+		Status:                 StatusActive,
+	})
+
+	store.AddRoute(ModelRoute{
+		ID:            "route_demo_chat",
+		ModelName:     "gpt-4.1-mini",
+		ProviderID:    mock.ID,
+		ProviderModel: "mock-chat",
+		Priority:      1,
+		Weight:        100,
+		Status:        StatusActive,
+	})
+	store.AddRoute(ModelRoute{
+		ID:            "route_demo_embedding",
+		ModelName:     "text-embedding-3-small",
+		ProviderID:    mock.ID,
+		ProviderModel: "mock-embedding",
+		Priority:      1,
+		Weight:        100,
+		Status:        StatusActive,
+	})
+
+	seedAdminResources(store)
+
+	if err := seedMockData(store); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func seedAdminResources(store Store) {
+	store.CreateResource("teams", AdminResource{
+		ID:          "team_platform",
+		Name:        "平台工程团队",
+		Description: "负责内部 AI Gateway 接入与平台治理",
+		Status:      StatusActive,
+		Fields: map[string]any{
+			"owner":       "张工",
+			"cost_center": "AI-PLATFORM",
+			"members":     12,
+		},
+	})
+	store.CreateResource("provider-accounts", AdminResource{
+		ID:          "acct_mock",
+		Name:        "Mock 企业凭证",
+		Description: "本地开发与验收用 Provider 凭证",
+		Status:      StatusActive,
+		Fields: map[string]any{
+			"provider_id": "prv_mock",
+			"auth_type":   "api_key",
+			"priority":    1,
+			"groups":      "default",
+		},
+	})
+	store.CreateResource("monitors", AdminResource{
+		ID:          "mon_gateway",
+		Name:        "核心聊天模型心跳",
+		Description: "每 60 秒检测 gpt-4.1-mini 路由链路",
+		Status:      StatusActive,
+		Fields: map[string]any{
+			"provider":         "mock",
+			"model":            "gpt-4.1-mini",
+			"interval_seconds": 60,
+			"last_result":      "ok",
+		},
+	})
+	store.CreateResource("proxies", AdminResource{
+		ID:          "prx_direct",
+		Name:        "直连出口",
+		Description: "默认不走代理",
+		Status:      StatusActive,
+		Fields: map[string]any{
+			"protocol": "direct",
+			"host":     "-",
+			"port":     0,
+		},
+	})
+	store.CreateResource("announcements", AdminResource{
+		ID:          "ann_mvp",
+		Name:        "MVP 试运行公告",
+		Description: "TokenHub 内部试运行，Provider 凭证仅用于企业授权 API。",
+		Status:      StatusActive,
+		Fields: map[string]any{
+			"notify_mode": "silent",
+			"target":      "all_admins",
+		},
+	})
+	store.CreateResource("settings", AdminResource{
+		ID:          "cfg_gateway",
+		Name:        "网关基础设置",
+		Description: "OpenAI Compatible Gateway 默认配置",
+		Status:      StatusActive,
+		Fields: map[string]any{
+			"public_base_url": "http://localhost:8080",
+			"default_timeout": "120s",
+			"audit_retention": "180d",
+		},
+	})
+	store.CreateResource("security-policies", AdminResource{
+		ID:          "sec_default",
+		Name:        "默认安全策略",
+		Description: "记录请求元信息，隐藏敏感请求体字段",
+		Status:      StatusActive,
+		Fields: map[string]any{
+			"mask_prompts":      true,
+			"ip_allowlist":      "",
+			"error_passthrough": "sanitized",
+		},
+	})
+	store.CreateResource("alert-rules", AdminResource{
+		ID:          "alr_quota",
+		Name:        "额度耗尽告警",
+		Description: "Key 或项目额度达到阈值时提醒管理员",
+		Status:      StatusActive,
+		Fields: map[string]any{
+			"metric":    "daily_cost_usd",
+			"threshold": "90%",
+			"channel":   "console",
+		},
+	})
+	store.CreateResource("quota-policies", AdminResource{
+		ID:          "quo_default_project",
+		Name:        "默认项目额度",
+		Description: "新项目默认日请求、Token 与成本上限",
+		Status:      StatusActive,
+		Fields: map[string]any{
+			"daily_requests":   1000,
+			"daily_tokens":     1000000,
+			"daily_cost_usd":   100,
+			"max_concurrency":  20,
+			"scope":            "project",
+			"enforcement_mode": "hard",
+		},
+	})
+}
+
+func seedMockData(store Store) error {
+	for i := 1; i <= 80; i++ {
+		teamID := fmt.Sprintf("team_mock_%02d", ((i-1)%24)+1)
+		projectID := fmt.Sprintf("prj_mock_%03d", i)
+		project := store.CreateProject(Project{
+			ID:              projectID,
+			Name:            fmt.Sprintf("Mock 应用项目 %03d", i),
+			TeamID:          teamID,
+			OwnerUserID:     fmt.Sprintf("usr_mock_%03d", ((i-1)%60)+1),
+			Status:          activeEvery(i, 11),
+			DefaultQuotaRef: fmt.Sprintf("quo_mock_%02d", ((i-1)%40)+1),
+		})
+		for keyIndex := 1; keyIndex <= 2; keyIndex++ {
+			rawSecret := fmt.Sprintf("thk_mock_%03d_%d", i, keyIndex)
+			_, _, err := store.CreateAPIKey(project.ID, APIKey{
+				ID:      fmt.Sprintf("key_mock_%03d_%d", i, keyIndex),
+				Name:    fmt.Sprintf("Mock Key %03d-%d", i, keyIndex),
+				Allowed: mockAllowedModels(i + keyIndex),
+				Limits: QuotaLimits{
+					DailyRequests:   int64(800 + i*10),
+					MonthlyRequests: int64(24000 + i*120),
+					DailyTokens:     int64(900000 + i*12000),
+					MonthlyTokens:   int64(18000000 + i*300000),
+					DailyCostUSD:    float64(80 + i),
+					MonthlyCostUSD:  float64(1200 + i*15),
+					MaxConcurrency:  int64(6 + (i % 18)),
+				},
+				Status: activeEvery(i+keyIndex, 13),
+			}, rawSecret)
+			if err != nil && AsHTTPError(err).Code != "api_key_conflict" {
+				return err
+			}
+		}
+	}
+
+	providerTypes := []string{
+		ProviderOpenAICompatible,
+		ProviderOpenAI,
+		ProviderAzureOpenAI,
+		ProviderAnthropic,
+		ProviderGemini,
+		"deepseek",
+		"qwen",
+		"local",
+	}
+	for i := 1; i <= 36; i++ {
+		providerType := providerTypes[(i-1)%len(providerTypes)]
+		store.AddProvider(Provider{
+			ID:       fmt.Sprintf("prv_mock_%03d", i),
+			Name:     fmt.Sprintf("Mock Provider %03d", i),
+			Type:     providerType,
+			BaseURL:  fmt.Sprintf("https://mock-provider-%03d.internal/v1", i),
+			Status:   activeEvery(i, 10),
+			Healthy:  true,
+			Priority: 1 + (i % 9),
+			Headers: map[string]string{
+				"x-mock-region": mockRegion(i),
+			},
+			Options: map[string]string{
+				"tier": mockTier(i),
+			},
+		})
+	}
+
+	for i := 1; i <= 96; i++ {
+		name := fmt.Sprintf("mock-model-%03d", i)
+		modality := "chat"
+		if i%7 == 0 {
+			modality = "embedding"
+		} else if i%19 == 0 {
+			modality = "image"
+		}
+		store.AddModel(Model{
+			ID:                     name,
+			Name:                   name,
+			Family:                 mockModelFamily(i),
+			Modality:               modality,
+			ContextWindow:          int64(8192 * (1 + (i % 16))),
+			InputPriceUSDPer1M:     float64(10+(i%40)) / 100,
+			OutputPriceUSDPer1M:    float64(20+(i%80)) / 100,
+			EmbeddingPriceUSDPer1M: float64(1+(i%12)) / 100,
+			Status:                 activeEvery(i, 17),
+		})
+		store.AddRoute(ModelRoute{
+			ID:            fmt.Sprintf("route_mock_%03d_primary", i),
+			ModelName:     name,
+			ProviderID:    fmt.Sprintf("prv_mock_%03d", ((i-1)%36)+1),
+			ProviderModel: fmt.Sprintf("upstream-%s", name),
+			Priority:      1,
+			Weight:        100 - (i % 20),
+			Status:        activeEvery(i, 23),
+		})
+		store.AddRoute(ModelRoute{
+			ID:            fmt.Sprintf("route_mock_%03d_backup", i),
+			ModelName:     name,
+			ProviderID:    fmt.Sprintf("prv_mock_%03d", ((i+7)%36)+1),
+			ProviderModel: fmt.Sprintf("backup-%s", name),
+			Priority:      2,
+			Weight:        60 + (i % 30),
+			Status:        activeEvery(i, 29),
+		})
+	}
+
+	for i := 1; i <= 72; i++ {
+		_, err := store.CreateAdminUser(AdminUser{
+			ID:       fmt.Sprintf("usr_mock_%03d", i),
+			Username: fmt.Sprintf("mock.user%03d", i),
+			Name:     fmt.Sprintf("Mock 用户 %03d", i),
+			Email:    fmt.Sprintf("mock.user%03d@tokenhub.local", i),
+			Role:     mockRole(i),
+			TeamID:   fmt.Sprintf("team_mock_%02d", ((i-1)%24)+1),
+			Status:   activeEvery(i, 16),
+		}, "mock123456")
+		if err != nil && AsHTTPError(err).Code != "admin_user_conflict" {
+			return err
+		}
+	}
+
+	seedMockResources(store)
+	seedMockUsage(store)
+	return nil
+}
+
+func seedMockResources(store Store) {
+	for i := 1; i <= 60; i++ {
+		store.CreateResource("teams", AdminResource{
+			ID:          fmt.Sprintf("team_mock_%02d", i),
+			Name:        fmt.Sprintf("Mock 业务团队 %02d", i),
+			Description: fmt.Sprintf("负责第 %02d 条产品线的 AI 接入、额度治理与成本归因", i),
+			Status:      activeEvery(i, 14),
+			Fields: map[string]any{
+				"owner":       fmt.Sprintf("Mock 负责人 %02d", i),
+				"cost_center": fmt.Sprintf("MOCK-CC-%03d", i),
+				"members":     6 + (i % 45),
+			},
+		})
+	}
+	for i := 1; i <= 80; i++ {
+		store.CreateResource("provider-accounts", AdminResource{
+			ID:          fmt.Sprintf("acct_mock_%03d", i),
+			Name:        fmt.Sprintf("Mock Provider 账号 %03d", i),
+			Description: fmt.Sprintf("用于区域 %s 的企业授权 Provider 凭证", mockRegion(i)),
+			Status:      activeEvery(i, 12),
+			Fields: map[string]any{
+				"provider_id": fmt.Sprintf("prv_mock_%03d", ((i-1)%36)+1),
+				"auth_type":   "api_key",
+				"priority":    1 + (i % 5),
+				"groups":      fmt.Sprintf("group-%02d", ((i-1)%10)+1),
+			},
+		})
+	}
+	for i := 1; i <= 70; i++ {
+		store.CreateResource("quota-policies", AdminResource{
+			ID:          fmt.Sprintf("quo_mock_%02d", i),
+			Name:        fmt.Sprintf("Mock 额度策略 %02d", i),
+			Description: "用于分页、筛选和策略编辑测试的额度模板",
+			Status:      activeEvery(i, 15),
+			Fields: map[string]any{
+				"scope":            quotaScope(i),
+				"daily_requests":   500 + i*25,
+				"daily_tokens":     500000 + i*20000,
+				"daily_cost_usd":   20 + i,
+				"max_concurrency":  4 + (i % 20),
+				"enforcement_mode": "hard",
+			},
+		})
+	}
+	for i := 1; i <= 90; i++ {
+		store.CreateResource("monitors", AdminResource{
+			ID:          fmt.Sprintf("mon_mock_%03d", i),
+			Name:        fmt.Sprintf("Mock 健康监控 %03d", i),
+			Description: "模型路由链路心跳与 Provider 可用性监控",
+			Status:      activeEvery(i, 18),
+			Fields: map[string]any{
+				"provider":         fmt.Sprintf("prv_mock_%03d", ((i-1)%36)+1),
+				"model":            fmt.Sprintf("mock-model-%03d", ((i-1)%96)+1),
+				"interval_seconds": 30 + (i%8)*15,
+				"last_result":      monitorResult(i),
+			},
+		})
+	}
+	for i := 1; i <= 60; i++ {
+		store.CreateResource("proxies", AdminResource{
+			ID:          fmt.Sprintf("prx_mock_%02d", i),
+			Name:        fmt.Sprintf("Mock 代理出口 %02d", i),
+			Description: fmt.Sprintf("%s 区域出口策略", mockRegion(i)),
+			Status:      activeEvery(i, 20),
+			Fields: map[string]any{
+				"protocol": proxyProtocol(i),
+				"host":     fmt.Sprintf("proxy-%02d.internal", i),
+				"port":     8000 + i,
+			},
+		})
+	}
+	for i := 1; i <= 45; i++ {
+		store.CreateResource("announcements", AdminResource{
+			ID:          fmt.Sprintf("ann_mock_%02d", i),
+			Name:        fmt.Sprintf("Mock 运营公告 %02d", i),
+			Description: "用于验证公告列表、分页和编辑行为",
+			Status:      activeEvery(i, 9),
+			Fields: map[string]any{
+				"notify_mode": mockNotifyMode(i),
+				"target":      fmt.Sprintf("team_mock_%02d", ((i-1)%24)+1),
+			},
+		})
+	}
+	for i := 1; i <= 50; i++ {
+		store.CreateResource("settings", AdminResource{
+			ID:          fmt.Sprintf("cfg_mock_%02d", i),
+			Name:        fmt.Sprintf("Mock 系统设置 %02d", i),
+			Description: "用于后台设置页分页与配置编辑测试",
+			Status:      activeEvery(i, 22),
+			Fields: map[string]any{
+				"public_base_url": fmt.Sprintf("https://gateway-%02d.internal", i),
+				"default_timeout": fmt.Sprintf("%ds", 30+(i%8)*15),
+				"audit_retention": fmt.Sprintf("%dd", 30+(i%12)*15),
+			},
+		})
+	}
+	for i := 1; i <= 65; i++ {
+		store.CreateResource("security-policies", AdminResource{
+			ID:          fmt.Sprintf("sec_mock_%02d", i),
+			Name:        fmt.Sprintf("Mock 安全策略 %02d", i),
+			Description: "用于测试安全策略列表、编辑和分页",
+			Status:      activeEvery(i, 13),
+			Fields: map[string]any{
+				"mask_prompts":      i%3 != 0,
+				"ip_allowlist":      fmt.Sprintf("10.%d.0.0/16", i%255),
+				"error_passthrough": errorPassthrough(i),
+			},
+		})
+	}
+	for i := 1; i <= 75; i++ {
+		store.CreateResource("alert-rules", AdminResource{
+			ID:          fmt.Sprintf("alr_mock_%02d", i),
+			Name:        fmt.Sprintf("Mock 告警规则 %02d", i),
+			Description: "用于测试额度、成本、错误率和 Provider 健康告警配置",
+			Status:      activeEvery(i, 19),
+			Fields: map[string]any{
+				"metric":    alertMetric(i),
+				"threshold": fmt.Sprintf("%d%%", 65+(i%30)),
+				"channel":   alertChannel(i),
+			},
+		})
+	}
+}
+
+func seedMockUsage(store Store) {
+	if len(store.ListRequestLogs()) >= 220 {
+		return
+	}
+	for i := 1; i <= 260; i++ {
+		secret := fmt.Sprintf("thk_mock_%03d_%d", ((i-1)%80)+1, (i%2)+1)
+		project, key, err := store.ValidateAPIKey(secret)
+		if err != nil {
+			continue
+		}
+		modelName := "gpt-4.1-mini"
+		call, err := store.StartCall(project, key, modelName)
+		if err != nil {
+			store.RecordRejectedRequest(project, key, modelName, http.StatusTooManyRequests, "quota_exceeded", mockIP(i), "mock-seed/1.0")
+			continue
+		}
+		route, err := store.SelectRoute(modelName)
+		if err != nil {
+			store.FinishCall(call, RouteSelection{}, Usage{}, http.StatusServiceUnavailable, "provider_unavailable", mockIP(i), "mock-seed/1.0")
+			continue
+		}
+		status := http.StatusOK
+		errorCode := ""
+		if i%17 == 0 {
+			status = http.StatusBadGateway
+			errorCode = "upstream_error"
+		}
+		usage := Usage{
+			PromptTokens:     int64(120 + i*3),
+			CompletionTokens: int64(80 + i*2),
+		}
+		store.FinishCall(call, route, usage, status, errorCode, mockIP(i), "mock-seed/1.0")
+	}
+	for i := 1; i <= 40; i++ {
+		project, key, err := store.ValidateAPIKey(fmt.Sprintf("thk_mock_%03d_%d", ((i-1)%80)+1, (i%2)+1))
+		if err != nil {
+			continue
+		}
+		store.RecordRejectedRequest(project, key, fmt.Sprintf("blocked-model-%02d", i), http.StatusForbidden, "model_not_allowed", mockIP(300+i), "mock-seed/1.0")
+	}
+}
+
+func activeEvery(index int, disabledEvery int) string {
+	if disabledEvery > 0 && index%disabledEvery == 0 {
+		return StatusDisabled
+	}
+	return StatusActive
+}
+
+func mockAllowedModels(seed int) []string {
+	models := []string{"gpt-4.1-mini", "text-embedding-3-small"}
+	for i := 0; i < 5; i++ {
+		models = append(models, fmt.Sprintf("mock-model-%03d", ((seed+i*7-1)%96)+1))
+	}
+	return models
+}
+
+func mockRegion(index int) string {
+	regions := []string{"cn-north", "cn-east", "sg", "tokyo", "us-west", "eu-central"}
+	return regions[(index-1)%len(regions)]
+}
+
+func mockTier(index int) string {
+	tiers := []string{"standard", "priority", "backup", "experimental"}
+	return tiers[(index-1)%len(tiers)]
+}
+
+func mockModelFamily(index int) string {
+	families := []string{"gpt", "claude", "gemini", "qwen", "deepseek", "llama", "embedding"}
+	return families[(index-1)%len(families)]
+}
+
+func mockRole(index int) string {
+	roles := []string{"viewer", "project_admin", "security", "admin"}
+	return roles[(index-1)%len(roles)]
+}
+
+func quotaScope(index int) string {
+	scopes := []string{"project", "api_key", "user", "team"}
+	return scopes[(index-1)%len(scopes)]
+}
+
+func monitorResult(index int) string {
+	if index%13 == 0 {
+		return "degraded"
+	}
+	if index%17 == 0 {
+		return "failed"
+	}
+	return "ok"
+}
+
+func proxyProtocol(index int) string {
+	protocols := []string{"direct", "http", "https", "socks5"}
+	return protocols[(index-1)%len(protocols)]
+}
+
+func mockNotifyMode(index int) string {
+	if index%4 == 0 {
+		return "popup"
+	}
+	return "silent"
+}
+
+func errorPassthrough(index int) string {
+	modes := []string{"sanitized", "masked", "internal_only"}
+	return modes[(index-1)%len(modes)]
+}
+
+func alertMetric(index int) string {
+	metrics := []string{"daily_cost_usd", "daily_tokens", "error_rate", "provider_health", "latency_p95"}
+	return metrics[(index-1)%len(metrics)]
+}
+
+func alertChannel(index int) string {
+	channels := []string{"console", "email", "webhook", "feishu"}
+	return channels[(index-1)%len(channels)]
+}
+
+func mockIP(index int) string {
+	return fmt.Sprintf("10.%d.%d.%d", (index/128)%255, (index/16)%255, index%255)
+}

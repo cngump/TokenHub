@@ -1,0 +1,39 @@
+package main
+
+import (
+	"log"
+	"net/http"
+	"os"
+
+	"tokenhub/backend/internal/server"
+)
+
+func main() {
+	addr := getenv("TOKENHUB_HTTP_ADDR", ":8080")
+	config := server.ConfigFromEnv()
+
+	store, err := server.OpenStore(config.DatabaseURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := server.SeedDemoData(store); err != nil {
+		log.Fatal(err)
+	}
+
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: server.NewWithConfig(store, config).Handler(),
+	}
+
+	log.Printf("tokenhub backend listening on %s", addr)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatal(err)
+	}
+}
+
+func getenv(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}

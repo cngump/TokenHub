@@ -1,0 +1,213 @@
+# 管理后台规划
+
+## 前端定位
+
+Next.js 管理后台是企业管理员、项目管理员、安全管理员和财务/运营查看与治理 AI 使用的主要入口。它应当是高信息密度、清晰、稳定的运营工具，而不是营销型页面。
+
+## 技术建议
+
+| 项 | 建议 |
+| --- | --- |
+| 框架 | Next.js App Router + TypeScript |
+| UI | Tailwind CSS + 组件库封装 |
+| 图表 | ECharts 或 Recharts |
+| 表格 | TanStack Table |
+| 表单 | React Hook Form + Zod |
+| 请求 | fetch 封装或 TanStack Query |
+| 权限 | 前端路由守卫 + 后端 RBAC 校验 |
+| 国际化 | 预留中英文 i18n |
+
+## 信息架构
+
+```text
+Admin Console
+  Overview
+  Projects
+    Project Detail
+    Project Keys
+    Project Quotas
+    Project Usage
+  API Keys
+  Providers
+    Provider Detail
+    Credentials
+    Health
+  Models
+    Model Catalog
+    Model Mappings
+    Pricing
+  Routing
+    Rules
+    Fallback
+    Tests
+  Usage
+    Summary
+    Timeseries
+    Cost Allocation
+    Export
+  Audit
+    Request Logs
+    Admin Events
+    Security Events
+  Alerts
+    Rules
+    Events
+    Channels
+  Identity
+    Users
+    Teams
+    Roles
+    SSO
+  Settings
+    System
+    Security
+    Integrations
+```
+
+## 页面规划
+
+### Overview
+
+展示企业整体 AI 使用情况：
+
+- 今日请求数。
+- 今日 Token。
+- 今日成本。
+- 成功率和错误率。
+- P95 延迟。
+- Top 项目成本。
+- Top 模型用量。
+- Provider 健康状态。
+- 近期告警。
+
+### Projects
+
+项目是企业内部 AI 使用的基本治理单元。
+
+| 功能 | 说明 |
+| --- | --- |
+| 项目列表 | 搜索、筛选、状态、负责人、今日成本 |
+| 项目详情 | 基础信息、成员、Key、额度、用量、审计 |
+| 创建项目 | 名称、团队、负责人、默认额度 |
+| 禁用项目 | 禁用后所有 Key 不可调用 |
+| 项目报表 | 按模型、Key、时间查看成本与 Token |
+
+### API Keys
+
+| 功能 | 说明 |
+| --- | --- |
+| 创建 Key | 选择项目、过期时间、模型白名单、额度、并发 |
+| 明文展示一次 | 创建完成后只展示一次 |
+| 轮换 Key | 生成新 Key，可选择保留旧 Key 一段时间 |
+| 吊销 Key | 立即失效 |
+| 使用追踪 | 最近使用时间、调用来源、错误率 |
+
+### Providers
+
+| 功能 | 说明 |
+| --- | --- |
+| Provider 列表 | 类型、状态、健康、优先级 |
+| Provider 配置 | base_url、认证方式、超时、重试 |
+| 凭证管理 | 加密保存，支持启停和轮换 |
+| 健康检查 | 手动测试和定时探测 |
+| 模型映射 | Provider 模型到统一模型的映射 |
+
+### Models
+
+| 功能 | 说明 |
+| --- | --- |
+| 统一模型目录 | 对外展示的模型名 |
+| Provider 映射 | 一个统一模型可映射多个 Provider |
+| 价格配置 | 输入、输出、缓存、Embedding 单价 |
+| 能力标签 | chat、embedding、tool、vision、audio |
+| 上下文长度 | 用于前端展示和策略校验 |
+
+### Routing
+
+| 功能 | 说明 |
+| --- | --- |
+| 路由规则 | 按模型、项目、Provider 优先级配置 |
+| Fallback | Provider 失败后切换目标 |
+| 灰度 | 后续支持按比例或项目灰度 |
+| 路由测试 | 输入模型和项目，展示命中的路由链路 |
+
+### Usage
+
+| 视图 | 指标 |
+| --- | --- |
+| 总览 | 请求、Token、成本、成功率 |
+| 趋势 | 小时、日、月 |
+| 成本归因 | 项目、团队、模型、Provider、Key |
+| 异常分析 | 成本突增、错误率突增、Token 异常 |
+| 导出 | CSV、Excel，后续支持定时报表 |
+
+### Audit
+
+| 视图 | 说明 |
+| --- | --- |
+| Request Logs | 每次模型调用的元信息和结果 |
+| Admin Events | 管理后台配置变更 |
+| Security Events | 鉴权失败、越权访问、异常调用 |
+| Detail Drawer | 展示请求 ID、项目、Key、模型、Provider、策略命中 |
+
+### Alerts
+
+| 功能 | 说明 |
+| --- | --- |
+| 告警规则 | 额度、错误率、成本、Provider 健康 |
+| 告警事件 | 状态、触发时间、处理人 |
+| 通知渠道 | Webhook，后续支持飞书、钉钉、企业微信 |
+| 静默规则 | 维护窗口或临时忽略 |
+
+## 关键工作流
+
+### 创建项目并发 Key
+
+1. 平台管理员创建项目。
+2. 选择所属团队、负责人和默认额度。
+3. 创建 API Key。
+4. 设置模型白名单、日/月额度、并发上限、有效期。
+5. 系统展示 Key 明文一次。
+6. 开发者将 Key 配置到内部应用。
+7. 管理员在 Usage 和 Audit 中观察调用情况。
+
+### 新增 Provider
+
+1. 管理员选择 Provider 类型。
+2. 输入 base_url、认证凭证、超时、重试策略。
+3. 点击测试连接。
+4. 配置 Provider 模型映射。
+5. 将映射加入路由规则。
+6. 在 Provider 健康页观察成功率和延迟。
+
+### 处理成本突增
+
+1. 告警触发成本突增事件。
+2. 管理员进入告警详情。
+3. 查看关联项目、Key、模型和调用时间段。
+4. 下钻到 Request Logs。
+5. 选择临时禁用 Key、降低额度或限制模型。
+6. 记录处理结果。
+
+## 权限矩阵
+
+| 能力 | 系统管理员 | 安全管理员 | 项目管理员 | 只读用户 |
+| --- | --- | --- | --- | --- |
+| Provider 管理 | 是 | 否 | 否 | 否 |
+| 项目管理 | 是 | 否 | 本项目 | 否 |
+| Key 管理 | 是 | 否 | 本项目 | 否 |
+| 额度管理 | 是 | 否 | 本项目 | 否 |
+| 用量查看 | 是 | 是 | 本项目 | 授权范围 |
+| 审计查看 | 是 | 是 | 本项目摘要 | 否 |
+| 告警配置 | 是 | 是 | 本项目 | 否 |
+| 身份集成 | 是 | 否 | 否 | 否 |
+
+## 设计注意事项
+
+- 后台应优先保证表格、筛选、搜索、导出和下钻体验。
+- 所有危险操作需要二次确认，例如吊销 Key、禁用项目、删除 Provider。
+- 创建 Key 后必须明确提示明文只展示一次。
+- 审计详情中默认不展示原始 Prompt 和 Response。
+- 成本数字需要展示币种、统计周期和估算说明。
+- 所有策略页面都应提供“测试命中结果”，降低配置不可见风险。
+
