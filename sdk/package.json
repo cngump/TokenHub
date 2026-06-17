@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:deepseek": "node ./test-deepseek.mjs"
+    "test:deepseek": "node ./test-deepseek.mjs",
+    "test:security-policy": "node ./test-security-policy.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "latest",

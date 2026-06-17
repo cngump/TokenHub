@@ -84,6 +84,7 @@ type Store interface {
 	RecordRouteAttempts(requestID string, attempts []RouteAttempt)
 	RecordRejectedRequest(project Project, key APIKey, modelName string, statusCode int, errorCode string, clientIP string, userAgent string) string
 	RecordRequestPayload(requestID string, requestBody string, requestTruncated bool, responseBody string, responseTruncated bool)
+	ListUsageRecords() []UsageRecord
 	UsageSummary() map[string]any
 	UsageBreakdown() map[string]any
 	UsageBreakdownForPeriod(period string) map[string]any
@@ -445,7 +446,9 @@ func (s *GormStore) UpdateAPIKey(id string, patch APIKey) (APIKey, error) {
 	if patch.Limits != (QuotaLimits{}) {
 		key.Limits = patch.Limits
 	}
-	key.ExpiresAt = patch.ExpiresAt
+	if patch.ExpiresAt != nil {
+		key.ExpiresAt = patch.ExpiresAt
+	}
 	if err := s.db.Save(&key).Error; err != nil {
 		return APIKey{}, err
 	}
@@ -1614,6 +1617,12 @@ func (s *GormStore) UsageSummary() map[string]any {
 		"estimated_cost_usd": cost,
 		"errors":             errorsCount,
 	}
+}
+
+func (s *GormStore) ListUsageRecords() []UsageRecord {
+	var records []UsageRecord
+	_ = s.db.Find(&records).Error
+	return records
 }
 
 func (s *GormStore) UsageBreakdown() map[string]any {
@@ -3099,7 +3108,7 @@ func createAdminUser(db *gorm.DB, user AdminUser, password string) (AdminUser, e
 		user.Name = user.Username
 	}
 	if user.Role == "" {
-		user.Role = "viewer"
+		user.Role = "user"
 	}
 	if user.Status == "" {
 		user.Status = StatusActive

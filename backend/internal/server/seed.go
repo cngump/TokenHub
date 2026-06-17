@@ -129,6 +129,7 @@ func BootstrapBaseData(store Store) error {
 			return err
 		}
 	}
+	seedDefaultOrgResources(store)
 	seedDefaultProject(store)
 	pruneProviderImportedModelCatalog(store)
 	seedDefaultModelCatalog(store)
@@ -163,18 +164,109 @@ func seedDefaultModelCatalog(store Store) {
 	}
 }
 
-func seedAdminResources(store Store) {
-	store.CreateResource("teams", AdminResource{
+func seedDefaultOrgResources(store Store) {
+	seedResourceIfMissing(store, "teams", AdminResource{
 		ID:          "team_platform",
 		Name:        "平台工程团队",
 		Description: "负责内部 AI Gateway 接入与平台治理",
 		Status:      StatusActive,
 		Fields: map[string]any{
-			"owner":       "张工",
+			"owner":       "usr_admin",
 			"cost_center": "AI-PLATFORM",
-			"members":     12,
 		},
 	})
+	seedResourceIfMissing(store, "cost-centers", AdminResource{
+		ID:          "cc_ai_platform",
+		Name:        "AI 平台成本中心",
+		Description: "平台工程与共享 AI 基础设施费用归属",
+		Status:      StatusActive,
+		Fields: map[string]any{
+			"code":               "AI-PLATFORM",
+			"department":         "技术平台部",
+			"owner":              "usr_admin",
+			"monthly_budget_usd": 5000,
+		},
+	})
+	seedResourceIfMissing(store, "security-policies", AdminResource{
+		ID:          "sec_ip_allowlist",
+		Name:        "生产 IP 白名单策略",
+		Description: "记录模型 API 的推荐 IP 白名单、Prompt 脱敏和错误透传规则",
+		Status:      StatusActive,
+		Fields: map[string]any{
+			"mask_prompts":      true,
+			"ip_allowlist":      "127.0.0.1/32\n10.0.0.0/8",
+			"error_passthrough": "sanitized",
+		},
+	})
+	seedResourceIfMissing(store, "settings", AdminResource{
+		ID:          "cfg_gateway",
+		Name:        "网关基础设置",
+		Description: "模型 API 对外地址、请求超时和审计保留周期",
+		Status:      StatusActive,
+		Fields: map[string]any{
+			"public_base_url": "http://localhost:8080",
+			"default_timeout": "120s",
+			"audit_retention": "180d",
+		},
+	})
+	seedDefaultRoleConfigs(store)
+}
+
+func seedDefaultRoleConfigs(store Store) {
+	roles := []AdminResource{
+		{
+			ID:          "role_user",
+			Name:        "普通用户",
+			Description: "允许创建自己的 API Key，查看自己的请求日志和用量。",
+			Status:      StatusActive,
+			Fields: map[string]any{
+				"role_key":     "user",
+				"display_name": "普通用户",
+				"data_scope":   "self",
+				"assignable":   true,
+			},
+		},
+		{
+			ID:          "role_team_leader",
+			Name:        "团队 Leader",
+			Description: "管理团队成员，查看团队用量和团队成本。",
+			Status:      StatusActive,
+			Fields: map[string]any{
+				"role_key":     "team_leader",
+				"display_name": "团队 Leader",
+				"data_scope":   "team",
+				"assignable":   true,
+			},
+		},
+		{
+			ID:          "role_admin",
+			Name:        "平台管理员",
+			Description: "管理平台配置、Provider、模型路由、用户和治理策略。",
+			Status:      StatusActive,
+			Fields: map[string]any{
+				"role_key":     "admin",
+				"display_name": "平台管理员",
+				"data_scope":   "global",
+				"assignable":   true,
+			},
+		},
+	}
+	for _, role := range roles {
+		seedResourceIfMissing(store, "role-configs", role)
+	}
+}
+
+func seedResourceIfMissing(store Store, kind string, resource AdminResource) {
+	for _, existing := range store.ListResources(kind) {
+		if existing.ID == resource.ID {
+			return
+		}
+	}
+	store.CreateResource(kind, resource)
+}
+
+func seedAdminResources(store Store) {
+	seedDefaultOrgResources(store)
 	store.CreateResource("monitors", AdminResource{
 		ID:          "mon_gateway",
 		Name:        "核心聊天模型心跳",
@@ -254,18 +346,6 @@ func seedAdminResources(store Store) {
 			"max_concurrency":  20,
 			"scope":            "project",
 			"enforcement_mode": "hard",
-		},
-	})
-	store.CreateResource("cost-centers", AdminResource{
-		ID:          "cc_ai_platform",
-		Name:        "AI 平台成本中心",
-		Description: "平台工程与共享 AI 基础设施费用归属",
-		Status:      StatusActive,
-		Fields: map[string]any{
-			"code":               "AI-PLATFORM",
-			"department":         "技术平台部",
-			"owner":              "张工",
-			"monthly_budget_usd": 5000,
 		},
 	})
 	store.CreateResource("budgets", AdminResource{
@@ -483,7 +563,6 @@ func seedMockResources(store Store) {
 			Fields: map[string]any{
 				"owner":       fmt.Sprintf("Mock 负责人 %02d", i),
 				"cost_center": fmt.Sprintf("MOCK-CC-%03d", i),
-				"members":     6 + (i % 45),
 			},
 		})
 	}
@@ -676,7 +755,7 @@ func mockModelFamily(index int) string {
 }
 
 func mockRole(index int) string {
-	roles := []string{"viewer", "project_admin", "security", "admin"}
+	roles := []string{"user", "team_leader", "security", "admin"}
 	return roles[(index-1)%len(roles)]
 }
 

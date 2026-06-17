@@ -238,6 +238,56 @@ func TestAdminCreatesAPIKeyUnderDefaultProject(t *testing.T) {
 	}
 }
 
+func TestBootstrapBaseDataSeedsGovernanceResources(t *testing.T) {
+	store := NewMemoryStore()
+	if err := BootstrapBaseData(store); err != nil {
+		t.Fatal(err)
+	}
+
+	policies := store.ListResources("security-policies")
+	var found AdminResource
+	for _, policy := range policies {
+		if policy.ID == "sec_ip_allowlist" {
+			found = policy
+			break
+		}
+	}
+	if found.ID == "" {
+		t.Fatalf("expected seeded security policy, got %+v", policies)
+	}
+	if found.Name != "生产 IP 白名单策略" || found.Status != StatusActive {
+		t.Fatalf("unexpected security policy metadata: %+v", found)
+	}
+	if stringField(found.Fields, "error_passthrough") != "sanitized" || !strings.Contains(stringField(found.Fields, "ip_allowlist"), "127.0.0.1/32") {
+		t.Fatalf("unexpected security policy fields: %+v", found.Fields)
+	}
+
+	settings := store.ListResources("settings")
+	if len(settings) != 1 || settings[0].ID != "cfg_gateway" {
+		t.Fatalf("expected gateway system setting, got %+v", settings)
+	}
+	if stringField(settings[0].Fields, "public_base_url") == "" || stringField(settings[0].Fields, "audit_retention") == "" {
+		t.Fatalf("expected configurable system setting fields, got %+v", settings[0].Fields)
+	}
+
+	roles := store.ListResources("role-configs")
+	if len(roles) != 3 {
+		t.Fatalf("expected three role configs, got %+v", roles)
+	}
+	roleKeys := map[string]bool{}
+	for _, role := range roles {
+		roleKeys[stringField(role.Fields, "role_key")] = true
+		if role.Status != StatusActive || stringField(role.Fields, "display_name") == "" {
+			t.Fatalf("unexpected role config: %+v", role)
+		}
+	}
+	for _, key := range []string{"user", "team_leader", "admin"} {
+		if !roleKeys[key] {
+			t.Fatalf("expected seeded role key %s, got %+v", key, roleKeys)
+		}
+	}
+}
+
 func TestGatewayRejectsUnauthorizedModel(t *testing.T) {
 	app := newTestServer()
 	resp := doJSON(t, app, http.MethodPost, "/v1/chat/completions", map[string]any{
@@ -471,6 +521,30 @@ func TestAPIKeyIPAllowlistAndRotation(t *testing.T) {
 	}
 }
 
+func TestAPIKeyStatusUpdatePreservesExpiration(t *testing.T) {
+	store := NewMemoryStore()
+	project := store.CreateProject(Project{Name: "Expiring Key Ops"})
+	expiresAt := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Second)
+	key, _, err := store.CreateAPIKey(project.ID, APIKey{
+		Name:      "expiring",
+		Status:    StatusActive,
+		ExpiresAt: &expiresAt,
+	}, "thk_expiring")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.UpdateAPIKey(key.ID, APIKey{Status: StatusDisabled})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != StatusDisabled {
+		t.Fatalf("expected disabled key, got %s", updated.Status)
+	}
+	if updated.ExpiresAt == nil || !updated.ExpiresAt.Equal(expiresAt) {
+		t.Fatalf("expected expiration to be preserved, got %v want %v", updated.ExpiresAt, expiresAt)
+	}
+}
+
 func TestAdminCreatesProjectAndKey(t *testing.T) {
 	app := newTestServer()
 	project := doJSON(t, app, http.MethodPost, "/api/admin/projects", map[string]any{
@@ -554,6 +628,52 @@ func TestApprovalFlowInterceptsAPIKeyCreate(t *testing.T) {
 	}
 }
 
+func TestProjectQuotaIncreaseApprovalCreatesAndLinksPolicy(t *testing.T) {
+	store := NewMemoryStore()
+	project := store.CreateProject(Project{Name: "Quota Project", Status: StatusActive})
+	app := New(store).Handler()
+
+	request := doJSON(t, app, http.MethodPost, "/api/admin/projects/"+project.ID+"/quota-increase", map[string]any{
+		"name": "Quota Project 提升额度",
+		"fields": map[string]any{
+			"daily_requests":   20,
+			"monthly_requests": 500,
+			"monthly_cost_usd": 25,
+		},
+	}, "")
+	if request.Code != http.StatusAccepted {
+		t.Fatalf("expected quota approval request, got %d: %s", request.Code, request.Body)
+	}
+	if !strings.Contains(request.Body, `"approval_required":true`) || !strings.Contains(request.Body, `"trigger":"quota_increase"`) {
+		t.Fatalf("expected quota approval payload: %s", request.Body)
+	}
+
+	approvals := store.ListApprovalRequests()
+	if len(approvals) != 1 || approvals[0].ResourceType != "quota-policies" || approvals[0].ResourceID != "" {
+		t.Fatalf("unexpected quota approvals: %+v", approvals)
+	}
+
+	approved := doJSON(t, app, http.MethodPost, "/api/admin/approvals/"+approvals[0].ID+"/approve", map[string]any{}, "")
+	if approved.Code != http.StatusOK {
+		t.Fatalf("expected quota approval apply, got %d: %s", approved.Code, approved.Body)
+	}
+
+	quotas := store.ListResources("quota-policies")
+	if len(quotas) != 1 {
+		t.Fatalf("expected one quota policy after approval, got %+v", quotas)
+	}
+	if stringField(quotas[0].Fields, "scope") != "project" || stringField(quotas[0].Fields, "scope_id") != project.ID {
+		t.Fatalf("expected project-scoped quota policy, got %+v", quotas[0].Fields)
+	}
+	if int64Field(quotas[0].Fields, "daily_requests") != 20 || int64Field(quotas[0].Fields, "monthly_requests") != 500 {
+		t.Fatalf("expected approved quota limits, got %+v", quotas[0].Fields)
+	}
+	updatedProject, ok := store.GetProject(project.ID)
+	if !ok || updatedProject.DefaultQuotaRef != quotas[0].ID {
+		t.Fatalf("expected project quota ref %s, got %+v", quotas[0].ID, updatedProject)
+	}
+}
+
 func TestAlertWebhookDeliveryIsRecorded(t *testing.T) {
 	store := NewMemoryStore()
 	var received bytes.Buffer
@@ -601,6 +721,96 @@ func TestAlertWebhookDeliveryIsRecorded(t *testing.T) {
 	deliveries := store.ListAlertDeliveries()
 	if len(deliveries) < 1 || deliveries[0].AlertID != alert.ID || deliveries[0].Status != "success" {
 		t.Fatalf("expected recorded delivery, got %+v", deliveries)
+	}
+}
+
+func TestAlertBotDeliveryFormats(t *testing.T) {
+	tests := []struct {
+		channelType string
+		bodyMarker  string
+	}{
+		{channelType: "feishu", bodyMarker: `"msg_type":"text"`},
+		{channelType: "dingtalk", bodyMarker: `"msgtype":"text"`},
+		{channelType: "wecom", bodyMarker: `"msgtype":"text"`},
+		{channelType: "slack", bodyMarker: `"text":"[TokenHub] monitor_check_failed`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.channelType, func(t *testing.T) {
+			store := NewMemoryStore()
+			var received bytes.Buffer
+			webhook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost {
+					t.Fatalf("expected POST webhook, got %s", r.Method)
+				}
+				_, _ = io.Copy(&received, r.Body)
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer webhook.Close()
+
+			store.CreateResource("notification-channels", AdminResource{
+				Name:   tt.channelType,
+				Status: StatusActive,
+				Fields: map[string]any{
+					"type":        tt.channelType,
+					"webhook_url": webhook.URL,
+				},
+			})
+			alert := AlertEvent{
+				ID:        "alt_" + tt.channelType,
+				ScopeType: "provider",
+				ScopeID:   "prv_test",
+				Severity:  "warning",
+				Code:      "monitor_check_failed",
+				Message:   "Provider failed",
+				CreatedAt: time.Now().UTC(),
+			}
+			if err := store.db.Create(&alert).Error; err != nil {
+				t.Fatal(err)
+			}
+			app := New(store).Handler()
+
+			resp := doJSON(t, app, http.MethodPost, "/api/admin/alerts/"+alert.ID+"/deliver", map[string]any{}, "")
+			if resp.Code != http.StatusOK || !strings.Contains(resp.Body, `"status":"success"`) {
+				t.Fatalf("expected delivery success, got %d: %s", resp.Code, resp.Body)
+			}
+			if !strings.Contains(received.String(), tt.bodyMarker) || !strings.Contains(received.String(), "monitor_check_failed") {
+				t.Fatalf("unexpected %s payload: %s", tt.channelType, received.String())
+			}
+		})
+	}
+}
+
+func TestAlertEmailDeliveryMissingConfigIsRecorded(t *testing.T) {
+	store := NewMemoryStore()
+	store.CreateResource("notification-channels", AdminResource{
+		Name:   "Email",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"type":     "email",
+			"email_to": "ops@example.com",
+		},
+	})
+	alert := AlertEvent{
+		ID:        "alt_email",
+		ScopeType: "provider",
+		ScopeID:   "prv_test",
+		Severity:  "warning",
+		Code:      "monitor_check_failed",
+		Message:   "Provider failed",
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.db.Create(&alert).Error; err != nil {
+		t.Fatal(err)
+	}
+	app := New(store).Handler()
+
+	resp := doJSON(t, app, http.MethodPost, "/api/admin/alerts/"+alert.ID+"/deliver", map[string]any{}, "")
+	if resp.Code != http.StatusOK || !strings.Contains(resp.Body, `"status":"failed"`) || !strings.Contains(resp.Body, "smtp_host is required") {
+		t.Fatalf("expected recorded email config failure, got %d: %s", resp.Code, resp.Body)
+	}
+	deliveries := store.ListAlertDeliveries()
+	if len(deliveries) < 1 || deliveries[0].Channel != "email" || deliveries[0].Status != "failed" {
+		t.Fatalf("expected failed email delivery record, got %+v", deliveries)
 	}
 }
 
@@ -1079,6 +1289,223 @@ func TestRBACAndAdminAuditEvents(t *testing.T) {
 	}
 	if !strings.Contains(audit.Body, `"resource_type":"project"`) || !strings.Contains(audit.Body, `"action":"create"`) {
 		t.Fatalf("expected project create audit event: %s", audit.Body)
+	}
+}
+
+func TestUserRequestAuditIsScopedToOwnLogs(t *testing.T) {
+	store := NewMemoryStore()
+	user, err := store.CreateAdminUser(AdminUser{
+		Username: "request-auditor",
+		Name:     "Request Auditor",
+		Email:    "request-auditor@tokenhub.local",
+		Role:     "user",
+		Status:   StatusActive,
+	}, "user123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherUser, err := store.CreateAdminUser(AdminUser{
+		Username: "other-request-auditor",
+		Name:     "Other Request Auditor",
+		Email:    "other-request-auditor@tokenhub.local",
+		Role:     "user",
+		Status:   StatusActive,
+	}, "other123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := store.CreateProject(Project{Name: "User Audit Project", OwnerUserID: user.ID})
+	otherProject := store.CreateProject(Project{Name: "Other Audit Project", OwnerUserID: otherUser.ID})
+	key, _, err := store.CreateAPIKey(project.ID, APIKey{
+		Name:     "user-owned-key",
+		Status:   StatusActive,
+		Metadata: map[string]string{"created_by": user.ID},
+	}, "thk_user_audit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherKey, _, err := store.CreateAPIKey(otherProject.ID, APIKey{
+		Name:     "other-owned-key",
+		Status:   StatusActive,
+		Metadata: map[string]string{"created_by": otherUser.ID},
+	}, "thk_other_audit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := store.db.Create(&RequestLog{
+		ID:         "log_user_visible",
+		RequestID:  "req_user_visible",
+		ProjectID:  project.ID,
+		APIKeyID:   key.ID,
+		ModelName:  "gpt-4.1-mini",
+		StatusCode: http.StatusOK,
+		LatencyMS:  120,
+		CreatedAt:  now,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Create(&RequestLog{
+		ID:         "log_other_hidden",
+		RequestID:  "req_other_hidden",
+		ProjectID:  otherProject.ID,
+		APIKeyID:   otherKey.ID,
+		ModelName:  "gpt-4.1-mini",
+		StatusCode: http.StatusOK,
+		LatencyMS:  95,
+		CreatedAt:  now,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Create(&RequestPayloadLog{
+		ID:           "payload_user_visible",
+		RequestID:    "req_user_visible",
+		RequestBody:  `{"model":"gpt-4.1-mini"}`,
+		ResponseBody: `{"id":"chatcmpl_user"}`,
+		CreatedAt:    now,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	app := New(store).Handler()
+
+	login := doJSON(t, app, http.MethodPost, "/api/admin/auth/login", map[string]any{
+		"identity": "request-auditor@tokenhub.local",
+		"password": "user123456",
+	}, "")
+	var payload struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(login.Body), &payload); err != nil {
+		t.Fatal(err)
+	}
+	logs := doJSON(t, app, http.MethodGet, "/api/admin/audit/requests", nil, payload.Token)
+	if logs.Code != http.StatusOK {
+		t.Fatalf("expected user request audit 200, got %d: %s", logs.Code, logs.Body)
+	}
+	if !strings.Contains(logs.Body, "req_user_visible") || strings.Contains(logs.Body, "req_other_hidden") {
+		t.Fatalf("request audit should only include user's logs: %s", logs.Body)
+	}
+	detail := doJSON(t, app, http.MethodGet, "/api/admin/audit/requests/req_user_visible", nil, payload.Token)
+	if detail.Code != http.StatusOK || !strings.Contains(detail.Body, "chatcmpl_user") {
+		t.Fatalf("expected own request detail, got %d: %s", detail.Code, detail.Body)
+	}
+	hiddenDetail := doJSON(t, app, http.MethodGet, "/api/admin/audit/requests/req_other_hidden", nil, payload.Token)
+	if hiddenDetail.Code != http.StatusForbidden {
+		t.Fatalf("expected hidden request detail 403, got %d: %s", hiddenDetail.Code, hiddenDetail.Body)
+	}
+	adminAudit := doJSON(t, app, http.MethodGet, "/api/admin/audit/events", nil, payload.Token)
+	if adminAudit.Code != http.StatusForbidden {
+		t.Fatalf("user should not read admin audit events, got %d: %s", adminAudit.Code, adminAudit.Body)
+	}
+}
+
+func TestTeamLeaderUsageBreakdownIncludesMembers(t *testing.T) {
+	store := NewMemoryStore()
+	leader, err := store.CreateAdminUser(AdminUser{
+		Username: "usage-leader",
+		Name:     "Usage Leader",
+		Email:    "usage-leader@tokenhub.local",
+		Role:     "team_leader",
+		TeamID:   "team_usage",
+		Status:   StatusActive,
+	}, "leader123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	memberA, err := store.CreateAdminUser(AdminUser{
+		Username: "usage-member-a",
+		Name:     "Usage Member A",
+		Email:    "usage-member-a@tokenhub.local",
+		Role:     "user",
+		TeamID:   leader.TeamID,
+		Status:   StatusActive,
+	}, "member123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	memberB, err := store.CreateAdminUser(AdminUser{
+		Username: "usage-member-b",
+		Name:     "Usage Member B",
+		Email:    "usage-member-b@tokenhub.local",
+		Role:     "user",
+		TeamID:   leader.TeamID,
+		Status:   StatusActive,
+	}, "member123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherMember, err := store.CreateAdminUser(AdminUser{
+		Username: "usage-member-other",
+		Name:     "Usage Member Other",
+		Email:    "usage-member-other@tokenhub.local",
+		Role:     "user",
+		TeamID:   "team_other",
+		Status:   StatusActive,
+	}, "member123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := store.CreateProject(Project{Name: "Team Usage App", TeamID: leader.TeamID})
+	otherProject := store.CreateProject(Project{Name: "Other Usage App", TeamID: otherMember.TeamID})
+	keyA, _, err := store.CreateAPIKey(project.ID, APIKey{Name: "member-a-key", Status: StatusActive, Metadata: map[string]string{"created_by": memberA.ID}}, "thk_usage_member_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyB, _, err := store.CreateAPIKey(project.ID, APIKey{Name: "member-b-key", Status: StatusActive, Metadata: map[string]string{"created_by": memberB.ID}}, "thk_usage_member_b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherKey, _, err := store.CreateAPIKey(otherProject.ID, APIKey{Name: "other-member-key", Status: StatusActive, Metadata: map[string]string{"created_by": otherMember.ID}}, "thk_usage_other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	records := []UsageRecord{
+		{ID: "usage_member_a", RequestID: "req_member_a", ProjectID: project.ID, APIKeyID: keyA.ID, ModelName: "gpt-4.1-mini", TotalTokens: 100, CostUSD: 0.1, CreatedAt: now},
+		{ID: "usage_member_b", RequestID: "req_member_b", ProjectID: project.ID, APIKeyID: keyB.ID, ModelName: "gpt-4.1-mini", TotalTokens: 250, CostUSD: 0.2, CreatedAt: now},
+		{ID: "usage_other", RequestID: "req_other", ProjectID: otherProject.ID, APIKeyID: otherKey.ID, ModelName: "gpt-4.1-mini", TotalTokens: 999, CostUSD: 9.9, CreatedAt: now},
+	}
+	if err := store.db.Create(&records).Error; err != nil {
+		t.Fatal(err)
+	}
+	app := New(store).Handler()
+
+	login := doJSON(t, app, http.MethodPost, "/api/admin/auth/login", map[string]any{
+		"identity": "usage-leader@tokenhub.local",
+		"password": "leader123456",
+	}, "")
+	var payload struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(login.Body), &payload); err != nil {
+		t.Fatal(err)
+	}
+	resp := doJSON(t, app, http.MethodGet, "/api/admin/usage/breakdown", nil, payload.Token)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected team leader usage breakdown, got %d: %s", resp.Code, resp.Body)
+	}
+	var breakdown struct {
+		Members []struct {
+			ID           string `json:"id"`
+			RequestCount int64  `json:"request_count"`
+			TotalTokens  int64  `json:"total_tokens"`
+		} `json:"members"`
+	}
+	if err := json.Unmarshal([]byte(resp.Body), &breakdown); err != nil {
+		t.Fatal(err)
+	}
+	totals := map[string]int64{}
+	for _, row := range breakdown.Members {
+		totals[row.ID] = row.TotalTokens
+		if row.RequestCount != 1 {
+			t.Fatalf("expected one request per member row, got %+v", row)
+		}
+	}
+	if totals[memberA.ID] != 100 || totals[memberB.ID] != 250 {
+		t.Fatalf("expected member totals for team members, got %+v", totals)
+	}
+	if _, ok := totals[otherMember.ID]; ok {
+		t.Fatalf("other team member should not be included: %+v", totals)
 	}
 }
 
@@ -1647,6 +2074,129 @@ func TestMonitorRunInfersLegacyModelMonitor(t *testing.T) {
 	run := doJSON(t, app, http.MethodPost, "/api/admin/resources/monitors/"+monitor.ID+"/run", map[string]any{}, "")
 	if run.Code != http.StatusOK || !strings.Contains(run.Body, `"target_type":"model"`) || !strings.Contains(run.Body, `"status":"ok"`) {
 		t.Fatalf("expected legacy monitor to run as model monitor, got %d %s", run.Code, run.Body)
+	}
+}
+
+func TestDefaultMonitorsAreAutoDiscovered(t *testing.T) {
+	store := NewMemoryStore()
+	if err := BootstrapBaseData(store); err != nil {
+		t.Fatal(err)
+	}
+	provider := store.AddProvider(Provider{
+		ID:       "prv_health_default",
+		Name:     "Health Default Provider",
+		Type:     ProviderMock,
+		Status:   StatusActive,
+		Healthy:  true,
+		Priority: 1,
+	})
+	resource, err := store.AddProviderResource(ProviderResource{
+		ID:           "rsrc_health_default",
+		ProviderID:   provider.ID,
+		Name:         "Health Default Resource",
+		ResourceType: "mock",
+		Status:       StatusActive,
+		Healthy:      true,
+		Priority:     1,
+		Weight:       100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.AddModel(Model{
+		ID:       "health-default-model",
+		Name:     "health-default-model",
+		Family:   "test",
+		Modality: "chat",
+		Status:   StatusActive,
+	})
+	store.AddRoute(ModelRoute{
+		ID:                 "route_health_default",
+		ModelName:          "health-default-model",
+		ProviderID:         provider.ID,
+		ProviderResourceID: resource.ID,
+		ProviderModel:      "health-default-upstream",
+		Priority:           1,
+		Weight:             100,
+		Status:             StatusActive,
+	})
+	app := New(store).Handler()
+
+	resp := doJSON(t, app, http.MethodGet, "/api/admin/resources/monitors", nil, "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("default monitor list failed: %d %s", resp.Code, resp.Body)
+	}
+	monitors := store.ListResources("monitors")
+	if len(monitors) != 3 {
+		t.Fatalf("expected provider/resource/model monitors, got %d: %+v", len(monitors), monitors)
+	}
+	found := map[string]bool{}
+	for _, monitor := range monitors {
+		key := monitorTargetKey(monitor.Fields)
+		found[key] = true
+		if stringifyValueForTest(monitor.Fields["managed_by"]) != "tokenhub_auto" {
+			t.Fatalf("expected auto-managed monitor, got %+v", monitor.Fields)
+		}
+		if stringifyValueForTest(monitor.Fields["last_status"]) != "ok" || stringifyValueForTest(monitor.Fields["last_checked_at"]) == "" {
+			t.Fatalf("expected monitor to run immediately, got %+v", monitor.Fields)
+		}
+	}
+	for _, key := range []string{"provider:" + provider.ID, "resource:" + resource.ID, "model:health-default-model"} {
+		if !found[key] {
+			t.Fatalf("missing default monitor target %s in %+v", key, found)
+		}
+	}
+
+	resp = doJSON(t, app, http.MethodGet, "/api/admin/resources/monitors", nil, "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("second default monitor list failed: %d %s", resp.Code, resp.Body)
+	}
+	if got := len(store.ListResources("monitors")); got != len(monitors) {
+		t.Fatalf("default monitor discovery should be idempotent, before=%d after=%d", len(monitors), got)
+	}
+}
+
+func TestDefaultAlertRulesAreAutoDiscovered(t *testing.T) {
+	store := NewMemoryStore()
+	app := New(store).Handler()
+
+	resp := doJSON(t, app, http.MethodGet, "/api/admin/resources/alert-rules", nil, "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("default alert rule list failed: %d %s", resp.Code, resp.Body)
+	}
+	rules := store.ListResources("alert-rules")
+	if len(rules) != 5 {
+		t.Fatalf("expected default provider and quota alert rules, got %d: %+v", len(rules), rules)
+	}
+	found := map[string]bool{}
+	for _, rule := range rules {
+		key := alertRuleKey(rule.Fields)
+		found[key] = true
+		if stringifyValueForTest(rule.Fields["managed_by"]) != "tokenhub_auto" {
+			t.Fatalf("expected auto-managed alert rule, got %+v", rule.Fields)
+		}
+		if stringifyValueForTest(rule.Fields["metric"]) == "" || stringifyValueForTest(rule.Fields["threshold"]) == "" {
+			t.Fatalf("expected metric and threshold, got %+v", rule.Fields)
+		}
+	}
+	for _, key := range []string{
+		"provider_health_failed",
+		"provider_resource_health_failed",
+		"request_quota_near_limit",
+		"token_quota_near_limit",
+		"cost_quota_near_limit",
+	} {
+		if !found[key] {
+			t.Fatalf("missing default alert rule %s in %+v", key, found)
+		}
+	}
+
+	resp = doJSON(t, app, http.MethodGet, "/api/admin/resources/alert-rules", nil, "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("second default alert rule list failed: %d %s", resp.Code, resp.Body)
+	}
+	if got := len(store.ListResources("alert-rules")); got != len(rules) {
+		t.Fatalf("default alert rule discovery should be idempotent, before=%d after=%d", len(rules), got)
 	}
 }
 

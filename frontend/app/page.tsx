@@ -13,6 +13,7 @@ import {
   ChevronsRight,
   Check,
   CircleDollarSign,
+  Code2,
   Copy,
   Database,
   FileText,
@@ -34,6 +35,7 @@ import {
   Trash2,
   Users,
   WalletCards,
+  X,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
@@ -44,6 +46,10 @@ type Summary = {
   total_tokens: number;
   estimated_cost_usd: number;
   errors: number;
+  api_key_count?: number;
+  route_count?: number;
+  active_route_count?: number;
+  user_count?: number;
 };
 
 const DEFAULT_PROJECT_ID = "prj_default";
@@ -281,6 +287,14 @@ type AlertDelivery = {
   created_at: string;
 };
 
+type ReportExportHistoryItem = {
+  id: string;
+  dataset: string;
+  file_name: string;
+  exported_at: string;
+  period?: string;
+};
+
 type ApprovalRequest = {
   id: string;
   flow_id?: string;
@@ -403,6 +417,7 @@ type UsageBreakdownRow = {
 type UsageBreakdown = {
   projects: UsageBreakdownRow[];
   models: UsageBreakdownRow[];
+  members: UsageBreakdownRow[];
   providers: UsageBreakdownRow[];
   provider_resources: UsageBreakdownRow[];
   cost_centers: UsageBreakdownRow[];
@@ -488,6 +503,22 @@ const routeViews = Object.fromEntries(
   Object.entries(viewRoutes).map(([view, route]) => [route.replace(/^\//, ""), view]),
 ) as Record<string, ViewKey>;
 
+const notificationChannelTypes = ["webhook", "feishu", "dingtalk", "wecom", "slack", "email"];
+
+type NavLeafItem = {
+  view: ViewKey;
+  label: string;
+  icon: typeof Activity;
+};
+
+type NavParentItem = {
+  label: string;
+  icon: typeof Activity;
+  children: NavLeafItem[];
+};
+
+type NavItem = NavLeafItem | NavParentItem;
+
 type FieldType = "text" | "number" | "password" | "textarea" | "select" | "multi-select" | "tags" | "boolean";
 
 type FieldConfig = {
@@ -500,6 +531,7 @@ type FieldConfig = {
   required?: boolean;
   help?: string;
   readOnlyOnEdit?: boolean;
+  visible?: (values: Record<string, string>) => boolean;
 };
 
 type ColumnConfig<T> = {
@@ -528,6 +560,7 @@ type ResourceConfig<T> = {
 type ResourceAction<T> = {
   label: string;
   title?: string;
+  visible?: (item: T) => boolean;
   run?: (ctx: ApiContext, item: T) => Promise<void>;
   modal?: (item: T, data: AppData) => ModalState<any>;
   doneMessage?: (item: T) => string;
@@ -582,35 +615,16 @@ const defaultBaseURL =
 const sessionStorageKey = "tokenhub.admin.session";
 const authExpiredEventName = "tokenhub-admin-auth-expired";
 
-const resourceKinds = [
-  "teams",
-  "role-configs",
-  "quota-policies",
-  "cost-centers",
-  "budgets",
-  "chargebacks",
-  "approval-flows",
-  "invoices",
-  "reports",
-  "notification-channels",
-  "monitors",
-  "proxies",
-  "announcements",
-  "settings",
-  "security-policies",
-  "alert-rules",
-];
-
 const navGroups: Array<{
   title: string;
-  items: Array<{ view: ViewKey; label: string; icon: typeof Activity }>;
+  items: NavItem[];
 }> = [
   {
     title: "总览",
     items: [
       { view: "overview", label: "网关概览", icon: LayoutDashboard },
       { view: "playground", label: "模型演练场", icon: Send },
-      { view: "gateway", label: "统一 API 网关", icon: Sparkles },
+      { view: "gateway", label: "接口文档", icon: Sparkles },
     ],
   },
   {
@@ -628,8 +642,6 @@ const navGroups: Array<{
       { view: "api-keys", label: "API Key", icon: KeyRound },
       { view: "teams", label: "团队分组", icon: Users },
       { view: "users", label: "用户管理", icon: Users },
-      { view: "quota-policies", label: "额度策略", icon: CircleDollarSign },
-      { view: "approval-flows", label: "审批流", icon: ShieldCheck },
       { view: "approvals", label: "审批记录", icon: ShieldCheck },
     ],
   },
@@ -637,14 +649,16 @@ const navGroups: Array<{
     title: "成本审计",
     items: [
       { view: "usage", label: "用量统计", icon: BarChart3 },
+      { view: "audit", label: "请求日志", icon: FileText },
       { view: "billing", label: "成本账单", icon: WalletCards },
       { view: "cost-centers", label: "成本中心", icon: Database },
-      { view: "budgets", label: "预算管理", icon: CircleDollarSign },
-      { view: "chargebacks", label: "部门分摊", icon: WalletCards },
-      { view: "invoices", label: "内部账单", icon: FileText },
       { view: "reports", label: "导出报表", icon: BarChart3 },
-      { view: "audit", label: "请求审计", icon: FileText },
-      { view: "monitors", label: "健康监控", icon: Activity },
+    ],
+  },
+  {
+    title: "健康与告警",
+    items: [
+      { view: "monitors", label: "健康检测", icon: Activity },
       { view: "alerts", label: "告警规则", icon: AlertCircle },
       { view: "alert-events", label: "告警事件", icon: AlertCircle },
       { view: "notification-channels", label: "通知渠道", icon: Bell },
@@ -673,8 +687,8 @@ const standaloneViewMeta: Partial<Record<ViewKey, { title: string; description: 
     description: "选择标准模型，按当前路由策略发起测试对话，验证 Provider、路由和返回内容。",
   },
   gateway: {
-    title: "统一 API 网关",
-    description: "OpenAI Compatible 入口、认证、路由和治理链路。",
+    title: "接口文档",
+    description: "面向业务开发者的模型 API 调用说明、认证方式、示例代码和错误排查。",
   },
   usage: {
     title: "用量统计",
@@ -685,7 +699,7 @@ const standaloneViewMeta: Partial<Record<ViewKey, { title: string; description: 
     description: "按 Provider 和项目归集估算成本，辅助成本分摊。",
   },
   audit: {
-    title: "请求审计",
+    title: "请求日志",
     description: "查看最近请求日志、状态码、模型路由和延迟。",
   },
   "alert-events": {
@@ -698,9 +712,238 @@ const standaloneViewMeta: Partial<Record<ViewKey, { title: string; description: 
   },
   approvals: {
     title: "审批记录",
-    description: "处理 Key 发放、额度提升和预算变更等治理审批。",
+    description: "处理 Key 发放、额度提升和模型开通等治理审批。",
   },
 };
+
+type AppRole = "admin" | "security" | "team_leader" | "user";
+
+const roleViewAccess: Record<AppRole, ViewKey[]> = {
+  admin: (Object.keys(viewRoutes) as ViewKey[]).filter(
+    (view) => view !== "quota-policies" && view !== "approval-flows" && view !== "budgets" && view !== "chargebacks" && view !== "invoices",
+  ),
+  security: ["overview", "gateway", "usage", "audit", "alerts", "alert-events", "notification-channels", "alert-deliveries", "security-policies", "approvals"],
+  team_leader: ["overview", "gateway", "api-keys", "teams", "users", "usage", "billing", "audit"],
+  user: ["overview", "gateway", "api-keys", "usage", "audit"],
+};
+
+function appRole(role: string): AppRole {
+  const normalized = String(role || "").trim().toLowerCase();
+  if (normalized === "admin" || normalized === "system_admin") return "admin";
+  if (normalized === "security" || normalized === "security_admin") return "security";
+  if (normalized === "team_leader" || normalized === "teamlead" || normalized === "project_admin") return "team_leader";
+  return "user";
+}
+
+function canAccessView(user: AdminUser, view: ViewKey) {
+  return roleViewAccess[appRole(user.role)].includes(view);
+}
+
+function isNavParentItem(item: NavItem): item is NavParentItem {
+  return "children" in item;
+}
+
+function filterNavItemByAccess(item: NavItem, user: AdminUser): NavItem | null {
+  if (isNavParentItem(item)) {
+    const children = item.children.filter((child) => canAccessView(user, child.view));
+    return children.length > 0 ? { ...item, children } : null;
+  }
+  return canAccessView(user, item.view) ? item : null;
+}
+
+function isNavItemActive(item: NavItem, activeView: ViewKey) {
+  if (isNavParentItem(item)) {
+    return item.children.some((child) => child.view === activeView);
+  }
+  return item.view === activeView;
+}
+
+function canViewAdminAudit(user: AdminUser) {
+  const role = appRole(user.role);
+  return role === "admin" || role === "security";
+}
+
+function defaultViewForRole(user: AdminUser): ViewKey {
+  return roleViewAccess[appRole(user.role)][0] ?? "overview";
+}
+
+type LoadPlan = {
+  overview: boolean;
+  providerResources: boolean;
+  keys: boolean;
+  routes: boolean;
+  logs: boolean;
+  auditEvents: boolean;
+  alerts: boolean;
+  alertDeliveries: boolean;
+  approvals: boolean;
+  sqliteBackups: boolean;
+  breakdown: boolean;
+  timeseries: boolean;
+  users: boolean;
+  providerCatalog: boolean;
+  resources: string[];
+};
+
+type LoadedData = Partial<Omit<AppData, "resources">> & {
+  resources?: Record<string, AdminResource[]>;
+};
+
+function emptyLoadPlan(): LoadPlan {
+  return {
+    overview: false,
+    providerResources: false,
+    keys: false,
+    routes: false,
+    logs: false,
+    auditEvents: false,
+    alerts: false,
+    alertDeliveries: false,
+    approvals: false,
+    sqliteBackups: false,
+    breakdown: false,
+    timeseries: false,
+    users: false,
+    providerCatalog: false,
+    resources: [],
+  };
+}
+
+function addResourceDependency(plan: LoadPlan, kind: string) {
+  if (!plan.resources.includes(kind)) {
+    plan.resources.push(kind);
+  }
+}
+
+function loadPlanForView(user: AdminUser, view: ViewKey): LoadPlan {
+  const plan = emptyLoadPlan();
+  const can = (target: ViewKey) => canAccessView(user, target);
+
+  switch (view) {
+    case "overview":
+      plan.overview = true;
+      addResourceDependency(plan, "announcements");
+      break;
+    case "playground":
+      plan.overview = true;
+      plan.routes = can("routes");
+      break;
+    case "gateway":
+      plan.overview = true;
+      plan.keys = can("api-keys");
+      plan.routes = can("routes");
+      plan.logs = can("audit");
+      break;
+    case "usage":
+      plan.overview = true;
+      plan.breakdown = true;
+      plan.timeseries = true;
+      plan.users = appRole(user.role) === "team_leader";
+      break;
+    case "billing":
+      plan.breakdown = true;
+      plan.users = appRole(user.role) === "team_leader";
+      break;
+    case "audit":
+      plan.overview = true;
+      plan.keys = can("api-keys");
+      plan.logs = true;
+      plan.auditEvents = canViewAdminAudit(user);
+      break;
+    case "providers":
+      plan.overview = true;
+      plan.routes = true;
+      plan.providerCatalog = true;
+      break;
+    case "models":
+      plan.overview = true;
+      plan.routes = true;
+      break;
+    case "routes":
+      plan.overview = true;
+      plan.routes = true;
+      break;
+    case "projects":
+      plan.overview = true;
+      plan.logs = true;
+      plan.approvals = can("approvals");
+      addResourceDependency(plan, "quota-policies");
+      break;
+    case "api-keys":
+      plan.overview = true;
+      plan.keys = true;
+      break;
+    case "teams":
+      plan.users = true;
+      addResourceDependency(plan, "teams");
+      addResourceDependency(plan, "cost-centers");
+      break;
+    case "users":
+      plan.users = true;
+      addResourceDependency(plan, "teams");
+      addResourceDependency(plan, "role-configs");
+      break;
+    case "settings":
+      addResourceDependency(plan, "settings");
+      addResourceDependency(plan, "role-configs");
+      break;
+    case "quota-policies":
+    case "cost-centers":
+    case "budgets":
+    case "chargebacks":
+    case "approval-flows":
+    case "invoices":
+    case "reports":
+    case "notification-channels":
+    case "monitors":
+    case "proxies":
+    case "announcements":
+    case "security-policies":
+      addResourceDependency(plan, view);
+      break;
+    case "alerts":
+      addResourceDependency(plan, "alert-rules");
+      break;
+    case "alert-events":
+      plan.alerts = true;
+      break;
+    case "alert-deliveries":
+      plan.alertDeliveries = true;
+      break;
+    case "approvals":
+      plan.approvals = true;
+      break;
+    case "sqlite-backups":
+      plan.sqliteBackups = true;
+      break;
+  }
+
+  return plan;
+}
+
+function mergeLoadedData(current: AppData, loaded: LoadedData): AppData {
+  return {
+    ...current,
+    summary: loaded.summary ?? current.summary,
+    projects: loaded.projects ?? current.projects,
+    providers: loaded.providers ?? current.providers,
+    providerResources: loaded.providerResources ?? current.providerResources,
+    models: loaded.models ?? current.models,
+    routes: loaded.routes ?? current.routes,
+    logs: loaded.logs ?? current.logs,
+    auditEvents: loaded.auditEvents ?? current.auditEvents,
+    alerts: loaded.alerts ?? current.alerts,
+    alertDeliveries: loaded.alertDeliveries ?? current.alertDeliveries,
+    approvals: loaded.approvals ?? current.approvals,
+    sqliteBackups: loaded.sqliteBackups ?? current.sqliteBackups,
+    users: loaded.users ?? current.users,
+    breakdown: loaded.breakdown ?? current.breakdown,
+    timeseries: loaded.timeseries ?? current.timeseries,
+    keys: loaded.keys ?? current.keys,
+    providerCatalog: loaded.providerCatalog ?? current.providerCatalog,
+    resources: loaded.resources ? { ...current.resources, ...loaded.resources } : current.resources,
+  };
+}
 
 export default function AdminHome() {
   const [baseURL, setBaseURL] = useState(defaultBaseURL);
@@ -724,12 +967,17 @@ export default function AdminHome() {
   const [providerEditItem, setProviderEditItem] = useState<Provider | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ConfirmState<any> | null>(null);
   const [issuedKey, setIssuedKey] = useState("");
+  const [reportHistory, setReportHistory] = useState<ReportExportHistoryItem[]>([]);
 
   const api = useMemo(() => ({ baseURL, adminToken }), [baseURL, adminToken]);
   const activeConfig = resourceConfigs[activeView];
   const activeMeta = activeConfig ?? standaloneViewMeta[activeView] ?? standaloneViewMeta.overview!;
-
   function selectView(view: ViewKey, options: { replace?: boolean } = {}) {
+    if (view !== activeView) {
+      setNotice("");
+      setError("");
+      setModelCategoryFilter(view === "notification-channels" ? "webhook" : "all");
+    }
     setActiveView(view);
     if (typeof window === "undefined") return;
     const nextPath = viewRoutes[view];
@@ -754,9 +1002,33 @@ export default function AdminHome() {
 
   useEffect(() => {
     if (!bootstrapped || !adminToken || !currentUser) return;
-    void load();
+    if (!canAccessView(currentUser, activeView)) return;
+    void load(activeView);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bootstrapped, adminToken, currentUser]);
+  }, [bootstrapped, adminToken, currentUser, activeView]);
+
+  useEffect(() => {
+    if (activeView === "notification-channels" && !notificationChannelTypes.includes(modelCategoryFilter)) {
+      setModelCategoryFilter("webhook");
+    }
+  }, [activeView, modelCategoryFilter]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    if (!canAccessView(currentUser, activeView)) {
+      selectView(defaultViewForRole(currentUser), { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, activeView]);
+
+  useEffect(() => {
+    if (!currentUser || typeof window === "undefined") return;
+    if (!canAccessView(currentUser, activeView)) return;
+    const expectedPath = viewRoutes[activeView];
+    if (window.location.pathname !== expectedPath) {
+      window.history.replaceState({ view: activeView }, "", expectedPath);
+    }
+  }, [currentUser, activeView]);
 
   useEffect(() => {
     const view = viewFromPath(window.location.pathname);
@@ -765,7 +1037,11 @@ export default function AdminHome() {
       window.history.replaceState({ view }, "", viewRoutes[view]);
     }
     function onPopState() {
-      setActiveView(viewFromPath(window.location.pathname));
+      setNotice("");
+      setError("");
+      const nextView = viewFromPath(window.location.pathname);
+      setModelCategoryFilter(nextView === "notification-channels" ? "webhook" : "all");
+      setActiveView(nextView);
     }
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
@@ -800,102 +1076,102 @@ export default function AdminHome() {
     return () => window.removeEventListener("tokenhub-issued-key", onIssuedKey);
   }, []);
 
-  async function load() {
-    if (!adminToken) return;
+  async function load(view: ViewKey = activeView) {
+    if (!adminToken || !currentUser) return;
+    if (!canAccessView(currentUser, view)) return;
     setLoading(true);
     setError("");
     try {
-      const [
-        overviewResp,
-        providerResourcesResp,
-        keysResp,
-        routesResp,
-        logsResp,
-        auditEventsResp,
-        alertDeliveriesResp,
-        approvalsResp,
-        sqliteBackupsResp,
-        breakdownResp,
-        timeseriesResp,
-        usersResp,
-        providerCatalogResp,
-        ...resourceResps
-      ] = await Promise.all([
-        adminFetch(api, "/api/admin/overview"),
-        adminFetch(api, "/api/admin/provider-resources"),
-        adminFetch(api, "/api/admin/api-keys"),
-        adminFetch(api, "/api/admin/routing-rules"),
-        adminFetch(api, "/api/admin/audit/requests"),
-        adminFetch(api, "/api/admin/audit/events"),
-        adminFetch(api, "/api/admin/alert-deliveries"),
-        adminFetch(api, "/api/admin/approvals"),
-        adminFetch(api, "/api/admin/sqlite/backups"),
-        adminFetch(api, "/api/admin/usage/breakdown"),
-        adminFetch(api, "/api/admin/usage/timeseries"),
-        adminFetch(api, "/api/admin/users"),
-        adminFetch(api, "/api/admin/provider-catalog"),
-        ...resourceKinds.map((kind) => adminFetch(api, `/api/admin/resources/${kind}`)),
-      ]);
-      for (const [name, resp] of [
-        ["overview", overviewResp],
-        ["provider-resources", providerResourcesResp],
-        ["api-keys", keysResp],
-        ["routes", routesResp],
-        ["audit", logsResp],
-        ["audit-events", auditEventsResp],
-        ["alert-deliveries", alertDeliveriesResp],
-        ["approvals", approvalsResp],
-        ["sqlite-backups", sqliteBackupsResp],
-        ["breakdown", breakdownResp],
-        ["timeseries", timeseriesResp],
-        ["users", usersResp],
-        ["provider-catalog", providerCatalogResp],
-        ...resourceKinds.map((kind, index) => [kind, resourceResps[index]] as const),
-      ] as const) {
+      const plan = loadPlanForView(currentUser, view);
+      const requests: Array<{ name: string; request: Promise<Response> }> = [];
+      const queue = (enabled: boolean, name: string, path: string) => {
+        if (enabled) requests.push({ name, request: adminFetch(api, path) });
+      };
+
+      queue(plan.overview, "overview", "/api/admin/overview");
+      queue(plan.providerResources, "provider-resources", "/api/admin/provider-resources");
+      queue(plan.keys, "api-keys", "/api/admin/api-keys");
+      queue(plan.routes, "routes", "/api/admin/routing-rules");
+      queue(plan.logs, "audit", "/api/admin/audit/requests");
+      queue(plan.auditEvents, "audit-events", "/api/admin/audit/events");
+      queue(plan.alerts, "alerts", "/api/admin/alerts");
+      queue(plan.alertDeliveries, "alert-deliveries", "/api/admin/alert-deliveries");
+      queue(plan.approvals, "approvals", "/api/admin/approvals");
+      queue(plan.sqliteBackups, "sqlite-backups", "/api/admin/sqlite/backups");
+      queue(plan.breakdown, "breakdown", "/api/admin/usage/breakdown");
+      queue(plan.timeseries, "timeseries", "/api/admin/usage/timeseries");
+      queue(plan.users, "users", "/api/admin/users");
+      queue(plan.providerCatalog, "provider-catalog", "/api/admin/provider-catalog");
+      for (const kind of plan.resources) {
+        requests.push({ name: `resource:${kind}`, request: adminFetch(api, `/api/admin/resources/${kind}`) });
+      }
+
+      const responses = await Promise.all(requests.map((item) => item.request));
+      for (let index = 0; index < responses.length; index += 1) {
+        const resp = responses[index];
         if (!resp.ok) {
-          throw new Error(`${name} ${resp.status}`);
+          throw new Error(`${requests[index].name} ${resp.status}`);
         }
       }
 
-      const overview = await overviewResp.json();
-      const providerResources = (await providerResourcesResp.json()) as { data: ProviderResource[] };
-      const keys = (await keysResp.json()) as { data: APIKey[] };
-      const routes = (await routesResp.json()) as { data: ModelRoute[] };
-      const logs = (await logsResp.json()) as { data: RequestLog[] };
-      const auditEvents = (await auditEventsResp.json()) as { data: AuditEvent[] };
-      const alertDeliveries = (await alertDeliveriesResp.json()) as { data: AlertDelivery[] };
-      const approvals = (await approvalsResp.json()) as { data: ApprovalRequest[] };
-      const sqliteBackups = (await sqliteBackupsResp.json()) as { data: SQLiteBackup[] };
-      const breakdown = (await breakdownResp.json()) as UsageBreakdown;
-      const timeseries = (await timeseriesResp.json()) as { data: UsagePoint[] };
-      const users = (await usersResp.json()) as { data: AdminUser[] };
-      const providerCatalog = (await providerCatalogResp.json()) as { data: ProviderCatalogEntry[] };
-      const resources: Record<string, AdminResource[]> = {};
-      for (let i = 0; i < resourceKinds.length; i++) {
-        const payload = (await resourceResps[i].json()) as { data: AdminResource[] };
-        resources[resourceKinds[i]] = payload.data ?? [];
+      const loaded: LoadedData = {};
+      for (let index = 0; index < responses.length; index += 1) {
+        const name = requests[index].name;
+        const resp = responses[index];
+        if (name === "overview") {
+          const overview = await resp.json();
+          loaded.summary = overview.summary ?? emptySummary();
+          loaded.projects = overview.projects ?? [];
+          loaded.providers = overview.providers ?? [];
+          loaded.providerResources = overview.provider_resources ?? [];
+          loaded.models = overview.models ?? [];
+          loaded.alerts = overview.alerts ?? [];
+        } else if (name === "provider-resources") {
+          const payload = (await resp.json()) as { data: ProviderResource[] };
+          loaded.providerResources = payload.data ?? [];
+        } else if (name === "api-keys") {
+          const payload = (await resp.json()) as { data: APIKey[] };
+          loaded.keys = payload.data ?? [];
+        } else if (name === "routes") {
+          const payload = (await resp.json()) as { data: ModelRoute[] };
+          loaded.routes = payload.data ?? [];
+        } else if (name === "audit") {
+          const payload = (await resp.json()) as { data: RequestLog[] };
+          loaded.logs = payload.data ?? [];
+        } else if (name === "audit-events") {
+          const payload = (await resp.json()) as { data: AuditEvent[] };
+          loaded.auditEvents = payload.data ?? [];
+        } else if (name === "alerts") {
+          const payload = (await resp.json()) as { data: AlertEvent[] };
+          loaded.alerts = payload.data ?? [];
+        } else if (name === "alert-deliveries") {
+          const payload = (await resp.json()) as { data: AlertDelivery[] };
+          loaded.alertDeliveries = payload.data ?? [];
+        } else if (name === "approvals") {
+          const payload = (await resp.json()) as { data: ApprovalRequest[] };
+          loaded.approvals = payload.data ?? [];
+        } else if (name === "sqlite-backups") {
+          const payload = (await resp.json()) as { data: SQLiteBackup[] };
+          loaded.sqliteBackups = payload.data ?? [];
+        } else if (name === "breakdown") {
+          loaded.breakdown = (await resp.json()) as UsageBreakdown;
+        } else if (name === "timeseries") {
+          const payload = (await resp.json()) as { data: UsagePoint[] };
+          loaded.timeseries = payload.data ?? [];
+        } else if (name === "users") {
+          const payload = (await resp.json()) as { data: AdminUser[] };
+          loaded.users = payload.data ?? [];
+        } else if (name === "provider-catalog") {
+          const payload = (await resp.json()) as { data: ProviderCatalogEntry[] };
+          loaded.providerCatalog = payload.data ?? [];
+        } else if (name.startsWith("resource:")) {
+          const kind = name.slice("resource:".length);
+          const payload = (await resp.json()) as { data: AdminResource[] };
+          loaded.resources = { ...(loaded.resources ?? {}), [kind]: payload.data ?? [] };
+        }
       }
 
-      setData({
-        summary: overview.summary ?? emptySummary(),
-        projects: overview.projects ?? [],
-        providers: overview.providers ?? [],
-        providerResources: providerResources.data ?? overview.provider_resources ?? [],
-        models: overview.models ?? [],
-        alerts: overview.alerts ?? [],
-        keys: keys.data ?? [],
-        routes: routes.data ?? [],
-        logs: logs.data ?? [],
-        auditEvents: auditEvents.data ?? [],
-        alertDeliveries: alertDeliveries.data ?? [],
-        approvals: approvals.data ?? [],
-        sqliteBackups: sqliteBackups.data ?? [],
-        breakdown,
-        timeseries: timeseries.data ?? [],
-        users: users.data ?? [],
-        resources,
-        providerCatalog: providerCatalog.data ?? [],
-      });
+      setData((current) => mergeLoadedData(current, loaded));
     } catch (err) {
       if (isAuthExpiredError(err)) return;
       setError(err instanceof Error ? err.message : "连接失败");
@@ -915,6 +1191,7 @@ export default function AdminHome() {
       });
       if (!resp.ok) throw new Error(`login ${resp.status}`);
       const payload = (await resp.json()) as { token: string; user: AdminUser; expires_at: string };
+      setData(emptyData());
       setAdminToken(payload.token);
       setCurrentUser(payload.user);
       saveSession({ baseURL, token: payload.token, user: payload.user, expiresAt: payload.expires_at });
@@ -1059,32 +1336,34 @@ export default function AdminHome() {
       <section className="workspace">
         <TopNav />
 
-        <div className="content-panel">
-          <header className="page-header">
-            <div>
-              <p className="eyebrow">Enterprise AI Gateway</p>
-              <h1>{activeMeta.title}</h1>
-              <p className="page-desc">{activeMeta.description}</p>
-            </div>
-          </header>
+        <div className={activeView === "playground" ? "content-panel playground-content-panel" : "content-panel"}>
+          {activeView === "playground" ? null : (
+            <header className="page-header">
+              <div>
+                <p className="eyebrow">Enterprise AI Gateway</p>
+                <h1>{activeMeta.title}</h1>
+                <p className="page-desc">{activeMeta.description}</p>
+              </div>
+            </header>
+          )}
 
           {error ? <div className="status-line error">{error}</div> : null}
           {notice ? <div className="status-line success">{notice}</div> : null}
 
-          <div className="divider" />
+          {activeView === "playground" ? null : <div className="divider" />}
 
           {activeView === "overview" ? (
-            <OverviewView data={data} onSelect={selectView} />
+            <OverviewView data={data} user={currentUser} onSelect={selectView} />
           ) : activeView === "playground" ? (
             <PlaygroundPage api={api} data={data} />
           ) : activeView === "gateway" ? (
-            <GatewayView data={data} />
+            <GatewayView api={api} data={data} />
           ) : activeView === "usage" ? (
-            <UsageView data={data} />
+            <UsageView data={data} user={currentUser} />
           ) : activeView === "billing" ? (
-            <BillingView data={data} />
+            <BillingView data={data} user={currentUser} />
           ) : activeView === "audit" ? (
-            <AuditView api={api} data={data} />
+            <AuditView api={api} data={data} user={currentUser} />
           ) : activeView === "settings" ? (
             <SettingsView
               data={data}
@@ -1115,6 +1394,18 @@ export default function AdminHome() {
               onDelete={(item) => setConfirmDelete({ config: activeConfig, item })}
               onAction={(action, item) => void runResourceAction(action, item, data)}
             />
+          ) : activeView === "reports" && activeConfig ? (
+            <ReportsView
+              config={activeConfig as ResourceConfig<AdminResource>}
+              data={data}
+              history={reportHistory}
+              loading={loading}
+              onCreate={() => setModal({ config: activeConfig })}
+              onEdit={(item) => setModal({ config: activeConfig, item })}
+              onDelete={(item) => setConfirmDelete({ config: activeConfig, item })}
+              onAction={(action, item) => void runResourceAction(action, item, data)}
+              onExport={(dataset) => void exportReportDataset(dataset)}
+            />
           ) : activeConfig ? (
             <CrudView
               config={activeConfig}
@@ -1141,6 +1432,10 @@ export default function AdminHome() {
                   setNotice("");
                   setError("请先创建项目，再在项目下发放 API Key。");
                   selectView("projects");
+                  return;
+                }
+                if (activeConfig.view === "notification-channels") {
+                  setModal({ config: activeConfig, initialValues: notificationChannelDefaults(modelCategoryFilter) });
                   return;
                 }
                 setModal({ config: activeConfig });
@@ -1263,6 +1558,33 @@ export default function AdminHome() {
       setLoading(false);
     }
   }
+
+  async function exportReportDataset(dataset: string) {
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await downloadReport(api, dataset);
+      if (result) {
+        setNotice(`${reportDatasetLabel(dataset)} 已导出`);
+        setReportHistory((current) => [
+          {
+            id: uniqueUIID("export"),
+            dataset,
+            file_name: result.fileName,
+            period: result.period,
+            exported_at: new Date().toISOString(),
+          },
+          ...current,
+        ].slice(0, 8));
+      }
+    } catch (err) {
+      if (isAuthExpiredError(err)) return;
+      setError(err instanceof Error ? err.message : "导出失败");
+    } finally {
+      setLoading(false);
+    }
+  }
 }
 
 function LoginView({
@@ -1333,6 +1655,9 @@ function Sidebar({
   openGroups: Record<string, boolean>;
   onToggleGroup: (title: string) => void;
 }) {
+  const visibleGroups = navGroups
+    .map((group) => ({ ...group, items: group.items.map((item) => filterNavItemByAccess(item, user)).filter((item): item is NavItem => Boolean(item)) }))
+    .filter((group) => group.items.length > 0);
   return (
     <aside className={collapsed ? "sidebar collapsed" : "sidebar"}>
       <div className="brand">
@@ -1349,41 +1674,95 @@ function Sidebar({
           {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
         </button>
       </div>
-      {navGroups.map((group) => {
-        const groupOpen = collapsed || openGroups[group.title] !== false;
-        return (
-          <div className={groupOpen ? "nav-group" : "nav-group closed"} key={group.title}>
-            <button
-              aria-expanded={groupOpen}
-              className={groupOpen ? "nav-title" : "nav-title closed"}
-              onClick={() => onToggleGroup(group.title)}
-              type="button"
-            >
-              <span>{group.title}</span>
-              <ChevronDown className="nav-chevron" size={14} />
-            </button>
-            {groupOpen ? (
-              <div className="nav">
-                {group.items.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <button
-                      className={activeView === item.view ? "nav-item active" : "nav-item"}
-                      key={item.view}
-                      onClick={() => onSelect(item.view)}
-                      title={collapsed ? item.label : undefined}
-                      type="button"
-                    >
-                      <Icon size={17} />
-                      <span>{item.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
-          </div>
-        );
-      })}
+      <div className="sidebar-nav-scroll">
+        {visibleGroups.map((group) => {
+          const groupOpen = collapsed || openGroups[group.title] !== false;
+          return (
+            <div className={groupOpen ? "nav-group" : "nav-group closed"} key={group.title}>
+              <button
+                aria-expanded={groupOpen}
+                className={groupOpen ? "nav-title" : "nav-title closed"}
+                onClick={() => onToggleGroup(group.title)}
+                type="button"
+              >
+                <span>{group.title}</span>
+                <ChevronDown className="nav-chevron" size={14} />
+              </button>
+              {groupOpen ? (
+                <div className="nav">
+                  {group.items.map((item) => {
+                    const Icon = item.icon;
+                    if (isNavParentItem(item)) {
+                      if (collapsed) {
+                        return item.children.map((child) => {
+                          const ChildIcon = child.icon;
+                          return (
+                            <button
+                              className={activeView === child.view ? "nav-item active" : "nav-item"}
+                              key={child.view}
+                              onClick={() => onSelect(child.view)}
+                              title={child.label}
+                              type="button"
+                            >
+                              <ChildIcon size={17} />
+                              <span>{child.label}</span>
+                            </button>
+                          );
+                        });
+                      }
+                      const childOpen = openGroups[`nav:${item.label}`] !== false || isNavItemActive(item, activeView);
+                      return (
+                        <div className={childOpen ? "nav-branch" : "nav-branch closed"} key={item.label}>
+                          <button
+                            aria-expanded={childOpen}
+                            className={isNavItemActive(item, activeView) ? "nav-item nav-parent active-parent" : "nav-item nav-parent"}
+                            onClick={() => onToggleGroup(`nav:${item.label}`)}
+                            type="button"
+                          >
+                            <Icon size={17} />
+                            <span>{item.label}</span>
+                            <ChevronDown className="nav-chevron" size={14} />
+                          </button>
+                          {childOpen ? (
+                            <div className="nav-subnav">
+                              {item.children.map((child) => {
+                                const ChildIcon = child.icon;
+                                return (
+                                  <button
+                                    className={activeView === child.view ? "nav-item nav-child active" : "nav-item nav-child"}
+                                    key={child.view}
+                                    onClick={() => onSelect(child.view)}
+                                    type="button"
+                                  >
+                                    <ChildIcon size={16} />
+                                    <span>{child.label}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    }
+                    return (
+                      <button
+                        className={activeView === item.view ? "nav-item active" : "nav-item"}
+                        key={item.view}
+                        onClick={() => onSelect(item.view)}
+                        title={collapsed ? item.label : undefined}
+                        type="button"
+                      >
+                        <Icon size={17} />
+                        <span>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
       <div className="sidebar-account">
         <div className="account-avatar">{userInitial(user)}</div>
         <div className="account-meta">
@@ -1411,26 +1790,49 @@ function TopNav() {
 
 function OverviewView({
   data,
+  user,
   onSelect,
 }: {
   data: AppData;
+  user: AdminUser;
   onSelect: (view: ViewKey) => void;
 }) {
   const chatModels = playgroundModels(data);
-  const activeRoutes = data.routes.filter((route) => route.status === "active").length;
+  const routeCount = data.summary.route_count ?? data.routes.length;
+  const activeRoutes = data.summary.active_route_count ?? data.routes.filter((route) => route.status === "active").length;
+  const apiKeyCount = data.summary.api_key_count ?? data.keys.length;
+  const userCount = data.summary.user_count ?? data.users.length;
+  const can = (view: ViewKey) => canAccessView(user, view);
+  const announcements = overviewAnnouncements(data, user);
   const cards = [
     { label: "总请求", value: formatNumber(data.summary.request_count), icon: BarChart3 },
     { label: "总 Token", value: compactNumber(data.summary.total_tokens), icon: Database },
     { label: "总成本", value: `$${formatMoney(data.summary.estimated_cost_usd)}`, icon: CircleDollarSign },
-    { label: "Provider", value: formatNumber(data.providers.length), icon: Server },
-  ];
-  const steps: Array<[string, string, ViewKey]> = [
+    can("providers")
+      ? { label: "Provider", value: formatNumber(data.providers.length), icon: Server }
+      : { label: "API Key", value: formatNumber(apiKeyCount), icon: KeyRound },
+  ].filter(Boolean);
+  const baseSteps: Array<[string, string, ViewKey]> = [
     ["接入 Provider", "配置上游服务商、Base URL、API Key，并映射到标准模型目录。", "providers"],
     ["维护模型目录", "定义内部对外模型名、上下文窗口和计价口径。", "models"],
     ["建立路由策略", "把对外模型映射到 Provider 的上游模型，并配置优先级与权重。", "routes"],
-    ["发放项目 Key", "按项目、团队、模型白名单和额度发放内部 API Key。", "api-keys"],
-    ["审计与治理", "查看请求日志、用量归因、告警规则和安全策略。", "audit"],
+    ["发放 API Key", "创建和维护当前权限范围内的内部调用凭证。", "api-keys"],
+    ["管理团队", "维护团队资料、负责人和费用归属。", "teams"],
+    ["管理成员", "维护本团队成员账号和状态。", "users"],
+    ["查看用量", "查看当前权限范围内的请求量、Token 和成本。", "usage"],
+    ["查看账单", "查看当前权限范围内的成本归因。", "billing"],
+    ["日志与治理", "查看请求日志、后台操作、告警规则和安全策略。", "audit"],
   ];
+  const steps = baseSteps.filter(([, , view]) => can(view));
+  const statusRows = [
+    can("projects") ? ["项目", data.projects.length, "企业内部应用治理单元"] : null,
+    can("api-keys") ? ["API Key", apiKeyCount, "内部调用凭证"] : null,
+    can("providers") ? ["Provider", data.providers.length, "上游渠道实例，包含 Base URL 与 Key"] : null,
+    can("models") ? ["模型", data.models.length, "对外模型目录"] : null,
+    can("routes") ? ["路由", routeCount, "对外模型到 Provider 的映射规则"] : null,
+    can("alerts") ? ["告警", data.alerts.length, "治理事件"] : null,
+    can("users") ? ["用户", userCount, "当前权限范围内的用户账号"] : null,
+  ].filter((row): row is [string, number, string] => Boolean(row));
 
   return (
     <>
@@ -1449,17 +1851,47 @@ function OverviewView({
         })}
       </section>
 
+      {announcements.length > 0 ? (
+        <section className="overview-announcements">
+          <div className="overview-announcements-head">
+            <div>
+              <Bell size={17} />
+              <strong>公告通知</strong>
+              <span>{announcements.length} 条启用公告</span>
+            </div>
+            {can("announcements") ? (
+              <button className="secondary-button compact" onClick={() => onSelect("announcements")} type="button">
+                管理公告
+              </button>
+            ) : null}
+          </div>
+          <div className="overview-announcement-list">
+            {announcements.slice(0, 3).map((item) => (
+              <article className={`overview-announcement ${announcementMode(item)}`} key={item.id}>
+                <div>
+                  <strong>{item.name}</strong>
+                  <p>{item.description || "暂无公告说明"}</p>
+                </div>
+                <span>{announcementModeLabel(item)}</span>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <div className="two-column">
         <DataSection title="产品流程">
-          <button className="overview-playground-card" onClick={() => onSelect("playground")} type="button">
-            <span className="overview-playground-icon">
-              <Sparkles size={17} />
-            </span>
-            <span>
-              <strong>模型演练场</strong>
-              <small>{chatModels.length} 个可选聊天模型 · {activeRoutes} 条启用路由</small>
-            </span>
-          </button>
+          {can("playground") ? (
+            <button className="overview-playground-card" onClick={() => onSelect("playground")} type="button">
+              <span className="overview-playground-icon">
+                <Sparkles size={17} />
+              </span>
+              <span>
+                <strong>模型演练场</strong>
+                <small>{chatModels.length} 个可选聊天模型 · {activeRoutes} 条启用路由</small>
+              </span>
+            </button>
+          ) : null}
           <div className="flow-list">
             {steps.map(([title, desc, view], index) => (
               <button className="flow-row" key={title} onClick={() => onSelect(view)} type="button">
@@ -1475,14 +1907,7 @@ function OverviewView({
         <DataSection title="当前状态">
           <SimpleTable
             columns={["对象", "数量", "说明"]}
-            rows={[
-              ["项目", data.projects.length, "企业内部应用治理单元"],
-              ["API Key", data.keys.length, "内部调用凭证"],
-              ["Provider", data.providers.length, "上游渠道实例，包含 Base URL 与 Key"],
-              ["模型", data.models.length, "对外模型目录"],
-              ["路由", data.routes.length, "对外模型到 Provider 的映射规则"],
-              ["告警", data.alerts.length, "治理事件"],
-            ]}
+            rows={statusRows}
           />
         </DataSection>
       </div>
@@ -1490,20 +1915,165 @@ function OverviewView({
   );
 }
 
-function GatewayView({ data }: { data: AppData }) {
+function GatewayView({ api, data }: { api: ApiContext; data: AppData }) {
+  const baseURL = apiGatewayBaseURL(api.baseURL);
+  const activeRoutes = data.routes.filter((route) => route.status === "active").length;
+  const callableModels = playgroundModels(data);
+  const sampleModel = callableModels.find((model) => activeRouteCount(model.name, data) > 0)?.name ?? callableModels[0]?.name ?? "gpt-4.1-mini";
+  const keyHint = data.keys[0] ? `${data.keys[0].key_prefix}...${data.keys[0].key_suffix}` : "YOUR_TOKENHUB_API_KEY";
+  const curlExample = `curl -X POST "${baseURL}/chat/completions" \\
+  -H "Authorization: Bearer ${keyHint}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "${sampleModel}",
+    "messages": [
+      {"role": "system", "content": "你是企业内部 AI 助手。"},
+      {"role": "user", "content": "用两句话介绍 TokenHub"}
+    ],
+    "temperature": 0.7,
+    "stream": false
+  }'`;
+
   return (
-    <div className="two-column">
-      <DataSection title="兼容入口">
+    <div className="gateway-docs">
+      <section className="gateway-hero">
+        <div>
+          <p className="eyebrow">Model API</p>
+          <h2>接口文档说明业务侧如何调用大模型</h2>
+          <p>
+            业务应用使用自己的 TokenHub API Key 调用 <code>/v1/*</code> 模型接口；控制台使用的 <code>/api/admin/*</code> 属于管理 API，不应该暴露给业务代码。
+          </p>
+        </div>
+        <a href="https://docs.newapi.pro/zh/docs/api" target="_blank" rel="noreferrer">
+          <Globe2 size={15} />
+          OpenAI 兼容协议参考
+        </a>
+      </section>
+
+      <section className="gateway-quick-grid">
+        <GatewayCopyCard label="Base URL" value={baseURL} />
+        <GatewayCopyCard label="Authorization" value={`Bearer ${keyHint}`} />
+        <GatewayCopyCard label="示例模型" value={sampleModel} />
+        <article className="gateway-copy-card">
+          <span>当前配置</span>
+          <strong>{formatNumber(activeRoutes || data.summary.active_route_count || 0)} 条启用路由</strong>
+          <small>{formatNumber(data.keys.length || data.summary.api_key_count || 0)} 个 API Key</small>
+        </article>
+      </section>
+
+      <div className="two-column gateway-api-split">
+        <DataSection title="AI 模型接口">
+          <div className="gateway-api-note">
+            <Code2 size={16} />
+            <div>
+              <strong>给业务服务、SDK、AI 应用调用</strong>
+              <span>鉴权使用项目下发的 API Key，请求会经过模型白名单、额度、路由、Provider 回退和请求日志记录。</span>
+            </div>
+          </div>
+          <SimpleTable
+            columns={["方法", "路径", "用途", "状态"]}
+            rows={[
+              ["GET", "/v1/models", "返回当前 Key 可见模型", <StatusPill key="ok" status="active" label="已接入" />],
+              ["POST", "/v1/chat/completions", "对话补全，兼容 OpenAI Chat Completions", <StatusPill key="ok" status="active" label="已接入" />],
+              ["POST", "/v1/responses", "新版 Responses 风格调用", <StatusPill key="ok" status="active" label="已接入" />],
+              ["POST", "/v1/embeddings", "文本向量生成", <StatusPill key="ok" status="active" label="已接入" />],
+            ]}
+          />
+        </DataSection>
+
+        <DataSection title="管理 API">
+          <div className="gateway-api-note admin">
+            <ShieldCheck size={16} />
+            <div>
+              <strong>只给控制台和后台管理程序使用</strong>
+              <span>路径是 <code>/api/admin/*</code>，依赖管理员登录会话，用于 Provider、模型目录、路由策略、用户、团队、审计和账单配置。</span>
+            </div>
+          </div>
+          <SimpleTable
+            columns={["范围", "示例", "说明"]}
+            rows={[
+              ["认证", "/api/admin/auth/login", "控制台登录，不等同于模型 API Key"],
+              ["配置", "/api/admin/providers", "管理 Provider Base URL、凭证和资源"],
+              ["路由", "/api/admin/routing-rules", "管理统一模型到上游模型的映射"],
+              ["日志", "/api/admin/audit/requests", "查看请求日志和请求详情"],
+            ]}
+          />
+        </DataSection>
+      </div>
+
+      <div className="two-column gateway-api-split">
+        <DataSection title="开发接入步骤">
+          <ol className="gateway-steps">
+            <li>
+              <strong>创建 API Key</strong>
+              <span>在 API Key 页面为项目或个人创建 Key；如果设置了模型白名单，只能调用白名单里的模型。</span>
+            </li>
+            <li>
+              <strong>读取模型列表</strong>
+              <span>先请求 <code>GET /v1/models</code>，确认这个 Key 当前能看到哪些统一模型。</span>
+            </li>
+            <li>
+              <strong>调用模型接口</strong>
+              <span>用 OpenAI 兼容 SDK，把 <code>baseURL</code> 指向 TokenHub 的 <code>/v1</code>。</span>
+            </li>
+            <li>
+              <strong>排查链路</strong>
+              <span>失败时查看请求日志，确认命中的 Provider、上游模型、状态码和响应内容。</span>
+            </li>
+          </ol>
+        </DataSection>
+
+        <DataSection title="当前可调用模型">
+          {callableModels.length > 0 ? (
+            <div className="gateway-model-list">
+              {callableModels.slice(0, 12).map((model) => (
+                <span key={model.name}>
+                  {model.name}
+                  <em>{activeRouteCount(model.name, data)} 路由</em>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div className="empty">当前权限下还没有可展示模型，请先确认模型目录和路由策略。</div>
+          )}
+        </DataSection>
+      </div>
+
+      <div className="two-column gateway-api-split">
+        <DataSection title="cURL 快速测试">
+          <GatewayCodeBlock code={curlExample} />
+        </DataSection>
+
+        <DataSection title="常见错误">
+          <SimpleTable
+            columns={["状态", "错误码", "处理方式"]}
+            rows={[
+              ["401", "invalid_api_key", "检查 Authorization 是否使用 TokenHub API Key"],
+              ["403", "model_not_allowed", "检查 Key 的模型白名单和项目状态"],
+              ["404/503", "provider_unavailable", "为统一模型配置启用路由"],
+              ["429", "quota_exceeded", "检查项目额度、并发和 Provider 资源限制"],
+              ["500", "upstream_error", "在请求日志里查看上游响应和 request_id"],
+            ]}
+          />
+        </DataSection>
+      </div>
+
+      <DataSection title="OpenAI SDK 示例">
+        <PlaygroundAPIExamples baseURL={api.baseURL} modelName={sampleModel} />
+      </DataSection>
+
+      <DataSection title="兼容入口明细">
         <SimpleTable
-          columns={["路径", "协议", "状态"]}
+          columns={["路径", "协议", "说明"]}
           rows={[
-            ["/v1/models", "OpenAI Compatible", <StatusPill key="ok" status="active" />],
-            ["/v1/chat/completions", "Chat Completions", <StatusPill key="ok" status="active" />],
-            ["/v1/responses", "Responses API", <StatusPill key="ok" status="active" />],
-            ["/v1/embeddings", "Embeddings", <StatusPill key="ok" status="active" />],
+            ["/v1/models", "OpenAI Compatible", "按 API Key 权限返回可用模型"],
+            ["/v1/chat/completions", "Chat Completions", "按路由策略转发到上游 Provider"],
+            ["/v1/responses", "Responses API", "转发新版响应格式请求"],
+            ["/v1/embeddings", "Embeddings", "转发向量模型请求并记录用量"],
           ]}
         />
       </DataSection>
+
       <DataSection title="调用链路">
         <SimpleTable
           columns={["阶段", "能力", "数据"]}
@@ -1520,8 +2090,52 @@ function GatewayView({ data }: { data: AppData }) {
   );
 }
 
-function UsageView({ data }: { data: AppData }) {
+function GatewayCopyCard({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copyValue() {
+    try {
+      await navigator.clipboard?.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      setCopied(false);
+    }
+  }
+  return (
+    <article className="gateway-copy-card">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <button className="icon-button subtle" onClick={() => void copyValue()} type="button" title="复制">
+        {copied ? <Check size={15} /> : <Copy size={15} />}
+      </button>
+    </article>
+  );
+}
+
+function GatewayCodeBlock({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copyCode() {
+    try {
+      await navigator.clipboard?.writeText(code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      setCopied(false);
+    }
+  }
+  return (
+    <div className="gateway-code-block">
+      <button className="icon-button subtle" onClick={() => void copyCode()} type="button" title="复制代码">
+        {copied ? <Check size={15} /> : <Copy size={15} />}
+      </button>
+      <pre><code>{code}</code></pre>
+    </div>
+  );
+}
+
+function UsageView({ data, user }: { data: AppData; user: AdminUser }) {
   const modelBreakdown = data.breakdown.models ?? [];
+  const showMemberBreakdown = appRole(user.role) === "team_leader";
   const cards = [
     { label: "输入 Token", value: compactNumber(data.summary.input_tokens), icon: Activity },
     { label: "输出 Token", value: compactNumber(data.summary.output_tokens), icon: Gauge },
@@ -1560,12 +2174,12 @@ function UsageView({ data }: { data: AppData }) {
             ])}
           />
         </DataSection>
-        <DataSection title="项目归因">
+        <DataSection title={showMemberBreakdown ? "成员用量" : "项目归因"}>
           <SimpleTable
-            columns={["项目", "请求", "Token", "成本"]}
-            paginationKey="usage-projects"
-            rows={(data.breakdown.projects ?? []).map((row) => [
-              row.id,
+            columns={[showMemberBreakdown ? "成员" : "项目", "请求", "Token", "成本"]}
+            paginationKey={showMemberBreakdown ? "usage-members" : "usage-projects"}
+            rows={(showMemberBreakdown ? data.breakdown.members ?? [] : data.breakdown.projects ?? []).map((row) => [
+              showMemberBreakdown ? usageMemberLabel(data, row.id) : row.id,
               formatNumber(row.request_count),
               compactNumber(row.total_tokens),
               `$${formatMoney(row.estimated_cost_usd)}`,
@@ -1573,25 +2187,64 @@ function UsageView({ data }: { data: AppData }) {
           />
         </DataSection>
       </div>
+      {showMemberBreakdown ? (
+        <DataSection title="项目归因">
+          <SimpleTable
+            columns={["项目", "请求", "Token", "成本"]}
+            paginationKey="usage-projects"
+            rows={(data.breakdown.projects ?? []).map((row) => [
+              projectName(data, row.id),
+              formatNumber(row.request_count),
+              compactNumber(row.total_tokens),
+              `$${formatMoney(row.estimated_cost_usd)}`,
+            ])}
+          />
+        </DataSection>
+      ) : null}
     </>
   );
 }
 
-function BillingView({ data }: { data: AppData }) {
+function BillingView({ data, user }: { data: AppData; user: AdminUser }) {
+  const showMemberBreakdown = appRole(user.role) === "team_leader";
+  const costCenterSection = (
+    <DataSection title="成本中心">
+      <SimpleTable
+        columns={["成本中心", "请求", "Token", "估算成本"]}
+        paginationKey="billing-cost-centers"
+        rows={(data.breakdown.cost_centers ?? []).map((row) => [
+          row.id,
+          formatNumber(row.request_count),
+          compactNumber(row.total_tokens),
+          `$${formatMoney(row.estimated_cost_usd)}`,
+        ])}
+      />
+    </DataSection>
+  );
+  const memberCostSection = (
+    <DataSection title="成员成本">
+      <SimpleTable
+        columns={["成员", "请求", "Token", "估算成本"]}
+        paginationKey="billing-members"
+        rows={(data.breakdown.members ?? []).map((row) => [
+          usageMemberLabel(data, row.id),
+          formatNumber(row.request_count),
+          compactNumber(row.total_tokens),
+          `$${formatMoney(row.estimated_cost_usd)}`,
+        ])}
+      />
+    </DataSection>
+  );
   return (
     <>
-      <DataSection title="成本中心">
-        <SimpleTable
-          columns={["成本中心", "请求", "Token", "估算成本"]}
-          paginationKey="billing-cost-centers"
-          rows={(data.breakdown.cost_centers ?? []).map((row) => [
-            row.id,
-            formatNumber(row.request_count),
-            compactNumber(row.total_tokens),
-            `$${formatMoney(row.estimated_cost_usd)}`,
-          ])}
-        />
-      </DataSection>
+      {showMemberBreakdown ? (
+        <div className="two-column">
+          {costCenterSection}
+          {memberCostSection}
+        </div>
+      ) : (
+        costCenterSection
+      )}
       <div className="two-column">
         <DataSection title="Provider 成本">
           <SimpleTable
@@ -1622,7 +2275,7 @@ function BillingView({ data }: { data: AppData }) {
   );
 }
 
-function AuditView({ api, data }: { api: ApiContext; data: AppData }) {
+function AuditView({ api, data, user }: { api: ApiContext; data: AppData; user: AdminUser }) {
   const [activeAuditTab, setActiveAuditTab] = useState<"requests" | "admin">("requests");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "ok" | "error">("all");
@@ -1630,6 +2283,13 @@ function AuditView({ api, data }: { api: ApiContext; data: AppData }) {
   const [detail, setDetail] = useState<RequestDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
+  const showAdminAudit = canViewAdminAudit(user);
+
+  useEffect(() => {
+    if (!showAdminAudit && activeAuditTab === "admin") {
+      setActiveAuditTab("requests");
+    }
+  }, [activeAuditTab, showAdminAudit]);
 
   const filteredLogs = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -1728,7 +2388,7 @@ function AuditView({ api, data }: { api: ApiContext; data: AppData }) {
 
   return (
     <div className="audit-view">
-      <div className="audit-tabs" role="tablist" aria-label="审计类型">
+      <div className="audit-tabs" role="tablist" aria-label="日志类型">
         <button
           type="button"
           className={`audit-tab ${activeAuditTab === "requests" ? "active" : ""}`}
@@ -1740,20 +2400,22 @@ function AuditView({ api, data }: { api: ApiContext; data: AppData }) {
           <span>大模型请求历史</span>
           <strong>{formatNumber(data.logs.length)}</strong>
         </button>
-        <button
-          type="button"
-          className={`audit-tab ${activeAuditTab === "admin" ? "active" : ""}`}
-          onClick={() => setActiveAuditTab("admin")}
-          role="tab"
-          aria-selected={activeAuditTab === "admin"}
-        >
-          <ShieldCheck size={15} />
-          <span>后台操作审计</span>
-          <strong>{formatNumber(data.auditEvents.length)}</strong>
-        </button>
+        {showAdminAudit ? (
+          <button
+            type="button"
+            className={`audit-tab ${activeAuditTab === "admin" ? "active" : ""}`}
+            onClick={() => setActiveAuditTab("admin")}
+            role="tab"
+            aria-selected={activeAuditTab === "admin"}
+          >
+            <ShieldCheck size={15} />
+            <span>后台操作审计</span>
+            <strong>{formatNumber(data.auditEvents.length)}</strong>
+          </button>
+        ) : null}
       </div>
 
-      {activeAuditTab === "requests" ? (
+      {activeAuditTab === "requests" || !showAdminAudit ? (
         <DataSection title="大模型请求历史">
           <div className="request-history">
             <div className="request-history-toolbar">
@@ -2126,6 +2788,35 @@ function CrudView<T>({
   onAction: (action: ResourceAction<T>, item: T) => void;
   onToolbarAction: (action: ToolbarAction) => void;
 }) {
+  const [selectedTeamID, setSelectedTeamID] = useState("");
+  const [selectedProjectID, setSelectedProjectID] = useState("");
+  const isTeamView = config.view === "teams";
+  const isProjectView = config.view === "projects";
+  const selectedTeam = isTeamView
+    ? (items as AdminResource[]).find((item) => item.id === selectedTeamID)
+    : undefined;
+  const selectedProject = isProjectView
+    ? (items as Project[]).find((item) => item.id === selectedProjectID)
+    : undefined;
+
+  useEffect(() => {
+    if (!isTeamView) return;
+    const teamItems = items as AdminResource[];
+    if (!selectedTeamID || !teamItems.some((item) => item.id === selectedTeamID)) {
+      setSelectedTeamID("");
+    }
+  }, [isTeamView, items, selectedTeamID]);
+
+  useEffect(() => {
+    if (!isProjectView) return;
+    const projectItems = items as Project[];
+    if (!selectedProjectID || !projectItems.some((item) => item.id === selectedProjectID)) {
+      setSelectedProjectID("");
+    }
+  }, [isProjectView, items, selectedProjectID]);
+
+  const detailPanelOpen = (isTeamView && selectedTeam) || (isProjectView && selectedProject);
+
   return (
     <DataSection title={config.eyebrow}>
       {config.view === "api-keys" ? <APIKeyFlowHint data={data} /> : null}
@@ -2138,6 +2829,13 @@ function CrudView<T>({
           onChange={onCategoryFilter}
         />
       ) : null}
+      {config.view === "notification-channels" ? (
+        <NotificationChannelTabs
+          data={data}
+          active={categoryFilter}
+          onChange={onCategoryFilter}
+        />
+      ) : null}
       <div className="table-toolbar">
         <div className="search-box">
           <Search size={16} />
@@ -2146,7 +2844,7 @@ function CrudView<T>({
         {config.create ? (
           <button className="button" onClick={onCreate} type="button">
             <Plus size={17} />
-            {config.createLabel ?? "新增"}
+            {config.view === "notification-channels" ? `配置 ${notificationChannelLabel(categoryFilter)}` : config.createLabel ?? "新增"}
           </button>
         ) : null}
         {(config.toolbarActions ?? []).map((action) => (
@@ -2156,9 +2854,298 @@ function CrudView<T>({
         ))}
       </div>
       {issuedKey ? <div className="secret">新 Key 仅展示一次：{issuedKey}</div> : null}
-      <EntityTable config={config} data={data} items={items} onEdit={onEdit} onDelete={onDelete} onAction={onAction} />
-      <PaginationControls pagination={pagination} totalItems={totalItems} />
+      <div className={detailPanelOpen ? "resource-detail-layout with-panel" : "resource-detail-layout"}>
+        <div className="resource-table-pane">
+          <EntityTable
+            config={config}
+            data={data}
+            items={items}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onAction={onAction}
+            onRowClick={
+              isTeamView
+                ? (item) => setSelectedTeamID((item as AdminResource).id)
+                : isProjectView
+                  ? (item) => setSelectedProjectID((item as Project).id)
+                  : undefined
+            }
+            selectedRowID={isTeamView ? selectedTeam?.id : isProjectView ? selectedProject?.id : undefined}
+          />
+          <PaginationControls pagination={pagination} totalItems={totalItems} />
+        </div>
+        {isTeamView && selectedTeam ? (
+          <TeamMembersPanel data={data} team={selectedTeam} onClose={() => setSelectedTeamID("")} />
+        ) : null}
+        {isProjectView && selectedProject ? (
+          <ProjectQuotaPanel
+            data={data}
+            project={selectedProject}
+            onClose={() => setSelectedProjectID("")}
+            onAction={(action) => onAction(action as unknown as ResourceAction<T>, selectedProject as T)}
+          />
+        ) : null}
+      </div>
     </DataSection>
+  );
+}
+
+function TeamMembersPanel({ data, team, onClose }: { data: AppData; team: AdminResource; onClose: () => void }) {
+  const users = data.users
+    .filter((user) => user.team_id === team.id)
+    .sort((left, right) => (left.name || left.username).localeCompare(right.name || right.username));
+  return (
+    <div className="team-members-panel">
+      <div className="team-members-head">
+        <div>
+          <span>团队用户</span>
+          <strong>{team.name || team.id}</strong>
+        </div>
+        <span>{formatNumber(users.length)} 人</span>
+        <button className="icon-button subtle" onClick={onClose} type="button" title="关闭成员列表">
+          <X size={15} />
+        </button>
+      </div>
+      <SimpleTable
+        columns={["姓名", "邮箱", "用户名", "角色", "状态", "最近登录"]}
+        rows={users.map((user) => [
+          user.name || "-",
+          user.email || "-",
+          user.username || "-",
+          roleLabel(user.role),
+          <StatusPill key={user.id} status={user.status} />,
+          formatTime(user.last_login_at ?? ""),
+        ])}
+      />
+    </div>
+  );
+}
+
+type ProjectQuotaValues = {
+  status: string;
+  daily_requests: string;
+  monthly_requests: string;
+  daily_tokens: string;
+  monthly_tokens: string;
+  daily_cost_usd: string;
+  monthly_cost_usd: string;
+  max_concurrency: string;
+};
+
+const projectQuotaFields: Array<{ key: keyof ProjectQuotaValues; label: string; suffix?: string }> = [
+  { key: "daily_requests", label: "日请求" },
+  { key: "monthly_requests", label: "月请求" },
+  { key: "daily_tokens", label: "日 Token" },
+  { key: "monthly_tokens", label: "月 Token" },
+  { key: "daily_cost_usd", label: "日成本", suffix: "USD" },
+  { key: "monthly_cost_usd", label: "月成本", suffix: "USD" },
+  { key: "max_concurrency", label: "最大并发" },
+];
+
+function ProjectQuotaPanel({
+  data,
+  project,
+  onClose,
+  onAction,
+}: {
+  data: AppData;
+  project: Project;
+  onClose: () => void;
+  onAction: (action: ResourceAction<Project>) => void;
+}) {
+  const quota = projectQuotaPolicy(data, project);
+  const [values, setValues] = useState<ProjectQuotaValues>(() => projectQuotaValues(quota));
+
+  useEffect(() => {
+    setValues(projectQuotaValues(quota));
+  }, [project.id, quota?.id]);
+
+  const hasQuota = Boolean(quota);
+  const quotaIssue = projectQuotaIssue(data, project);
+  const pendingApproval = pendingProjectQuotaApproval(data, project);
+  return (
+    <div className="project-quota-panel">
+      <div className="project-quota-head">
+        <div>
+          <span>项目额度</span>
+          <strong>{project.name || project.id}</strong>
+        </div>
+        <button className="icon-button subtle" onClick={onClose} type="button" title="关闭额度配置">
+          <X size={15} />
+        </button>
+      </div>
+      <div className="project-quota-body">
+        <div className="quota-status-row">
+          <div>
+            <strong>{hasQuota ? "已配置项目专属额度" : "未配置项目专属额度"}</strong>
+            <span>留空或填 0 表示该项不限额；Key 自身额度仍会叠加生效。</span>
+          </div>
+          <StatusPill status={values.status || "active"} />
+        </div>
+
+        {quotaIssue || pendingApproval ? (
+          <div className="quota-request-banner">
+            <div>
+              <strong>{pendingApproval ? "已有额度提升申请待审批" : "最近触发了项目额度限制"}</strong>
+              <span>
+                {pendingApproval
+                  ? `${approvalTriggerLabel(pendingApproval.trigger)} ${pendingApproval.id}，可在审批记录中处理。`
+                  : `${formatNumber(quotaIssue?.count ?? 0)} 次额度不足，请填写希望提升后的目标额度再提交审批。`}
+              </span>
+            </div>
+            {pendingApproval ? <StatusPill status="pending" label="待审批" /> : <StatusPill status="warning" label="需提升" />}
+          </div>
+        ) : null}
+
+        <label className="field">
+          <span>状态</span>
+          <select value={values.status} onChange={(event) => setValues((current) => ({ ...current, status: event.target.value }))}>
+            <option value="active">启用</option>
+            <option value="disabled">停用</option>
+          </select>
+        </label>
+
+        <div className="project-quota-grid">
+          {projectQuotaFields.map((field) => (
+            <label className="field" key={field.key}>
+              <span>{field.label}</span>
+              <input
+                min="0"
+                type="number"
+                value={values[field.key]}
+                onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))}
+              />
+              {field.suffix ? <small>{field.suffix}</small> : null}
+            </label>
+          ))}
+        </div>
+
+        <div className="project-quota-actions">
+          {quotaIssue && !pendingApproval ? (
+            <button
+              className="secondary-button"
+              onClick={() =>
+                onAction({
+                  label: "提升额度申请",
+                  title: "提交项目额度提升审批",
+                  run: (ctx) => requestProjectQuotaIncrease(ctx, project, quota, values),
+                  doneMessage: () => `${project.name || project.id} 的额度提升申请已提交`,
+                })
+              }
+              type="button"
+            >
+              提升额度申请
+            </button>
+          ) : null}
+          <button
+            className="button"
+            onClick={() =>
+              onAction({
+                label: "保存额度",
+                title: "保存项目额度",
+                run: (ctx) => saveProjectQuota(ctx, project, quota, values),
+                doneMessage: () => `${project.name || project.id} 的额度已保存`,
+              })
+            }
+            type="button"
+          >
+            保存额度
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReportsView({
+  config,
+  data,
+  history,
+  loading,
+  onCreate,
+  onEdit,
+  onDelete,
+  onAction,
+  onExport,
+}: {
+  config: ResourceConfig<AdminResource>;
+  data: AppData;
+  history: ReportExportHistoryItem[];
+  loading: boolean;
+  onCreate: () => void;
+  onEdit: (item: AdminResource) => void;
+  onDelete: (item: AdminResource) => void;
+  onAction: (action: ResourceAction<AdminResource>, item: AdminResource) => void;
+  onExport: (dataset: string) => void;
+}) {
+  const savedReports = config.list(data);
+  const exports = reportExportDefinitions();
+  return (
+    <div className="reports-center">
+      <div className="reports-export-head">
+        <div>
+          <h2>按需导出</h2>
+          <span>CSV</span>
+        </div>
+      </div>
+      <div className="reports-export-grid">
+        {exports.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              className={`report-export-card ${item.tone}`}
+              disabled={loading}
+              key={item.dataset}
+              onClick={() => onExport(item.dataset)}
+              title={`导出 ${item.label}`}
+              type="button"
+            >
+              <span className="report-export-icon">
+                <Icon size={18} />
+              </span>
+              <span className="report-export-copy">
+                <strong>{item.label}</strong>
+                <span>{item.description}</span>
+              </span>
+              <em>CSV</em>
+            </button>
+          );
+        })}
+      </div>
+
+      {history.length > 0 ? (
+        <DataSection title="最近导出">
+          <SimpleTable
+            columns={["数据集", "文件", "时间", "账期"]}
+            rows={history.map((item) => [
+              reportDatasetLabel(item.dataset),
+              item.file_name,
+              formatTime(item.exported_at),
+              item.period || "-",
+            ])}
+          />
+        </DataSection>
+      ) : null}
+
+      {savedReports.length > 0 ? (
+        <DataSection title="自动导出配置">
+          <div className="reports-config-toolbar">
+            <button className="button" onClick={onCreate} type="button">
+              <Plus size={16} />
+              新增配置
+            </button>
+          </div>
+          <EntityTable
+            config={config}
+            data={data}
+            items={savedReports}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onAction={onAction}
+          />
+        </DataSection>
+      ) : null}
+    </div>
   );
 }
 
@@ -2182,6 +3169,35 @@ function ModelCategoryTabs({
           className={active === tab.key ? "category-tab active" : "category-tab"}
           key={tab.key}
           onClick={() => onChange(tab.key)}
+          type="button"
+        >
+          <span>{tab.label}</span>
+          <em>{tab.count}</em>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function NotificationChannelTabs({
+  data,
+  active,
+  onChange,
+}: {
+  data: AppData;
+  active: string;
+  onChange: (value: string) => void;
+}) {
+  const tabs = notificationChannelTabs(data);
+  return (
+    <div className="category-tabs" role="tablist" aria-label="通知渠道类型">
+      {tabs.map((tab) => (
+        <button
+          aria-selected={active === tab.key}
+          className={active === tab.key ? "category-tab active" : "category-tab"}
+          key={tab.key}
+          onClick={() => onChange(tab.key)}
+          role="tab"
           type="button"
         >
           <span>{tab.label}</span>
@@ -2744,6 +3760,8 @@ function EntityTable<T>({
   onEdit,
   onDelete,
   onAction,
+  onRowClick,
+  selectedRowID,
 }: {
   config: ResourceConfig<T>;
   data: AppData;
@@ -2751,6 +3769,8 @@ function EntityTable<T>({
   onEdit: (item: T) => void;
   onDelete: (item: T) => void;
   onAction: (action: ResourceAction<T>, item: T) => void;
+  onRowClick?: (item: T) => void;
+  selectedRowID?: string;
 }) {
   if (items.length === 0) {
     return <div className="empty">暂无数据</div>;
@@ -2768,23 +3788,40 @@ function EntityTable<T>({
         </thead>
         <tbody>
           {items.map((item) => (
-            <tr key={rowID(item)}>
+            <tr
+              className={`${onRowClick ? "clickable-row" : ""} ${selectedRowID === rowID(item) ? "selected-row" : ""}`}
+              key={rowID(item)}
+              onClick={onRowClick ? () => onRowClick(item) : undefined}
+            >
               {config.columns.map((column) => (
-                <td key={column.key}>{column.render ? column.render(item, data) : readPath(item, column.key)}</td>
+                <td key={column.key}>
+                  {config.view === "api-keys" && column.key === "status" ? (
+                    <APIKeyStatusSwitch
+                      item={item as APIKey}
+                      onToggle={(nextStatus) => onAction(apiKeyStatusAction(nextStatus) as unknown as ResourceAction<T>, item)}
+                    />
+                  ) : column.render ? (
+                    column.render(item, data)
+                  ) : (
+                    readPath(item, column.key)
+                  )}
+                </td>
               ))}
               <td>
-                <div className="row-actions">
-                  {(config.actions ?? []).map((action) => (
-                    <button
-                      className="text-button"
-                      key={action.label}
-                      onClick={() => onAction(action, item)}
-                      title={action.title ?? action.label}
-                      type="button"
-                    >
-                      {action.label}
-                    </button>
-                  ))}
+                <div className="row-actions" onClick={(event) => event.stopPropagation()}>
+                  {(config.actions ?? [])
+                    .filter((action) => action.visible?.(item) ?? true)
+                    .map((action) => (
+                      <button
+                        className="text-button"
+                        key={action.label}
+                        onClick={() => onAction(action, item)}
+                        title={action.title ?? action.label}
+                        type="button"
+                      >
+                        {action.label}
+                      </button>
+                    ))}
                   {config.update ? (
                     <button className="text-button" onClick={() => onEdit(item)} type="button">
                       编辑
@@ -2950,7 +3987,7 @@ function EditModal<T>({
           <button className="icon-button" onClick={onClose} type="button" title="关闭">×</button>
         </div>
         <div className="modal-body">
-          {state.config.fields.map((field) => (
+          {state.config.fields.filter((field) => field.visible?.(values) ?? true).map((field) => (
             <FieldInput
               key={field.key}
               field={field}
@@ -2989,11 +4026,25 @@ function PlaygroundPanel({
   const [modelName, setModelName] = useState(models[0]?.name ?? "");
   const [messages, setMessages] = useState<PlaygroundMessage[]>([]);
   const [draft, setDraft] = useState("");
+  const [systemPrompt, setSystemPrompt] = useState("做一个乐于助人的助手");
+  const [responseFormat, setResponseFormat] = useState("text");
+  const [maxTokens, setMaxTokens] = useState("4096");
   const [temperature, setTemperature] = useState("0.7");
+  const [presencePenalty, setPresencePenalty] = useState("0.0");
+  const [frequencyPenalty, setFrequencyPenalty] = useState("0.0");
+  const [minP, setMinP] = useState("0.00");
+  const [topK, setTopK] = useState("50");
+  const [showCode, setShowCode] = useState(false);
+  const [showModelDetails, setShowModelDetails] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [lastResult, setLastResult] = useState<PlaygroundChatPayload | null>(null);
   const selectedModel = models.find((model) => model.name === modelName);
+  const selectedModelRouteCount = selectedModel ? activeRouteCount(selectedModel.name, data) : 0;
+  const contextWindow = selectedModel?.context_window ?? 0;
+  const maxTokenLimit = Math.max(4096, Math.min(contextWindow || 32768, 200000));
+  const inputPrice = selectedModel?.input_price_usd_per_1m ?? 0;
+  const outputPrice = selectedModel?.output_price_usd_per_1m ?? 0;
 
   useEffect(() => {
     if (!modelName && models[0]?.name) {
@@ -3001,26 +4052,35 @@ function PlaygroundPanel({
     }
   }, [modelName, models]);
 
+  useEffect(() => {
+    const parsed = Number(maxTokens);
+    if (Number.isFinite(parsed) && parsed > maxTokenLimit) {
+      setMaxTokens(String(maxTokenLimit));
+    }
+  }, [maxTokenLimit, maxTokens]);
+
   async function sendMessage(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
     const content = draft.trim();
     if (!content || !modelName || loading) return;
     const userMessage: PlaygroundMessage = { id: uniqueUIID("msg"), role: "user", content };
     const nextMessages = [...messages, userMessage];
+    const messagesForRequest = systemPrompt.trim()
+      ? [{ role: "system", content: systemPrompt.trim() }, ...nextMessages.map((message) => ({ role: message.role, content: message.content }))]
+      : nextMessages.map((message) => ({ role: message.role, content: message.content }));
     setMessages(nextMessages);
     setDraft("");
     setError("");
     setLoading(true);
     try {
       const numericTemperature = Number(temperature);
+      const numericMaxTokens = Number(maxTokens);
       const resp = await adminFetch(api, "/api/admin/playground/chat", {
         method: "POST",
         body: JSON.stringify({
           model: modelName,
-          messages: nextMessages.map((message) => ({
-            role: message.role,
-            content: message.content,
-          })),
+          messages: messagesForRequest,
+          max_tokens: Number.isFinite(numericMaxTokens) && numericMaxTokens > 0 ? Math.round(numericMaxTokens) : undefined,
           temperature: Number.isFinite(numericTemperature) ? numericTemperature : undefined,
         }),
       });
@@ -3046,11 +4106,16 @@ function PlaygroundPanel({
     }
   }
 
+  function clearHistory() {
+    setMessages([]);
+    setLastResult(null);
+    setError("");
+  }
+
   return (
     <div className="playground-shell">
-      <div className="playground-toolbar">
-        <label className="field">
-          <span>模型</span>
+      <aside className="playground-config" aria-label="模型配置">
+        <label className="playground-model-select">
           <select value={modelName} onChange={(event) => setModelName(event.target.value)} disabled={models.length === 0}>
             {models.length === 0 ? <option value="">暂无聊天模型</option> : null}
             {models.map((model) => {
@@ -3063,73 +4128,165 @@ function PlaygroundPanel({
             })}
           </select>
         </label>
-        <label className="field temperature-field">
-          <span>Temperature</span>
-          <input
-            min="0"
-            max="2"
-            step="0.1"
-            type="number"
-            value={temperature}
-            onChange={(event) => setTemperature(event.target.value)}
-          />
-        </label>
-        <div className="playground-model-meta">
-          <strong>{selectedModel ? modelCategoryLabel(modelCategory(selectedModel)) : "-"}</strong>
-          <span>{selectedModel?.context_window ? `${compactNumber(selectedModel.context_window)} ctx` : "ctx -"}</span>
-        </div>
-      </div>
 
-      {lastResult?.route ? (
-        <div className="playground-route">
-          <span>{lastResult.route.provider_name || lastResult.route.provider_id || "-"}</span>
-          <em>{lastResult.route.provider_model || "-"}</em>
-          <small>{lastResult.route.resource_name || lastResult.route.resource_id || "默认资源"} · {routeStrategyLabel(lastResult.route.strategy)} · {lastResult.attempts?.length ?? 0} 次尝试</small>
-        </div>
-      ) : null}
-
-      {error ? <div className="status-line error playground-error">{error}</div> : null}
-
-      <div className="playground-chat">
-        {messages.length === 0 ? (
-          <div className="playground-empty">
-            <Sparkles size={20} />
-            <strong>选择模型后开始对话</strong>
-            <span>{data.routes.length === 0 ? "当前还没有配置模型路由。" : "请求会走当前启用的路由策略。"}</span>
+        <div className="playground-config-body">
+          <h2>模型配置</h2>
+          <label className="playground-field">
+            <span>响应格式</span>
+            <select value={responseFormat} onChange={(event) => setResponseFormat(event.target.value)}>
+              <option value="text">text</option>
+            </select>
+          </label>
+          <label className="playground-field">
+            <span>系统提示</span>
+            <textarea value={systemPrompt} onChange={(event) => setSystemPrompt(event.target.value)} />
+          </label>
+          <PlaygroundConfigSlider label="max_tokens" value={maxTokens} onChange={setMaxTokens} min={128} max={maxTokenLimit} step={128} />
+          <PlaygroundConfigSlider label="temperature" value={temperature} onChange={setTemperature} min={0} max={2} step={0.1} />
+          <PlaygroundConfigSlider label="presence_penalty" value={presencePenalty} onChange={setPresencePenalty} min={-2} max={2} step={0.1} />
+          <PlaygroundConfigSlider label="frequency_penalty" value={frequencyPenalty} onChange={setFrequencyPenalty} min={-2} max={2} step={0.1} />
+          <PlaygroundConfigSlider label="min_p" value={minP} onChange={setMinP} min={0} max={1} step={0.01} />
+          <PlaygroundConfigSlider label="top_k" value={topK} onChange={setTopK} min={0} max={100} step={1} />
+          <div className="playground-functions">
+            <strong>函数</strong>
+            <button type="button" className="secondary-button compact" disabled title="函数调用配置待接入">
+              <Plus size={14} />
+              添加函数
+            </button>
           </div>
-        ) : (
-          messages.map((message) => (
-            <div className={`playground-message ${message.role}`} key={message.id}>
-              <span>{message.role === "assistant" ? "Assistant" : message.role === "system" ? "System" : "User"}</span>
-              <p>{message.content}</p>
-            </div>
-          ))
-        )}
-      </div>
-
-      <form className="playground-composer" onSubmit={sendMessage}>
-        <textarea
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="输入测试消息"
-          disabled={loading || models.length === 0}
-        />
-        <button className="button compact" disabled={loading || !draft.trim() || models.length === 0} type="submit" title="发送">
-          <Send size={15} />
-        </button>
-      </form>
-
-      {lastResult?.usage ? (
-        <div className="playground-foot">
-          <span>Prompt {formatNumber(lastResult.usage.prompt_tokens ?? 0)}</span>
-          <span>Completion {formatNumber(lastResult.usage.completion_tokens ?? 0)}</span>
-          <span>Total {formatNumber(lastResult.usage.total_tokens ?? 0)}</span>
-          {lastResult.request_id ? <span>{lastResult.request_id}</span> : null}
         </div>
-      ) : null}
+      </aside>
 
-      <PlaygroundAPIExamples baseURL={api.baseURL} modelName={modelName || selectedModel?.name || "gpt-4.1-mini"} />
+      <section className="playground-main" aria-label="模型演练对话">
+        <div className="playground-model-bar">
+          <div className="playground-model-title">
+            <button type="button" className="playground-copy-model" title="复制模型名" onClick={() => navigator.clipboard?.writeText(modelName).catch(() => undefined)}>
+              <strong>{modelName || "选择模型"}</strong>
+              <Copy size={13} />
+            </button>
+            <span>
+              {contextWindow ? `${formatNumber(contextWindow)} 上下文` : "上下文 -"}
+              <em />
+              ${formatMoney(inputPrice)}/Mt 输入
+              <em />
+              ${formatMoney(outputPrice)}/Mt 输出
+              <em />
+              {selectedModelRouteCount} 条启用路由
+            </span>
+          </div>
+          <div className="playground-actions">
+            <button type="button" className={showModelDetails ? "secondary-button compact active" : "secondary-button compact"} onClick={() => setShowModelDetails((value) => !value)}>
+              <Sparkles size={14} />
+              模型详情
+            </button>
+            <button type="button" className={showCode ? "secondary-button compact active" : "secondary-button compact"} onClick={() => setShowCode((value) => !value)}>
+              <Code2 size={14} />
+              查看代码
+            </button>
+            <button type="button" className="secondary-button compact" onClick={clearHistory} disabled={messages.length === 0 && !lastResult}>
+              <Trash2 size={14} />
+              清空历史
+            </button>
+          </div>
+        </div>
+
+        {showModelDetails ? (
+          <div className="playground-detail-strip">
+            <DetailField label="类型" value={selectedModel ? modelCategoryLabel(modelCategory(selectedModel)) : "-"} />
+            <DetailField label="能力" value={selectedModel?.modality || "chat"} />
+            <DetailField label="上下文" value={contextWindow ? formatNumber(contextWindow) : "-"} />
+            <DetailField label="最近路由" value={lastResult?.route ? `${lastResult.route.provider_name || lastResult.route.provider_id} / ${lastResult.route.provider_model}` : "待请求"} />
+          </div>
+        ) : null}
+
+        {showCode ? (
+          <div className="playground-code-drawer">
+            <PlaygroundAPIExamples baseURL={api.baseURL} modelName={modelName || selectedModel?.name || "gpt-4.1-mini"} />
+          </div>
+        ) : null}
+
+        {lastResult?.route ? (
+          <div className="playground-route">
+            <span>{lastResult.route.provider_name || lastResult.route.provider_id || "-"}</span>
+            <em>{lastResult.route.provider_model || "-"}</em>
+            <small>{lastResult.route.resource_name || lastResult.route.resource_id || "默认资源"} · {routeStrategyLabel(lastResult.route.strategy)} · {lastResult.attempts?.length ?? 0} 次尝试</small>
+          </div>
+        ) : null}
+
+        {error ? <div className="status-line error playground-error">{error}</div> : null}
+
+        <div className="playground-chat">
+          {messages.length === 0 ? (
+            <div className="playground-empty">
+              <Sparkles size={22} />
+              <strong>试用 {modelName || "当前模型"}</strong>
+              <span>{data.routes.length === 0 ? "当前还没有配置模型路由。" : "体验一下，看看模型在 TokenHub 网关上的表现"}</span>
+            </div>
+          ) : (
+            messages.map((message) => (
+              <div className={`playground-message ${message.role}`} key={message.id}>
+                <span>{message.role === "assistant" ? "Assistant" : message.role === "system" ? "System" : "User"}</span>
+                <p>{message.content}</p>
+              </div>
+            ))
+          )}
+        </div>
+
+        <form className="playground-composer" onSubmit={sendMessage}>
+          <textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="说点什么..."
+            disabled={loading || models.length === 0}
+          />
+          <div className="playground-composer-actions">
+            <button className="secondary-button compact" type="button" disabled title="文件上传待接入">
+              <Plus size={14} />
+              上传文件
+            </button>
+            {lastResult?.usage ? (
+              <div className="playground-foot">
+                <span>Prompt {formatNumber(lastResult.usage.prompt_tokens ?? 0)}</span>
+                <span>Completion {formatNumber(lastResult.usage.completion_tokens ?? 0)}</span>
+                <span>Total {formatNumber(lastResult.usage.total_tokens ?? 0)}</span>
+                {lastResult.request_id ? <span>{lastResult.request_id}</span> : null}
+              </div>
+            ) : null}
+            <button className="playground-send-button" disabled={loading || !draft.trim() || models.length === 0} type="submit" title="发送">
+              <Send size={18} />
+            </button>
+          </div>
+        </form>
+      </section>
     </div>
+  );
+}
+
+function PlaygroundConfigSlider({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+  step,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  min: number;
+  max: number;
+  step: number;
+}) {
+  const numeric = Number(value);
+  const rangeValue = Number.isFinite(numeric) ? Math.min(max, Math.max(min, numeric)) : min;
+  return (
+    <label className="playground-slider">
+      <div>
+        <span>{label}</span>
+        <input type="number" value={value} min={min} max={max} step={step} onChange={(event) => onChange(event.target.value)} />
+      </div>
+      <input type="range" value={rangeValue} min={min} max={max} step={step} onChange={(event) => onChange(event.target.value)} />
+    </label>
   );
 }
 
@@ -3668,7 +4825,10 @@ function FieldInput({
 }) {
   const [filter, setFilter] = useState("");
   const readOnly = editing && field.readOnlyOnEdit;
-  const options = field.optionsFromData?.(data) ?? (field.options ?? []).map((option) => ({ value: option, label: enumOptionLabel(field.key, option) }));
+  let options = field.optionsFromData?.(data) ?? (field.options ?? []).map((option) => ({ value: option, label: enumOptionLabel(field.key, option) }));
+  if (value && !options.some((option) => option.value === value)) {
+    options = [...options, { value, label: value }];
+  }
   if (field.type === "multi-select" && !editing) {
     const selected = new Set(splitList(value));
     const normalizedFilter = filter.trim().toLowerCase();
@@ -4019,13 +5179,9 @@ const resourceConfigs: Partial<Record<ViewKey, ResourceConfig<any>>> = {
   routes: routeConfig(),
   projects: projectConfig(),
   "api-keys": apiKeyConfig(),
-  teams: genericResourceConfig("teams", "团队分组", "企业团队、成本中心与负责人", [
-    { key: "owner", label: "负责人" },
-    { key: "cost_center", label: "成本中心" },
-    { key: "members", label: "成员数", type: "number" },
-  ]),
+  teams: teamConfig(),
   users: adminUserConfig(),
-  "quota-policies": genericResourceConfig("quota-policies", "额度策略", "项目、Key、用户维度的请求、Token、成本与并发上限", [
+  "quota-policies": genericResourceConfig("quota-policies", "项目额度", "项目、Key、用户维度的请求、Token、成本与并发上限", [
     { key: "scope", label: "作用域", type: "select", options: ["global", "project", "api_key", "team"], required: true },
     { key: "scope_id", label: "作用域 ID" },
     { key: "daily_requests", label: "日请求", type: "number" },
@@ -4037,29 +5193,18 @@ const resourceConfigs: Partial<Record<ViewKey, ResourceConfig<any>>> = {
     { key: "max_concurrency", label: "最大并发", type: "number" },
   ]),
   "cost-centers": costCenterConfig(),
-  budgets: budgetConfig(),
-  chargebacks: chargebackConfig(),
   "approval-flows": approvalFlowConfig(),
-  invoices: invoiceConfig(),
   reports: reportConfig(),
-  "notification-channels": genericResourceConfig("notification-channels", "通知渠道", "告警 Webhook、飞书、钉钉、企业微信等通知目标", [
-    { key: "type", label: "类型", type: "select", options: ["webhook"], required: true },
-    { key: "webhook_url", label: "Webhook URL", required: true },
-    { key: "secret", label: "签名密钥" },
-  ]),
+  "notification-channels": notificationChannelConfig(),
   monitors: monitorConfig(),
-  alerts: genericResourceConfig("alert-rules", "告警规则", "额度、成本、错误率和 Provider 健康告警", [
-    { key: "metric", label: "指标", required: true },
-    { key: "threshold", label: "阈值", required: true },
-    { key: "channel", label: "通知渠道" },
-  ]),
+  alerts: alertRuleConfig(),
   "alert-events": alertEventConfig(),
   "alert-deliveries": alertDeliveryConfig(),
   approvals: approvalConfig(),
   "security-policies": genericResourceConfig("security-policies", "安全策略", "敏感数据、错误透传、IP 访问和审计策略", [
-    { key: "mask_prompts", label: "脱敏 Prompt" },
-    { key: "ip_allowlist", label: "IP 白名单" },
-    { key: "error_passthrough", label: "错误透传" },
+    { key: "mask_prompts", label: "脱敏 Prompt", type: "boolean", help: "开启后策略要求请求与响应审计避免直接展示完整 Prompt。" },
+    { key: "ip_allowlist", label: "IP 白名单", type: "textarea", placeholder: "127.0.0.1/32\n10.0.0.0/8", help: "每行一个 CIDR 或 IP，留空表示不配置白名单。" },
+    { key: "error_passthrough", label: "错误透传", type: "select", options: ["sanitized", "passthrough", "hidden"], required: true },
   ]),
   proxies: genericResourceConfig("proxies", "代理出口", "Provider 出口代理和内网访问策略", [
     { key: "protocol", label: "协议", type: "select", options: ["direct", "http", "https", "socks5"], required: true },
@@ -4087,26 +5232,52 @@ function systemSettingConfig(): ResourceConfig<AdminResource> {
 
 function roleConfig(): ResourceConfig<AdminResource> {
   const fields: FieldConfig[] = [
-    { key: "role_key", label: "角色标识", required: true, placeholder: "project_admin" },
-    { key: "display_name", label: "显示名称", required: true, placeholder: "项目管理员" },
+    { key: "role_key", label: "角色标识", required: true, placeholder: "user", readOnlyOnEdit: true },
+    { key: "display_name", label: "显示名称", required: true, placeholder: "普通用户" },
     { key: "data_scope", label: "数据范围", type: "select", options: ["global", "team", "project", "self"], required: true },
-    { key: "permissions", label: "权限点，逗号分隔", type: "textarea", placeholder: "project:read, api_key:write" },
-    { key: "menu_scopes", label: "菜单范围，逗号分隔", type: "textarea", placeholder: "overview, projects, api-keys" },
     { key: "assignable", label: "可分配", type: "boolean" },
   ];
   return {
-    ...genericResourceConfig("role-configs", "角色配置", "配置后台角色、数据范围、菜单范围和权限点", fields),
+    ...genericResourceConfig("role-configs", "角色配置", "配置用户管理新增/编辑时可选择的后台角色。权限边界由系统内置角色模型控制。", fields),
     eyebrow: "角色配置",
-    createLabel: "新增角色",
+    createLabel: "新增可选角色",
     columns: [
       { key: "name", label: "名称" },
       { key: "role_key", label: "角色标识", render: (item) => stringifyValue(item.fields?.role_key) || item.id },
       { key: "display_name", label: "显示名称", render: (item) => stringifyValue(item.fields?.display_name) || item.name },
       { key: "data_scope", label: "数据范围", render: (item) => dataScopeLabel(stringifyValue(item.fields?.data_scope)) },
-      { key: "permissions", label: "权限点", render: (item) => compactList(item.fields?.permissions) },
-      { key: "menu_scopes", label: "菜单范围", render: (item) => compactList(item.fields?.menu_scopes) },
       { key: "assignable", label: "可分配", render: (item) => boolLabel(item.fields?.assignable) },
       { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
+    ],
+  };
+}
+
+function teamConfig(): ResourceConfig<AdminResource> {
+  const fields: FieldConfig[] = [
+    {
+      key: "owner",
+      label: "负责人",
+      type: "select",
+      optionsFromData: userSelectOptions,
+      help: "从用户管理中选择团队负责人，用于审批和审计归属。",
+    },
+    {
+      key: "cost_center",
+      label: "成本中心",
+      type: "select",
+      optionsFromData: costCenterSelectOptions,
+      help: "费用归集口径，可与团队不同；用于成本归集和用量统计。",
+    },
+  ];
+  return {
+    ...genericResourceConfig("teams", "团队分组", "企业团队、负责人和费用归属", fields),
+    columns: [
+      { key: "name", label: "团队名称" },
+      { key: "owner", label: "负责人", render: (item, ctx) => ownerUserLabel(ctx, stringifyValue(item.fields?.owner)) },
+      { key: "cost_center", label: "成本中心", render: (item, ctx) => costCenterLabel(ctx, stringifyValue(item.fields?.cost_center)) },
+      { key: "members", label: "成员数", render: (item, ctx) => formatNumber(teamMemberCount(ctx, item)) },
+      { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
+      { key: "updated_at", label: "更新时间", render: (item) => formatTime(item.updated_at ?? "") },
     ],
   };
 }
@@ -4157,20 +5328,77 @@ function sqliteBackupConfig(): ResourceConfig<SQLiteBackup> {
   };
 }
 
+function notificationChannelConfig(): ResourceConfig<AdminResource> {
+  const fields: FieldConfig[] = [
+    { key: "type", label: "渠道类型", type: "select", options: notificationChannelTypes, required: true },
+    { key: "webhook_url", label: "Webhook URL", required: true, visible: notificationChannelUsesWebhook },
+    { key: "secret", label: "签名密钥", type: "password", help: "可选预留。当前按普通机器人 Webhook 发送，留空不影响通知。", visible: notificationChannelUsesWebhook },
+    { key: "smtp_host", label: "SMTP Host", required: true, visible: notificationChannelUsesEmail },
+    { key: "smtp_port", label: "SMTP 端口", type: "number", required: true, visible: notificationChannelUsesEmail },
+    { key: "smtp_username", label: "SMTP 用户名", visible: notificationChannelUsesEmail },
+    { key: "smtp_password", label: "SMTP 密码", type: "password", help: "编辑时留空表示不修改。", visible: notificationChannelUsesEmail },
+    { key: "smtp_from", label: "发件人", required: true, visible: notificationChannelUsesEmail },
+    { key: "email_to", label: "收件人", required: true, help: "多个收件人用英文逗号分隔。", visible: notificationChannelUsesEmail },
+  ];
+  const config = genericResourceConfig(
+    "notification-channels",
+    "通知渠道",
+    "按 Webhook、飞书、钉钉、企业微信、Slack 和邮件快速配置告警通知目标。",
+    fields,
+  );
+  return {
+    ...config,
+    eyebrow: "渠道配置",
+    createLabel: "配置通知渠道",
+    columns: [
+      { key: "name", label: "名称" },
+      { key: "fields.type", label: "渠道", render: (item) => notificationChannelLabel(notificationChannelType(item)) },
+      { key: "fields.webhook_url", label: "目标", render: (item) => notificationChannelTargetSummary(item) },
+      { key: "fields.secret", label: "凭证", render: (item) => notificationCredentialSummary(item) },
+      { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
+      { key: "updated_at", label: "更新时间", render: (item) => formatTime(item.updated_at ?? "") },
+    ],
+    create: (ctx, values) => adminMutate(ctx, "/api/admin/resources/notification-channels", "POST", notificationChannelPayload(values)),
+    update: (ctx, item, values) => adminMutate(ctx, `/api/admin/resources/notification-channels/${item.id}`, "PATCH", notificationChannelPayload(values, item)),
+    toForm: (item) => ({
+      name: item.name,
+      description: item.description ?? "",
+      status: item.status,
+      type: notificationChannelType(item),
+      webhook_url: stringifyValue(item.fields?.webhook_url),
+      secret: "",
+      smtp_host: stringifyValue(item.fields?.smtp_host),
+      smtp_port: stringifyValue(item.fields?.smtp_port),
+      smtp_username: stringifyValue(item.fields?.smtp_username),
+      smtp_password: "",
+      smtp_from: stringifyValue(item.fields?.smtp_from),
+      email_to: stringifyValue(item.fields?.email_to),
+    }),
+  };
+}
+
 function monitorConfig(): ResourceConfig<AdminResource> {
   const fields: FieldConfig[] = [
-    { key: "target_type", label: "目标类型", type: "select", options: ["provider", "model"], required: true },
+    { key: "target_type", label: "目标类型", type: "select", options: ["provider", "resource", "model"], required: true },
     { key: "provider_id", label: "Provider ID" },
+    { key: "provider_resource_id", label: "资源实例 ID" },
     { key: "model", label: "模型" },
     { key: "interval_seconds", label: "间隔秒数", type: "number" },
   ];
+  const config = genericResourceConfig(
+    "monitors",
+    "健康检测",
+    "系统自动检测 Provider、资源实例和模型路由状态，帮助确认模型 API 链路是否可用。",
+    fields,
+  );
   return {
-    ...genericResourceConfig("monitors", "健康监控", "Provider 和模型路由心跳检测任务", fields),
-    eyebrow: "监控任务列表",
+    ...config,
+    eyebrow: "默认检测项",
     columns: [
       { key: "name", label: "名称" },
       { key: "fields.target_type", label: "目标类型", render: (item) => monitorTargetLabel(item.fields) },
       { key: "fields.provider_id", label: "Provider", render: (item) => stringifyValue(item.fields?.provider_id) || "-" },
+      { key: "fields.provider_resource_id", label: "资源实例", render: (item) => stringifyValue(item.fields?.provider_resource_id) || "-" },
       { key: "fields.model", label: "模型", render: (item) => stringifyValue(item.fields?.model) || "-" },
       { key: "fields.last_status", label: "最近状态", render: (item) => <StatusPill status={stringifyValue(item.fields?.last_status || item.fields?.last_result || "unknown")} /> },
       { key: "fields.last_message", label: "最近消息", render: (item) => stringifyValue(item.fields?.last_message) || "-" },
@@ -4178,10 +5406,13 @@ function monitorConfig(): ResourceConfig<AdminResource> {
       { key: "fields.last_checked_at", label: "最近检测", render: (item) => formatTime(stringifyValue(item.fields?.last_checked_at)) },
       { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
     ],
+    create: undefined,
+    update: undefined,
+    remove: undefined,
     actions: [
       {
-        label: "运行",
-        title: "立即执行该监控任务",
+        label: "立即检测",
+        title: "立即执行该健康检测",
         run: async (ctx, item) => {
           const resp = await adminFetch(ctx, `/api/admin/resources/monitors/${item.id}/run`, {
             method: "POST",
@@ -4357,7 +5588,7 @@ function projectConfig(): ResourceConfig<Project> {
       { key: "team_id", label: "团队" },
       { key: "owner_user_id", label: "负责人" },
       { key: "cost_center", label: "成本中心", render: (item) => item.cost_center || "-" },
-      { key: "default_quota_ref", label: "额度策略" },
+      { key: "quota", label: "额度", render: (item, ctx) => projectQuotaSummary(ctx, item) },
       { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
     ],
     fields: [
@@ -4365,7 +5596,6 @@ function projectConfig(): ResourceConfig<Project> {
       { key: "team_id", label: "团队 ID" },
       { key: "owner_user_id", label: "负责人用户 ID" },
       { key: "cost_center", label: "成本中心" },
-      { key: "default_quota_ref", label: "默认额度策略" },
       { key: "status", label: "状态", type: "select", options: ["active", "disabled"], required: true },
     ],
     list: (ctx) => ctx.projects,
@@ -4419,7 +5649,7 @@ function apiKeyConfig(): ResourceConfig<APIKey> {
       },
       { key: "name", label: "Key 名称", required: true },
       { key: "group", label: "用途/环境", placeholder: "prod、dev、backend-service" },
-      { key: "allowed_models", label: "模型白名单，逗号分隔", help: "留空表示跟随项目默认可用模型；建议生产环境显式配置。" },
+      { key: "allowed_models", label: "模型白名单，逗号分隔", help: "留空表示不限制 Key 级模型白名单；实际可调用模型仍受模型目录和路由策略约束。" },
       { key: "ip_allowlist", label: "IP 白名单，逗号分隔", help: "留空表示不限来源 IP。" },
       { key: "daily_requests", label: "日请求", type: "number" },
       { key: "monthly_requests", label: "月请求", type: "number" },
@@ -4468,6 +5698,47 @@ function apiKeyConfig(): ResourceConfig<APIKey> {
   };
 }
 
+function APIKeyStatusSwitch({
+  item,
+  onToggle,
+}: {
+  item: APIKey;
+  onToggle: (status: "active" | "disabled") => void;
+}) {
+  if (item.status !== "active" && item.status !== "disabled") {
+    return <StatusPill status={item.status} />;
+  }
+  const enabled = item.status === "active";
+  const nextStatus = enabled ? "disabled" : "active";
+  return (
+    <button
+      aria-checked={enabled}
+      className={enabled ? "status-switch active" : "status-switch"}
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle(nextStatus);
+      }}
+      role="switch"
+      title={enabled ? "点击停用 API Key" : "点击启用 API Key"}
+      type="button"
+    >
+      <span className="status-switch-track">
+        <span className="status-switch-thumb" />
+      </span>
+      <strong>{enabled ? "启用" : "停用"}</strong>
+    </button>
+  );
+}
+
+function apiKeyStatusAction(status: "active" | "disabled"): ResourceAction<APIKey> {
+  return {
+    label: status === "active" ? "启用" : "禁用",
+    title: status === "active" ? "重新启用该 API Key" : "立即禁用该 API Key",
+    run: (ctx, item) => updateAPIKeyStatus(ctx, item, status),
+    doneMessage: (item) => `${item.name} 已${status === "active" ? "启用" : "禁用"}`,
+  };
+}
+
 function adminUserConfig(): ResourceConfig<AdminUser> {
   return {
     view: "users",
@@ -4479,8 +5750,8 @@ function adminUserConfig(): ResourceConfig<AdminUser> {
       { key: "name", label: "姓名" },
       { key: "email", label: "邮箱" },
       { key: "username", label: "用户名" },
-      { key: "role", label: "角色", render: (item) => roleLabel(item.role) },
-      { key: "team_id", label: "团队", render: (item) => item.team_id || "-" },
+      { key: "role", label: "角色", render: (item, ctx) => roleDisplayLabel(ctx, item.role) },
+      { key: "team_id", label: "团队", render: (item, ctx) => teamLabel(ctx, item.team_id ?? "") },
       { key: "last_login_at", label: "最近登录", render: (item) => formatTime(item.last_login_at ?? "") },
       { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
     ],
@@ -4489,8 +5760,8 @@ function adminUserConfig(): ResourceConfig<AdminUser> {
       { key: "name", label: "姓名", required: true },
       { key: "email", label: "邮箱", required: true },
       { key: "password", label: "密码", type: "password", placeholder: "编辑时留空则不修改" },
-      { key: "role", label: "角色", type: "select", options: ["admin", "security", "project_admin", "viewer"], required: true },
-      { key: "team_id", label: "团队 ID" },
+      { key: "role", label: "角色", type: "select", optionsFromData: roleSelectOptions, required: true },
+      { key: "team_id", label: "团队", type: "select", optionsFromData: teamSelectOptions },
       { key: "status", label: "状态", type: "select", options: ["active", "disabled"], required: true },
     ],
     list: (ctx) => ctx.users,
@@ -4506,6 +5777,36 @@ function adminUserConfig(): ResourceConfig<AdminUser> {
       team_id: item.team_id ?? "",
       status: item.status,
     }),
+  };
+}
+
+function alertRuleConfig(): ResourceConfig<AdminResource> {
+  const fields: FieldConfig[] = [
+    {
+      key: "metric",
+      label: "指标",
+      type: "select",
+      options: ["provider_health", "provider_resource_health", "request_quota_usage", "token_quota_usage", "cost_quota_usage", "error_rate", "latency_p95"],
+      required: true,
+    },
+    { key: "threshold", label: "阈值", required: true },
+    { key: "severity", label: "级别", type: "select", options: ["info", "warning", "critical"], required: true },
+    { key: "scope", label: "对象范围", type: "select", options: ["provider", "provider_resource", "quota", "api_key", "project", "model"], required: true },
+    { key: "channel", label: "通知渠道" },
+  ];
+  return {
+    ...genericResourceConfig("alert-rules", "告警规则", "Provider 健康、资源实例状态和额度风险的默认告警规则。", fields),
+    eyebrow: "规则列表",
+    columns: [
+      { key: "name", label: "名称" },
+      { key: "fields.metric", label: "指标", render: (item) => alertMetricLabel(stringifyValue(item.fields?.metric)) },
+      { key: "fields.threshold", label: "阈值", render: (item) => stringifyValue(item.fields?.threshold) || "-" },
+      { key: "fields.severity", label: "级别", render: (item) => <StatusPill status={stringifyValue(item.fields?.severity || "warning")} /> },
+      { key: "fields.channel", label: "通知渠道", render: (item) => stringifyValue(item.fields?.channel) || "default" },
+      { key: "fields.event_codes", label: "触发事件", render: (item) => compactList(item.fields?.event_codes) },
+      { key: "fields.managed_by", label: "来源", render: (item) => stringifyValue(item.fields?.managed_by) === "tokenhub_auto" ? "系统默认" : "自定义" },
+      { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
+    ],
   };
 }
 
@@ -4567,11 +5868,11 @@ function approvalConfig(): ResourceConfig<ApprovalRequest> {
     view: "approvals",
     title: "审批记录",
     eyebrow: "审批申请列表",
-    description: "处理 Key 发放、额度提升、模型开通和预算变更审批。",
+    description: "处理 Key 发放、额度提升和模型开通审批。",
     columns: [
       { key: "created_at", label: "时间", render: (item) => formatTime(item.created_at) },
       { key: "trigger", label: "触发条件", render: (item) => approvalTriggerLabel(item.trigger) },
-      { key: "resource_type", label: "对象" },
+      { key: "resource_type", label: "对象", render: (item) => resourceTypeLabel(item.resource_type) },
       { key: "requester", label: "申请人", render: (item) => item.requester || item.requester_id || "-" },
       { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} label={approvalStatusLabel(item.status)} /> },
       { key: "decided_by", label: "处理人", render: (item) => item.decided_by || "-" },
@@ -4583,12 +5884,14 @@ function approvalConfig(): ResourceConfig<ApprovalRequest> {
       {
         label: "批准",
         title: "批准并执行该申请",
+        visible: (item) => item.status === "pending",
         run: async (ctx, item) => runApprovalAction(ctx, item, "approve"),
         doneMessage: (item) => `${approvalTriggerLabel(item.trigger)} 已批准`,
       },
       {
         label: "驳回",
         title: "驳回该申请",
+        visible: (item) => item.status === "pending",
         run: async (ctx, item) => runApprovalAction(ctx, item, "reject"),
         doneMessage: (item) => `${approvalTriggerLabel(item.trigger)} 已驳回`,
       },
@@ -4611,34 +5914,6 @@ function costCenterConfig(): ResourceConfig<AdminResource> {
       { key: "department", label: "部门", render: (item) => stringifyValue(item.fields?.department) || "-" },
       { key: "owner", label: "负责人", render: (item) => stringifyValue(item.fields?.owner) || "-" },
       { key: "monthly_budget_usd", label: "月预算", render: (item) => `$${formatMoney(numberFromUnknown(item.fields?.monthly_budget_usd))}` },
-      { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
-    ],
-  };
-}
-
-function budgetConfig(): ResourceConfig<AdminResource> {
-  const fields: FieldConfig[] = [
-    { key: "scope", label: "预算对象", type: "select", options: ["project", "team", "cost_center"], required: true },
-    { key: "scope_id", label: "对象 ID", required: true },
-    { key: "period", label: "周期", type: "select", options: ["monthly", "quarterly", "yearly"], required: true },
-    { key: "period_ref", label: "账期 YYYY-MM" },
-    { key: "amount_usd", label: "预算 USD", type: "number" },
-    { key: "warn_percent", label: "预警百分比", type: "number" },
-    { key: "enforcement", label: "管控模式", type: "select", options: ["block", "warn"], required: true },
-    { key: "used_usd", label: "已用 USD", type: "number" },
-    { key: "usage_percent", label: "使用率 %", type: "number" },
-  ];
-  return {
-    ...genericResourceConfig("budgets", "预算管理", "按项目、团队或成本中心配置预算周期和阈值", fields),
-    columns: [
-      { key: "name", label: "名称" },
-      { key: "scope", label: "对象", render: (item) => budgetScopeLabel(stringifyValue(item.fields?.scope)) },
-      { key: "scope_id", label: "对象 ID", render: (item) => stringifyValue(item.fields?.scope_id) || "-" },
-      { key: "period_ref", label: "账期", render: (item) => stringifyValue(item.fields?.period_ref) || stringifyValue(item.fields?.period) || "-" },
-      { key: "amount_usd", label: "预算", render: (item) => `$${formatMoney(numberFromUnknown(item.fields?.amount_usd))}` },
-      { key: "used_usd", label: "已用", render: (item) => `$${formatMoney(numberFromUnknown(item.fields?.used_usd))}` },
-      { key: "usage_percent", label: "使用率", render: (item) => `${formatMoney(numberFromUnknown(item.fields?.usage_percent))}%` },
-      { key: "enforcement", label: "管控", render: (item) => budgetEnforcementLabel(stringifyValue(item.fields?.enforcement)) },
       { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
     ],
   };
@@ -4692,12 +5967,12 @@ function approvalFlowConfig(): ResourceConfig<AdminResource> {
 
 function reportConfig(): ResourceConfig<AdminResource> {
   const fields: FieldConfig[] = [
-    { key: "dataset", label: "数据集", type: "select", options: ["requests", "usage", "cost-centers", "budgets", "chargebacks", "invoices", "approvals", "audit-events", "alert-deliveries"], required: true },
+    { key: "dataset", label: "数据集", type: "select", options: ["requests", "usage", "cost-centers", "approvals", "audit-events", "alert-deliveries"], required: true },
     { key: "schedule", label: "频率", type: "select", options: ["manual", "daily", "weekly", "monthly"], required: true },
     { key: "recipients", label: "接收人" },
   ];
   return {
-    ...genericResourceConfig("reports", "导出报表", "保存常用导出报表配置和分发对象", fields),
+    ...genericResourceConfig("reports", "导出报表", "按需导出审计、用量和治理数据集", fields),
     columns: [
       { key: "name", label: "名称" },
       { key: "dataset", label: "数据集", render: (item) => reportDatasetLabel(stringifyValue(item.fields?.dataset)) },
@@ -4809,27 +6084,83 @@ async function handleApprovalOrJSON(resp: Response) {
   await resp.json().catch(() => undefined);
 }
 
+function reportExportDefinitions(): Array<{
+  dataset: string;
+  label: string;
+  description: string;
+  icon: typeof Activity;
+  tone: string;
+}> {
+  return [
+    {
+      dataset: "requests",
+      label: reportDatasetLabel("requests"),
+      description: "请求 ID、模型、状态码、Provider 路由和延迟",
+      icon: FileText,
+      tone: "blue",
+    },
+    {
+      dataset: "usage",
+      label: reportDatasetLabel("usage"),
+      description: "按模型、项目和日期归集 Token 与成本",
+      icon: BarChart3,
+      tone: "green",
+    },
+    {
+      dataset: "cost-centers",
+      label: reportDatasetLabel("cost-centers"),
+      description: "成本中心、负责人和部门归属配置",
+      icon: Database,
+      tone: "slate",
+    },
+    {
+      dataset: "approvals",
+      label: reportDatasetLabel("approvals"),
+      description: "额度提升、Key 发放和模型开通审批记录",
+      icon: ShieldCheck,
+      tone: "amber",
+    },
+    {
+      dataset: "audit-events",
+      label: reportDatasetLabel("audit-events"),
+      description: "后台操作、变更对象、操作人和时间",
+      icon: Activity,
+      tone: "violet",
+    },
+    {
+      dataset: "alert-deliveries",
+      label: reportDatasetLabel("alert-deliveries"),
+      description: "告警通知的渠道、目标和发送结果",
+      icon: Bell,
+      tone: "red",
+    },
+  ];
+}
+
 function reportExportActions(): ToolbarAction[] {
-  const datasets = ["requests", "usage", "cost-centers", "budgets", "chargebacks", "invoices", "approvals", "audit-events", "alert-deliveries"];
-  return datasets.map((dataset) => ({
-    label: reportDatasetLabel(dataset),
-    title: `导出 ${reportDatasetLabel(dataset)} CSV`,
-    run: async (ctx) => downloadReport(ctx, dataset),
-    doneMessage: () => `${reportDatasetLabel(dataset)} 已导出`,
+  return reportExportDefinitions().map(({ dataset, label }) => ({
+    label,
+    title: `导出 ${label} CSV`,
+    run: async (ctx) => {
+      await downloadReport(ctx, dataset);
+    },
+    doneMessage: () => `${label} 已导出`,
   }));
 }
 
 async function downloadReport(ctx: ApiContext, dataset: string) {
   const period = reportPeriodPrompt(dataset);
-  if (period === null) return;
+  if (period === null) return null;
   const resp = await adminFetch(ctx, reportExportPath(dataset, period));
   if (!resp.ok) throw new Error(`export ${dataset} ${resp.status}`);
   const blob = await resp.blob();
-  downloadBlob(blob, reportFilename(dataset, period));
+  const fileName = reportFilename(dataset, period);
+  downloadBlob(blob, fileName);
+  return { fileName, period };
 }
 
 function reportPeriodPrompt(dataset: string) {
-  if (!["usage", "budgets", "chargebacks", "invoices"].includes(dataset)) return "";
+  if (!["usage", "budgets"].includes(dataset)) return "";
   const period = window.prompt("输入账期 YYYY-MM，留空则导出全部", currentBillingPeriod());
   if (period === null) return null;
   return period.trim();
@@ -5031,6 +6362,174 @@ async function createModelRoutes(ctx: ApiContext, values: Record<string, string>
   }
 }
 
+function projectQuotaPolicy(data: AppData, project: Project) {
+  const policies = data.resources["quota-policies"] ?? [];
+  if (project.default_quota_ref) {
+    const byRef = policies.find((item) => item.id === project.default_quota_ref);
+    if (byRef) return byRef;
+  }
+  return policies.find((item) => {
+    const scope = stringifyValue(item.fields?.scope || item.fields?.scope_type).toLowerCase();
+    const scopeID = stringifyValue(item.fields?.scope_id);
+    return scope === "project" && scopeID === project.id;
+  });
+}
+
+function projectQuotaValues(quota?: AdminResource): ProjectQuotaValues {
+  return {
+    status: quota?.status || "active",
+    daily_requests: quotaFieldValue(quota, "daily_requests"),
+    monthly_requests: quotaFieldValue(quota, "monthly_requests"),
+    daily_tokens: quotaFieldValue(quota, "daily_tokens"),
+    monthly_tokens: quotaFieldValue(quota, "monthly_tokens"),
+    daily_cost_usd: quotaFieldValue(quota, "daily_cost_usd"),
+    monthly_cost_usd: quotaFieldValue(quota, "monthly_cost_usd"),
+    max_concurrency: quotaFieldValue(quota, "max_concurrency"),
+  };
+}
+
+function quotaFieldValue(quota: AdminResource | undefined, key: string) {
+  const value = quota?.fields?.[key];
+  if (value === undefined || value === null || value === "" || Number(value) === 0) return "";
+  return String(value);
+}
+
+function projectQuotaPayload(project: Project, values: ProjectQuotaValues) {
+  return {
+    name: `${project.name || project.id} 项目额度`,
+    description: "项目空间内配置的专属模型调用额度",
+    status: values.status || "active",
+    fields: {
+      scope: "project",
+      scope_id: project.id,
+      daily_requests: numberOr(values.daily_requests, 0),
+      monthly_requests: numberOr(values.monthly_requests, 0),
+      daily_tokens: numberOr(values.daily_tokens, 0),
+      monthly_tokens: numberOr(values.monthly_tokens, 0),
+      daily_cost_usd: numberOr(values.daily_cost_usd, 0),
+      monthly_cost_usd: numberOr(values.monthly_cost_usd, 0),
+      max_concurrency: numberOr(values.max_concurrency, 0),
+    },
+  };
+}
+
+async function saveProjectQuota(ctx: ApiContext, project: Project, quota: AdminResource | undefined, values: ProjectQuotaValues) {
+  const payload = projectQuotaPayload(project, values);
+  const path = quota ? `/api/admin/resources/quota-policies/${quota.id}` : "/api/admin/resources/quota-policies";
+  const resp = await adminFetch(ctx, path, {
+    method: quota ? "PATCH" : "POST",
+    body: JSON.stringify(payload),
+  });
+  if (resp.status === 202) {
+    await handleApprovalOrJSON(resp);
+    return;
+  }
+  if (!resp.ok) throw new Error(`save project quota ${resp.status}`);
+  const saved = (await resp.json()) as AdminResource;
+  if (saved.id && project.default_quota_ref !== saved.id) {
+    const projectResp = await adminFetch(ctx, `/api/admin/projects/${project.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: project.name,
+        team_id: project.team_id ?? "",
+        owner_user_id: project.owner_user_id ?? "",
+        cost_center: project.cost_center ?? "",
+        status: project.status,
+        default_quota_ref: saved.id,
+      }),
+    });
+    if (!projectResp.ok) throw new Error(`link project quota ${projectResp.status}`);
+    await projectResp.json().catch(() => undefined);
+  }
+}
+
+async function requestProjectQuotaIncrease(ctx: ApiContext, project: Project, quota: AdminResource | undefined, values: ProjectQuotaValues) {
+  if (!projectQuotaValuesHaveLimit(values)) {
+    throw new Error("请先填写至少一项希望提升后的目标额度");
+  }
+  const payload = projectQuotaPayload(project, values);
+  const resp = await adminFetch(ctx, `/api/admin/projects/${project.id}/quota-increase`, {
+    method: "POST",
+    body: JSON.stringify({
+      ...payload,
+      resource_id: quota?.id ?? "",
+    }),
+  });
+  if (resp.status === 202) {
+    await handleApprovalOrJSON(resp);
+    return;
+  }
+  if (!resp.ok) throw new Error(`request project quota increase ${resp.status}`);
+  await resp.json().catch(() => undefined);
+}
+
+function projectQuotaValuesHaveLimit(values: ProjectQuotaValues) {
+  return projectQuotaFields.some((field) => numberOr(values[field.key], 0) > 0);
+}
+
+function projectQuotaSummary(data: AppData, project: Project) {
+  const quota = projectQuotaPolicy(data, project);
+  if (!quota) return "未配置";
+  if (quota.status !== "active") return enumValueLabel(quota.status);
+  const parts = [
+    quotaSummaryPart(quota, "daily_requests", "日请求"),
+    quotaSummaryPart(quota, "monthly_requests", "月请求"),
+    quotaSummaryPart(quota, "daily_tokens", "日 Token"),
+    quotaSummaryPart(quota, "monthly_tokens", "月 Token"),
+    quotaSummaryPart(quota, "daily_cost_usd", "日成本", "$"),
+    quotaSummaryPart(quota, "monthly_cost_usd", "月成本", "$"),
+    quotaSummaryPart(quota, "max_concurrency", "并发"),
+  ].filter(Boolean);
+  return parts.slice(0, 2).join(" · ") || "不限额";
+}
+
+function quotaSummaryPart(quota: AdminResource, key: string, label: string, prefix = "") {
+  const value = numberFromUnknown(quota.fields?.[key]);
+  if (!value) return "";
+  return `${label} ${prefix}${compactNumber(value)}`;
+}
+
+function projectQuotaIssue(data: AppData, project: Project) {
+  const quotaLogs = data.logs.filter(
+    (log) => log.project_id === project.id && (log.error_code === "quota_exceeded" || log.status_code === 429),
+  );
+  const quotaAlerts = data.alerts.filter((alert) => {
+    const code = String(alert.code || "").toLowerCase();
+    if (!code.includes("quota")) return false;
+    if (alert.scope_type === "project" && alert.scope_id === project.id) return true;
+    return alert.scope_id === project.id;
+  });
+  const count = quotaLogs.length + quotaAlerts.length;
+  if (count === 0) return null;
+  const latest = [...quotaLogs.map((log) => log.created_at), ...quotaAlerts.map((alert) => alert.created_at)]
+    .filter(Boolean)
+    .sort()
+    .at(-1);
+  return { count, latest };
+}
+
+function pendingProjectQuotaApproval(data: AppData, project: Project) {
+  return data.approvals.find((approval) => {
+    if (approval.status !== "pending" || approval.trigger !== "quota_increase" || approval.resource_type !== "quota-policies") {
+      return false;
+    }
+    const payload = parseApprovalPayload(approval.payload);
+    if (stringifyValue(payload.project_id) === project.id) return true;
+    const fields = payload.fields && typeof payload.fields === "object" ? payload.fields as Record<string, unknown> : {};
+    return stringifyValue(fields.scope).toLowerCase() === "project" && stringifyValue(fields.scope_id) === project.id;
+  });
+}
+
+function parseApprovalPayload(payload?: string): Record<string, unknown> {
+  if (!payload) return {};
+  try {
+    const data = JSON.parse(payload);
+    return data && typeof data === "object" && !Array.isArray(data) ? data as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
 function defaultFormValues<T>(config: ResourceConfig<T>, data: AppData) {
   const values: Record<string, string> = {};
   for (const field of config.fields) {
@@ -5047,7 +6546,8 @@ function defaultFormValues<T>(config: ResourceConfig<T>, data: AppData) {
     if (field.key === "resource_type") values[field.key] = "api_key";
     if (field.key === "environment") values[field.key] = "prod";
     if (field.key === "project_id") values[field.key] = firstActiveProject(data)?.id ?? "";
-    if (field.key === "allowed_models") values[field.key] = "gpt-4.1-mini";
+    if (field.key === "team_id") values[field.key] = firstActiveTeam(data)?.id ?? "";
+    if (field.key === "allowed_models") values[field.key] = "";
     if (field.key === "daily_requests") values[field.key] = "1000";
     if (field.key === "monthly_requests") values[field.key] = "30000";
     if (field.key === "daily_tokens") values[field.key] = "1000000";
@@ -5068,7 +6568,9 @@ function defaultFormValues<T>(config: ResourceConfig<T>, data: AppData) {
     if (field.key === "webhook_url") values[field.key] = "http://localhost:8081/tokenhub-alert";
     if (field.key === "protocol") values[field.key] = "direct";
     if (field.key === "notify_mode") values[field.key] = "silent";
-    if (field.key === "role") values[field.key] = "viewer";
+    if (field.key === "role") values[field.key] = "user";
+    if (field.key === "owner") values[field.key] = firstActiveUser(data)?.id ?? "";
+    if (field.key === "cost_center") values[field.key] = firstCostCenterCode(data);
     if (field.key === "role_key") values[field.key] = "project_admin";
     if (field.key === "display_name") values[field.key] = "项目管理员";
     if (field.key === "data_scope") values[field.key] = "project";
@@ -5102,6 +6604,60 @@ function keyPatchPayload(values: Record<string, string>) {
   };
 }
 
+function notificationChannelPayload(values: Record<string, string>, existing?: AdminResource) {
+  const type = normalizeNotificationChannelType(values.type);
+  const secret = values.secret || stringifyValue(existing?.fields?.secret);
+  const smtpPassword = values.smtp_password || stringifyValue(existing?.fields?.smtp_password);
+  const fields = type === "email"
+    ? {
+        type,
+        smtp_host: values.smtp_host,
+        smtp_port: numberOr(values.smtp_port, 587),
+        smtp_username: values.smtp_username,
+        smtp_password: smtpPassword,
+        smtp_from: values.smtp_from,
+        email_to: values.email_to,
+      }
+    : {
+        type,
+        webhook_url: values.webhook_url,
+        secret,
+      };
+  return {
+    name: values.name || `${notificationChannelLabel(type)} 通知渠道`,
+    description: values.description || notificationChannelDescription(type),
+    status: values.status || "active",
+    fields,
+  };
+}
+
+function notificationChannelDefaults(type: string) {
+  const normalized = normalizeNotificationChannelType(type);
+  return {
+    name: `${notificationChannelLabel(normalized)} 通知渠道`,
+    description: notificationChannelDescription(normalized),
+    status: "active",
+    type: normalized,
+    webhook_url: notificationChannelURLPlaceholder(normalized),
+    secret: "",
+    smtp_host: "smtp.example.com",
+    smtp_port: "587",
+    smtp_username: "tokenhub@example.com",
+    smtp_password: "",
+    smtp_from: "tokenhub@example.com",
+    email_to: "ops@example.com",
+  };
+}
+
+async function updateAPIKeyStatus(ctx: ApiContext, item: APIKey, status: "active" | "disabled") {
+  const resp = await adminFetch(ctx, `/api/admin/api-keys/${item.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+  if (!resp.ok) throw new Error(`update api key ${resp.status}`);
+  await resp.json().catch(() => undefined);
+}
+
 function keyLimits(values: Record<string, string>) {
   return {
     daily_requests: numberOr(values.daily_requests, 0),
@@ -5119,7 +6675,7 @@ function userPayload(values: Record<string, string>, includePassword: boolean) {
     username: values.username,
     name: values.name,
     email: values.email,
-    role: values.role || "viewer",
+    role: values.role || "user",
     team_id: values.team_id,
     status: values.status || "active",
   };
@@ -5209,7 +6765,7 @@ function emptyData(): AppData {
     approvals: [],
     sqliteBackups: [],
     users: [],
-    breakdown: { projects: [], models: [], providers: [], provider_resources: [], cost_centers: [] },
+    breakdown: { projects: [], models: [], members: [], providers: [], provider_resources: [], cost_centers: [] },
     timeseries: [],
     resources: {},
     providerCatalog: [],
@@ -5224,6 +6780,10 @@ function emptySummary(): Summary {
     total_tokens: 0,
     estimated_cost_usd: 0,
     errors: 0,
+    api_key_count: 0,
+    route_count: 0,
+    active_route_count: 0,
+    user_count: 0,
   };
 }
 
@@ -5352,6 +6912,9 @@ function filterByModelCategory<T>(view: ViewKey | undefined, items: T[], categor
   if (view === "providers") {
     return items.filter((item) => providerCategories(item as Provider, data).includes(category));
   }
+  if (view === "notification-channels") {
+    return items.filter((item) => notificationChannelType(item as AdminResource) === category);
+  }
   return items;
 }
 
@@ -5381,6 +6944,106 @@ function modelCategoryTabs(data: AppData, view: ViewKey) {
       count: counts.get(category) ?? 0,
     })),
   ];
+}
+
+function notificationChannelTabs(data: AppData) {
+  const counts = new Map<string, number>();
+  for (const item of data.resources["notification-channels"] ?? []) {
+    const type = notificationChannelType(item);
+    counts.set(type, (counts.get(type) ?? 0) + 1);
+  }
+  return notificationChannelTypes.map((type) => ({
+    key: type,
+    label: notificationChannelLabel(type),
+    count: counts.get(type) ?? 0,
+  }));
+}
+
+function notificationChannelType(item: AdminResource) {
+  return normalizeNotificationChannelType(stringifyValue(item.fields?.type));
+}
+
+function notificationChannelFormType(values: Record<string, string>) {
+  return normalizeNotificationChannelType(values.type);
+}
+
+function notificationChannelUsesWebhook(values: Record<string, string>) {
+  return notificationChannelFormType(values) !== "email";
+}
+
+function notificationChannelUsesEmail(values: Record<string, string>) {
+  return notificationChannelFormType(values) === "email";
+}
+
+function normalizeNotificationChannelType(type: string) {
+  const normalized = type.trim().toLowerCase();
+  if (normalized === "dingding" || normalized === "ding_talk") return "dingtalk";
+  if (normalized === "wechat_work" || normalized === "weixin_work" || normalized === "enterprise_wechat") return "wecom";
+  if (notificationChannelTypes.includes(normalized)) return normalized;
+  return "webhook";
+}
+
+function notificationChannelLabel(type: string) {
+  const labels: Record<string, string> = {
+    webhook: "Webhook",
+    feishu: "飞书",
+    dingtalk: "钉钉",
+    wecom: "企业微信",
+    slack: "Slack",
+    email: "邮件",
+  };
+  return labels[normalizeNotificationChannelType(type)] ?? type;
+}
+
+function notificationChannelDescription(type: string) {
+  const descriptions: Record<string, string> = {
+    webhook: "通用 Webhook 告警通知",
+    feishu: "飞书机器人告警通知",
+    dingtalk: "钉钉机器人告警通知",
+    wecom: "企业微信机器人告警通知",
+    slack: "Slack Incoming Webhook 告警通知",
+    email: "SMTP 邮件告警通知",
+  };
+  return descriptions[normalizeNotificationChannelType(type)] ?? "告警通知渠道";
+}
+
+function notificationChannelURLPlaceholder(type: string) {
+  const urls: Record<string, string> = {
+    webhook: "http://localhost:8081/tokenhub-alert",
+    feishu: "https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    dingtalk: "https://oapi.dingtalk.com/robot/send?access_token=xxxxxxxx",
+    wecom: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    slack: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
+  };
+  return urls[normalizeNotificationChannelType(type)] ?? urls.webhook;
+}
+
+function notificationChannelTargetSummary(item: AdminResource) {
+  if (notificationChannelType(item) === "email") {
+    return compactList(item.fields?.email_to);
+  }
+  return maskWebhookURL(stringifyValue(item.fields?.webhook_url));
+}
+
+function notificationCredentialSummary(item: AdminResource) {
+  if (notificationChannelType(item) === "email") {
+    return stringifyValue(item.fields?.smtp_password) ? "SMTP 已配置" : "SMTP 未配置";
+  }
+  return stringifyValue(item.fields?.secret) ? "已配置" : "未配置";
+}
+
+function maskWebhookURL(url: string) {
+  if (!url) return "-";
+  try {
+    const parsed = new URL(url);
+    const token = parsed.pathname.split("/").filter(Boolean).at(-1) || "";
+    const maskedToken = token.length > 8 ? `${token.slice(0, 4)}...${token.slice(-4)}` : token;
+    parsed.pathname = parsed.pathname.replace(token, maskedToken);
+    if (parsed.search) parsed.search = "?...";
+    return parsed.toString();
+  } catch {
+    return url.length > 24 ? `${url.slice(0, 14)}...${url.slice(-6)}` : url;
+  }
 }
 
 function modelCatalogCategories(data: AppData) {
@@ -5638,6 +7301,21 @@ function firstActiveProvider(data: AppData) {
   return data.providers.find((provider) => provider.status === "active") ?? data.providers[0];
 }
 
+function firstActiveUser(data: AppData) {
+  return data.users.find((user) => user.status === "active") ?? data.users[0];
+}
+
+function firstActiveTeam(data: AppData) {
+  return (data.resources.teams ?? []).find((team) => team.status === "active") ?? data.resources.teams?.[0];
+}
+
+function firstCostCenterCode(data: AppData) {
+  const item = (data.resources["cost-centers"] ?? []).find((resource) => resource.status === "active")
+    ?? data.resources["cost-centers"]?.[0];
+  if (!item) return "";
+  return stringifyValue(item.fields?.code) || item.id;
+}
+
 function projectSelectOptions(data: AppData) {
   return data.projects.map((project) => ({
     value: project.id,
@@ -5665,10 +7343,141 @@ function providerSelectOptions(data: AppData) {
     }));
 }
 
+function roleSelectOptions(data: AppData) {
+  const configured = (data.resources["role-configs"] ?? [])
+    .filter((role) => role.status === "active" && roleConfigAssignable(role))
+    .map((role) => {
+      const value = stringifyValue(role.fields?.role_key) || role.id;
+      return {
+        value,
+        label: roleDisplayName(role) || roleLabel(value),
+      };
+    })
+    .filter((option) => option.value);
+  if (configured.length > 0) {
+    return configured;
+  }
+  return ["user", "team_leader", "admin"].map((role) => ({ value: role, label: roleLabel(role) }));
+}
+
+function roleConfigAssignable(role: AdminResource) {
+  const value = stringifyValue(role.fields?.assignable).trim().toLowerCase();
+  return value === "" || value === "true" || value === "1" || value === "yes";
+}
+
+function roleDisplayName(role: AdminResource) {
+  return stringifyValue(role.fields?.display_name) || role.name;
+}
+
+function roleDisplayLabel(data: AppData, role: string) {
+  const normalized = String(role || "").trim();
+  const configured = (data.resources["role-configs"] ?? []).find((item) => stringifyValue(item.fields?.role_key) === normalized);
+  return configured ? roleDisplayName(configured) : roleLabel(normalized);
+}
+
+function userSelectOptions(data: AppData) {
+  return data.users
+    .slice()
+    .sort((left, right) => (left.status === "active" ? 0 : 1) - (right.status === "active" ? 0 : 1) || (left.name || left.username).localeCompare(right.name || right.username))
+    .map((user) => ({
+      value: user.id,
+      label: `${user.name || user.username} / ${user.email || user.username}${user.status !== "active" ? ` / ${enumValueLabel(user.status)}` : ""}`,
+    }));
+}
+
+function teamSelectOptions(data: AppData) {
+  return (data.resources.teams ?? [])
+    .slice()
+    .sort((left, right) => (left.status === "active" ? 0 : 1) - (right.status === "active" ? 0 : 1) || (left.name || left.id).localeCompare(right.name || right.id))
+    .map((team) => ({
+      value: team.id,
+      label: `${team.name || team.id}${team.status !== "active" ? ` / ${enumValueLabel(team.status)}` : ""}`,
+    }));
+}
+
+function costCenterSelectOptions(data: AppData) {
+  return (data.resources["cost-centers"] ?? [])
+    .slice()
+    .sort((left, right) => (left.name || left.id).localeCompare(right.name || right.id))
+    .map((item) => {
+      const code = stringifyValue(item.fields?.code) || item.id;
+      return {
+        value: code,
+        label: `${code} / ${item.name || item.id}${item.status !== "active" ? ` / ${enumValueLabel(item.status)}` : ""}`,
+      };
+    });
+}
+
 function projectOptionLabel(project: Project) {
   return [project.name || project.id, project.team_id ? `团队 ${project.team_id}` : "", project.owner_user_id ? `负责人 ${project.owner_user_id}` : ""]
     .filter(Boolean)
     .join(" / ");
+}
+
+function overviewAnnouncements(data: AppData, user: AdminUser) {
+  return (data.resources.announcements ?? [])
+    .filter((item) => item.status === "active" && announcementTargetsUser(item, user))
+    .slice()
+    .sort((left, right) => Date.parse(right.updated_at || right.created_at || "") - Date.parse(left.updated_at || left.created_at || ""));
+}
+
+function announcementTargetsUser(item: AdminResource, user: AdminUser) {
+  const target = stringifyValue(item.fields?.target).trim();
+  if (!target || ["all", "all_users", "everyone"].includes(target.toLowerCase())) return true;
+  const targets = splitList(target).map((value) => value.toLowerCase());
+  const role = appRole(user.role);
+  const identityValues = [
+    user.id,
+    user.username,
+    user.email,
+    user.team_id,
+    role,
+    user.role,
+  ].filter(Boolean).map((value) => String(value).toLowerCase());
+  if (targets.includes("all_admins") && role !== "user") return true;
+  return targets.some((value) => identityValues.includes(value));
+}
+
+function announcementMode(item: AdminResource) {
+  const mode = stringifyValue(item.fields?.notify_mode).toLowerCase();
+  return mode === "popup" ? "popup" : "silent";
+}
+
+function announcementModeLabel(item: AdminResource) {
+  return announcementMode(item) === "popup" ? "弹窗" : "静默";
+}
+
+function ownerUserLabel(data: AppData, owner: string) {
+  if (!owner) return "-";
+  const user = data.users.find((item) => item.id === owner || item.username === owner || item.email === owner);
+  if (!user) return owner;
+  return [user.name || user.username, user.email].filter(Boolean).join(" / ");
+}
+
+function usageMemberLabel(data: AppData, memberID: string) {
+  if (!memberID || memberID === "unknown") return "未归属成员";
+  return ownerUserLabel(data, memberID);
+}
+
+function teamLabel(data: AppData, teamID: string) {
+  if (!teamID) return "-";
+  const team = (data.resources.teams ?? []).find((item) => item.id === teamID);
+  return team?.name || teamID;
+}
+
+function teamMemberCount(data: AppData, team: AdminResource) {
+  return data.users.filter((user) => user.team_id === team.id).length;
+}
+
+function costCenterLabel(data: AppData, costCenter: string) {
+  if (!costCenter) return "-";
+  const item = (data.resources["cost-centers"] ?? []).find((resource) => {
+    const code = stringifyValue(resource.fields?.code);
+    return resource.id === costCenter || code === costCenter;
+  });
+  if (!item) return costCenter;
+  const code = stringifyValue(item.fields?.code) || item.id;
+  return `${code} / ${item.name || item.id}`;
 }
 
 function projectName(data: AppData, projectID: string) {
@@ -5966,6 +7775,11 @@ function enumValueLabel(value: string | undefined) {
     block: "超额拦截",
     warn: "仅告警",
     webhook: "Webhook",
+    feishu: "飞书",
+    dingtalk: "钉钉",
+    wecom: "企业微信",
+    slack: "Slack",
+    email: "邮件",
     requests: "请求日志",
     usage: "用量归因",
     "cost-centers": "成本中心",
@@ -6037,6 +7851,14 @@ function fieldKeyLabel(key: string) {
     enforcement: "管控模式",
     period: "周期",
     target_type: "目标类型",
+    webhook_url: "Webhook URL",
+    secret: "签名密钥",
+    smtp_host: "SMTP Host",
+    smtp_port: "SMTP 端口",
+    smtp_username: "SMTP 用户名",
+    smtp_password: "SMTP 密码",
+    smtp_from: "发件人",
+    email_to: "收件人",
   };
   return labels[key] ?? key;
 }
@@ -6045,11 +7867,26 @@ function monitorTargetLabel(fields?: Record<string, unknown>) {
   const target = stringifyValue(fields?.target_type || "").toLowerCase();
   const labels: Record<string, string> = {
     provider: "Provider",
-    resource: "Provider",
-    provider_resource: "Provider",
+    resource: "资源实例",
+    provider_resource: "资源实例",
     model: "模型路由",
   };
   return labels[target] ?? (target || "-");
+}
+
+function alertMetricLabel(metric: string) {
+  const labels: Record<string, string> = {
+    provider_health: "Provider 健康",
+    provider_resource_health: "资源实例健康",
+    request_quota_usage: "请求额度",
+    token_quota_usage: "Token 额度",
+    cost_quota_usage: "成本额度",
+    daily_cost_usd: "日成本额度",
+    daily_tokens: "日 Token 额度",
+    error_rate: "错误率",
+    latency_p95: "P95 延迟",
+  };
+  return labels[metric] ?? (metric || "-");
 }
 
 function parseLooseValue(value: string) {
@@ -6064,8 +7901,13 @@ function roleLabel(role: string) {
     system_admin: "系统管理员",
     security: "安全审计",
     security_admin: "安全审计",
-    project_admin: "项目管理员",
-    viewer: "只读成员",
+    team_leader: "团队 Leader",
+    project_admin: "团队 Leader",
+    user: "普通用户",
+    member: "普通用户",
+    viewer: "普通用户",
+    readonly: "普通用户",
+    read_only: "普通用户",
   };
   return labels[role] ?? role;
 }
@@ -6157,7 +7999,7 @@ function resourceTypeLabel(type: string) {
     model: "模型",
     routing_rule: "路由",
     users: "用户",
-    "quota-policies": "额度策略",
+    "quota-policies": "项目额度",
     "security-policies": "安全策略",
     "alert-rules": "告警规则",
   };

@@ -17,6 +17,7 @@ bin/
 coverage.out
 
 # Local runtime data
+data/
 backend/data/
 
 # Environment

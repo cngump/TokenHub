@@ -23,6 +23,12 @@ Then run:
 npm run test:deepseek
 ```
 
+To verify the Admin API path for security policies:
+
+```bash
+npm run test:security-policy
+```
+
 ## TokenHub Prerequisites
 
 Before running the test, make sure TokenHub has:
@@ -32,6 +38,8 @@ Before running the test, make sure TokenHub has:
 - An internal API Key whose allowed models include `deepseek-chat`.
 
 The script calls `GET /v1/models` first, then sends a `generateText` request through AI SDK.
+
+The security policy script calls the Admin API with `TOKENHUB_ADMIN_TOKEN`, then creates or updates the policy identified by `TOKENHUB_SECURITY_POLICY_ID`. It is idempotent, so you can run it repeatedly without creating duplicate policies.
 
 For JieKou, keep TokenHub's external/unified model as `deepseek-chat` if you want, but set the route's upstream `上游模型` to the exact JieKou model ID. Their docs show model IDs like `deepseek/deepseek-r1-0528`; `deepseek/deepseek-v3-0324` is a cheaper chat option.
 

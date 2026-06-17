@@ -3,12 +3,15 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"hash/fnv"
 	"io"
 	"net"
 	"net/http"
+	"net/smtp"
 	"os"
 	"sort"
 	"strconv"
@@ -805,20 +808,46 @@ func (s *Server) handleAdminMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminOverview(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireAdmin(w, r, "overview", r.Method); !ok {
+	user, ok := s.requireAdmin(w, r, "overview", r.Method)
+	if !ok {
 		return
 	}
 	if r.Method != http.MethodGet {
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
 		return
 	}
+	providers := []Provider{}
+	providerResources := []ProviderResource{}
+	models := []Model{}
+	alerts := []AlertEvent{}
+	if s.canViewGlobalOperations(user) {
+		providers = s.store.ListProviders()
+		providerResources = s.store.ListProviderResources()
+		models = s.store.ListModels()
+		alerts = s.store.ListAlerts()
+	}
+	routes := []ModelRoute{}
+	if s.canViewGlobalOperations(user) {
+		routes = s.store.ListRoutes()
+	}
+	activeRoutes := 0
+	for _, route := range routes {
+		if route.Status == StatusActive {
+			activeRoutes++
+		}
+	}
+	summary := s.usageSummaryForUser(user)
+	summary["api_key_count"] = len(s.filterAPIKeysForUser(user, s.store.ListAPIKeys()))
+	summary["route_count"] = len(routes)
+	summary["active_route_count"] = activeRoutes
+	summary["user_count"] = len(s.filterAdminUsersForUser(user, s.store.ListAdminUsers()))
 	writeJSON(w, http.StatusOK, map[string]any{
-		"summary":            s.store.UsageSummary(),
-		"projects":           s.store.ListProjects(),
-		"providers":          s.store.ListProviders(),
-		"provider_resources": s.store.ListProviderResources(),
-		"models":             s.store.ListModels(),
-		"alerts":             s.store.ListAlerts(),
+		"summary":            summary,
+		"projects":           s.filterProjectsForUser(user, s.store.ListProjects()),
+		"providers":          providers,
+		"provider_resources": providerResources,
+		"models":             models,
+		"alerts":             alerts,
 	})
 }
 
@@ -829,7 +858,7 @@ func (s *Server) handleAdminProjects(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListProjects()})
+		writeJSON(w, http.StatusOK, map[string]any{"data": s.filterProjectsForUser(user, s.store.ListProjects())})
 	case http.MethodPost:
 		var req Project
 		if err := decodeJSON(r, &req); err != nil {
@@ -845,7 +874,7 @@ func (s *Server) handleAdminProjects(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminProjectNested(w http.ResponseWriter, r *http.Request) {
-	user, ok := s.requireAdmin(w, r, "project", r.Method)
+	user, ok := s.authorizeAdminUser(w, r)
 	if !ok {
 		return
 	}
@@ -853,6 +882,21 @@ func (s *Server) handleAdminProjectNested(w http.ResponseWriter, r *http.Request
 	projectID := parts[0]
 	if projectID == "" {
 		writeError(w, r, NewHTTPError(400, "project_required", "Project ID is required"))
+		return
+	}
+	permission := "project"
+	if len(parts) == 2 && parts[1] == "keys" {
+		permission = "api_key"
+	}
+	if len(parts) == 2 && parts[1] == "quota-increase" {
+		permission = "approval"
+	}
+	if !canAdmin(user.Role, permission, r.Method) {
+		writeError(w, r, NewHTTPError(403, "admin_forbidden", "Admin role is not allowed to perform this action"))
+		return
+	}
+	if len(parts) == 2 && parts[1] == "quota-increase" {
+		s.handleAdminProjectQuotaIncrease(w, r, user, projectID)
 		return
 	}
 	if len(parts) == 1 {
@@ -888,8 +932,16 @@ func (s *Server) handleAdminProjectNested(w http.ResponseWriter, r *http.Request
 	}
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListProjectKeys(projectID)})
+		if !s.canUseProjectForAPIKey(user, projectID) {
+			writeError(w, r, NewHTTPError(403, "project_forbidden", "Project is not available for this user"))
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"data": s.filterAPIKeysForUser(user, s.store.ListProjectKeys(projectID))})
 	case http.MethodPost:
+		if !s.canUseProjectForAPIKey(user, projectID) {
+			writeError(w, r, NewHTTPError(403, "project_forbidden", "Project is not available for this user"))
+			return
+		}
 		var req struct {
 			Name          string      `json:"name"`
 			Group         string      `json:"group"`
@@ -925,6 +977,10 @@ func (s *Server) handleAdminProjectNested(w http.ResponseWriter, r *http.Request
 			Limits:      req.Limits,
 			ExpiresAt:   req.ExpiresAt,
 			Status:      StatusActive,
+			Metadata: map[string]string{
+				"created_by":      user.ID,
+				"created_by_role": normalizeAdminRole(user.Role),
+			},
 		}, "")
 		if err != nil {
 			writeError(w, r, err)
@@ -950,7 +1006,7 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListAdminUsers()})
+		writeJSON(w, http.StatusOK, map[string]any{"data": s.filterAdminUsersForUser(actor, s.store.ListAdminUsers())})
 	case http.MethodPost:
 		var req struct {
 			Username string `json:"username"`
@@ -964,6 +1020,17 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		if err := decodeJSON(r, &req); err != nil {
 			writeError(w, r, NewHTTPError(400, "invalid_request", err.Error()))
 			return
+		}
+		if normalizeAdminRole(actor.Role) == "team_leader" {
+			if req.TeamID != "" && req.TeamID != actor.TeamID {
+				writeError(w, r, NewHTTPError(403, "team_forbidden", "Team leader can only manage own team"))
+				return
+			}
+			req.TeamID = actor.TeamID
+			if normalizeAdminRole(req.Role) != "user" {
+				writeError(w, r, NewHTTPError(403, "role_forbidden", "Team leader can only create ordinary users"))
+				return
+			}
 		}
 		user, err := s.store.CreateAdminUser(AdminUser{
 			Username: req.Username,
@@ -985,7 +1052,7 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminUserItem(w http.ResponseWriter, r *http.Request) {
-	user, ok := s.requireAdmin(w, r, "identity", r.Method)
+	actor, ok := s.requireAdmin(w, r, "identity", r.Method)
 	if !ok {
 		return
 	}
@@ -1009,7 +1076,24 @@ func (s *Server) handleAdminUserItem(w http.ResponseWriter, r *http.Request) {
 			writeError(w, r, NewHTTPError(400, "invalid_request", err.Error()))
 			return
 		}
-		user, err := s.store.UpdateAdminUser(userID, AdminUser{
+		if normalizeAdminRole(actor.Role) == "team_leader" {
+			target, ok := s.findAdminUser(userID)
+			if !ok || target.TeamID != actor.TeamID || normalizeAdminRole(target.Role) != "user" {
+				writeError(w, r, NewHTTPError(403, "team_forbidden", "Team leader can only manage ordinary users in own team"))
+				return
+			}
+			if req.TeamID != "" && req.TeamID != actor.TeamID {
+				writeError(w, r, NewHTTPError(403, "team_forbidden", "Team leader can only manage own team"))
+				return
+			}
+			req.TeamID = actor.TeamID
+			if req.Role != "" && normalizeAdminRole(req.Role) != "user" {
+				writeError(w, r, NewHTTPError(403, "role_forbidden", "Team leader cannot elevate user role"))
+				return
+			}
+			req.Role = "user"
+		}
+		updatedUser, err := s.store.UpdateAdminUser(userID, AdminUser{
 			Username: req.Username,
 			Name:     req.Name,
 			Email:    req.Email,
@@ -1021,14 +1105,21 @@ func (s *Server) handleAdminUserItem(w http.ResponseWriter, r *http.Request) {
 			writeError(w, r, err)
 			return
 		}
-		s.recordAdminAudit(r, user, "update", "admin_user", userID, "", user)
-		writeJSON(w, http.StatusOK, user)
+		s.recordAdminAudit(r, actor, "update", "admin_user", userID, "", updatedUser)
+		writeJSON(w, http.StatusOK, updatedUser)
 	case http.MethodDelete:
+		if normalizeAdminRole(actor.Role) == "team_leader" {
+			target, ok := s.findAdminUser(userID)
+			if !ok || target.TeamID != actor.TeamID || normalizeAdminRole(target.Role) != "user" {
+				writeError(w, r, NewHTTPError(403, "team_forbidden", "Team leader can only delete ordinary users in own team"))
+				return
+			}
+		}
 		if err := s.store.DeleteAdminUser(userID); err != nil {
 			writeError(w, r, err)
 			return
 		}
-		s.recordAdminAudit(r, user, "delete", "admin_user", userID, "", nil)
+		s.recordAdminAudit(r, actor, "delete", "admin_user", userID, "", nil)
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
@@ -1036,14 +1127,15 @@ func (s *Server) handleAdminUserItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminAPIKeys(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireAdmin(w, r, "api_key", r.Method); !ok {
+	user, ok := s.requireAdmin(w, r, "api_key", r.Method)
+	if !ok {
 		return
 	}
 	if r.Method != http.MethodGet {
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListAPIKeys()})
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.filterAPIKeysForUser(user, s.store.ListAPIKeys())})
 }
 
 func (s *Server) handleAdminAPIKeyItem(w http.ResponseWriter, r *http.Request) {
@@ -1055,6 +1147,10 @@ func (s *Server) handleAdminAPIKeyItem(w http.ResponseWriter, r *http.Request) {
 	keyID := parts[0]
 	if keyID == "" || len(parts) > 2 {
 		writeError(w, r, NewHTTPError(404, "not_found", "Not found"))
+		return
+	}
+	if !s.canManageAPIKey(user, keyID) {
+		writeError(w, r, NewHTTPError(403, "api_key_forbidden", "API key is not available for this user"))
 		return
 	}
 	if len(parts) == 2 {
@@ -1818,8 +1914,18 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 	if len(parts) == 1 {
 		switch r.Method {
 		case http.MethodGet:
-			writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListResources(kind)})
+			if kind == "monitors" {
+				s.ensureDefaultMonitors()
+			}
+			if kind == "alert-rules" {
+				s.ensureDefaultAlertRules()
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"data": s.filterResourcesForUser(user, kind, s.store.ListResources(kind))})
 		case http.MethodPost:
+			if normalizeAdminRole(user.Role) == "team_leader" && kind == "teams" {
+				writeError(w, r, NewHTTPError(403, "team_forbidden", "Team leader cannot create teams"))
+				return
+			}
 			var req AdminResource
 			if err := decodeJSON(r, &req); err != nil {
 				writeError(w, r, NewHTTPError(400, "invalid_request", err.Error()))
@@ -1856,6 +1962,10 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodPatch:
+		if normalizeAdminRole(user.Role) == "team_leader" && kind == "teams" && parts[1] != user.TeamID {
+			writeError(w, r, NewHTTPError(403, "team_forbidden", "Team leader can only update own team"))
+			return
+		}
 		var req AdminResource
 		if err := decodeJSON(r, &req); err != nil {
 			writeError(w, r, NewHTTPError(400, "invalid_request", err.Error()))
@@ -1874,6 +1984,10 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 		s.recordAdminAudit(r, user, "update", kind, parts[1], "", resource)
 		writeJSON(w, http.StatusOK, resource)
 	case http.MethodDelete:
+		if normalizeAdminRole(user.Role) == "team_leader" && kind == "teams" {
+			writeError(w, r, NewHTTPError(403, "team_forbidden", "Team leader cannot delete teams"))
+			return
+		}
 		if err := s.store.DeleteResource(kind, parts[1]); err != nil {
 			writeError(w, r, err)
 			return
@@ -1883,6 +1997,327 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
 	}
+}
+
+func (s *Server) handleAdminProjectQuotaIncrease(w http.ResponseWriter, r *http.Request, user AdminUser, projectID string) {
+	if r.Method != http.MethodPost {
+		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
+		return
+	}
+	project, ok := s.store.GetProject(projectID)
+	if !ok {
+		writeError(w, r, NewHTTPError(404, "project_not_found", "Project not found"))
+		return
+	}
+	if !s.canAccessProject(user, project) {
+		writeError(w, r, NewHTTPError(403, "project_forbidden", "Project is not available for this user"))
+		return
+	}
+	var req AdminResource
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, r, NewHTTPError(400, "invalid_request", err.Error()))
+		return
+	}
+	if req.Name == "" {
+		req.Name = fmt.Sprintf("%s 项目额度提升", project.Name)
+	}
+	if req.Description == "" {
+		req.Description = "项目空间发起的额度提升申请"
+	}
+	if req.Status == "" {
+		req.Status = StatusActive
+	}
+	fields := req.Fields
+	if fields == nil {
+		fields = map[string]any{}
+	}
+	fields["scope"] = "project"
+	fields["scope_id"] = project.ID
+	req.Fields = fields
+	resourceID := ""
+	if quota, ok := s.projectQuotaPolicy(project); ok {
+		resourceID = quota.ID
+	}
+	payload := map[string]any{
+		"kind":             "quota-policies",
+		"resource_id":      resourceID,
+		"project_id":       project.ID,
+		"name":             req.Name,
+		"description":      req.Description,
+		"status":           req.Status,
+		"fields":           req.Fields,
+		"requested_action": "quota_increase",
+	}
+	flowID := ""
+	if flow, ok := s.matchApprovalFlow("quota_increase", payload); ok {
+		flowID = flow.ID
+	}
+	approval := s.createApprovalRequest(user, flowID, "quota_increase", "quota-policies", resourceID, payload)
+	s.recordAdminAudit(r, user, "request_approval", "quota-policies", approval.ID, "", approval)
+	writeJSON(w, http.StatusAccepted, map[string]any{"approval_required": true, "approval": approval})
+}
+
+func (s *Server) ensureDefaultMonitors() {
+	existing := s.store.ListResources("monitors")
+	existingIDs := map[string]bool{}
+	existingTargets := map[string]bool{}
+	createdIDs := map[string]bool{}
+	for _, item := range existing {
+		existingIDs[item.ID] = true
+		if key := monitorTargetKey(item.Fields); key != "" {
+			existingTargets[key] = true
+		}
+	}
+	for _, item := range s.defaultMonitorResources(existingIDs, existingTargets) {
+		created := s.store.CreateResource("monitors", item)
+		_, _ = s.store.RunMonitor(created.ID)
+		existingIDs[created.ID] = true
+		createdIDs[created.ID] = true
+		if key := monitorTargetKey(created.Fields); key != "" {
+			existingTargets[key] = true
+		}
+	}
+	s.runDueMonitors(createdIDs)
+}
+
+func (s *Server) defaultMonitorResources(existingIDs map[string]bool, existingTargets map[string]bool) []AdminResource {
+	now := time.Now().UTC()
+	items := []AdminResource{}
+	add := func(targetKey string, id string, name string, description string, fields map[string]any) {
+		if targetKey == "" || existingTargets[targetKey] || existingIDs[id] {
+			return
+		}
+		fields["managed_by"] = "tokenhub_auto"
+		fields["auto_key"] = targetKey
+		fields["interval_seconds"] = defaultFloatField(fields, "interval_seconds", 60)
+		items = append(items, AdminResource{
+			ID:          id,
+			Name:        name,
+			Description: description,
+			Status:      StatusActive,
+			Fields:      fields,
+			CreatedAt:   now,
+		})
+	}
+	for _, provider := range s.store.ListProviders() {
+		add(
+			"provider:"+provider.ID,
+			autoMonitorID("provider", provider.ID),
+			fmt.Sprintf("%s Provider 连通性", provider.Name),
+			"系统默认检测 Provider 状态是否启用并可参与路由",
+			map[string]any{
+				"target_type": "provider",
+				"provider_id": provider.ID,
+			},
+		)
+	}
+	for _, resource := range s.store.ListProviderResources() {
+		add(
+			"resource:"+resource.ID,
+			autoMonitorID("resource", resource.ID),
+			fmt.Sprintf("%s 资源实例健康", resource.Name),
+			"系统默认检测 Provider 资源实例是否可用",
+			map[string]any{
+				"target_type":          "resource",
+				"provider_id":          resource.ProviderID,
+				"provider_resource_id": resource.ID,
+			},
+		)
+	}
+	seenModels := map[string]bool{}
+	for _, route := range s.store.ListRoutes() {
+		modelName := strings.TrimSpace(route.ModelName)
+		if modelName == "" || route.Status != StatusActive || seenModels[modelName] {
+			continue
+		}
+		seenModels[modelName] = true
+		add(
+			"model:"+modelName,
+			autoMonitorID("model", modelName),
+			fmt.Sprintf("%s 模型路由心跳", modelName),
+			"系统默认检测模型 API 是否存在启用路由",
+			map[string]any{
+				"target_type": "model",
+				"model":       modelName,
+			},
+		)
+	}
+	return items
+}
+
+func autoMonitorID(kind string, target string) string {
+	return fmt.Sprintf("mon_auto_%s_%d", kind, stableHashInt(target, 91))
+}
+
+func monitorTargetKey(fields map[string]any) string {
+	targetType := strings.ToLower(strings.TrimSpace(stringField(fields, "target_type")))
+	if targetType == "" {
+		targetType = inferMonitorTargetType(fields)
+	}
+	switch targetType {
+	case "provider":
+		if providerID := strings.TrimSpace(firstStringField(fields, "provider_id", "provider")); providerID != "" {
+			return "provider:" + providerID
+		}
+	case "resource", "provider_resource":
+		if resourceID := strings.TrimSpace(firstStringField(fields, "provider_resource_id", "resource_id", "resource")); resourceID != "" {
+			return "resource:" + resourceID
+		}
+	case "model":
+		if modelName := strings.TrimSpace(firstStringField(fields, "model", "model_name")); modelName != "" {
+			return "model:" + modelName
+		}
+	}
+	return ""
+}
+
+func defaultFloatField(fields map[string]any, key string, fallback float64) float64 {
+	if value := float64Field(fields, key); value > 0 {
+		return value
+	}
+	return fallback
+}
+
+func (s *Server) runDueMonitors(skip map[string]bool) {
+	now := time.Now().UTC()
+	for _, item := range s.store.ListResources("monitors") {
+		if skip[item.ID] || item.Status != StatusActive || !monitorRunDue(item, now) {
+			continue
+		}
+		_, _ = s.store.RunMonitor(item.ID)
+	}
+}
+
+func monitorRunDue(item AdminResource, now time.Time) bool {
+	intervalSeconds := defaultFloatField(item.Fields, "interval_seconds", 60)
+	if intervalSeconds < 1 {
+		intervalSeconds = 60
+	}
+	lastCheckedText := strings.TrimSpace(stringField(item.Fields, "last_checked_at"))
+	if lastCheckedText == "" {
+		return true
+	}
+	lastChecked, err := time.Parse(time.RFC3339, lastCheckedText)
+	if err != nil {
+		return true
+	}
+	return now.Sub(lastChecked) >= time.Duration(intervalSeconds)*time.Second
+}
+
+func (s *Server) ensureDefaultAlertRules() {
+	existing := s.store.ListResources("alert-rules")
+	existingIDs := map[string]bool{}
+	existingKeys := map[string]bool{}
+	for _, item := range existing {
+		existingIDs[item.ID] = true
+		if key := alertRuleKey(item.Fields); key != "" {
+			existingKeys[key] = true
+		}
+	}
+	for _, item := range defaultAlertRuleResources(existingIDs, existingKeys) {
+		created := s.store.CreateResource("alert-rules", item)
+		existingIDs[created.ID] = true
+		if key := alertRuleKey(created.Fields); key != "" {
+			existingKeys[key] = true
+		}
+	}
+}
+
+func defaultAlertRuleResources(existingIDs map[string]bool, existingKeys map[string]bool) []AdminResource {
+	now := time.Now().UTC()
+	items := []AdminResource{}
+	add := func(ruleKey string, id string, name string, description string, metric string, threshold string, severity string, scope string, eventCodes []string) {
+		if ruleKey == "" || existingKeys[ruleKey] || existingIDs[id] {
+			return
+		}
+		fields := map[string]any{
+			"rule_key":    ruleKey,
+			"metric":      metric,
+			"threshold":   threshold,
+			"severity":    severity,
+			"scope":       scope,
+			"channel":     "default",
+			"event_codes": strings.Join(eventCodes, ","),
+			"managed_by":  "tokenhub_auto",
+		}
+		items = append(items, AdminResource{
+			ID:          id,
+			Name:        name,
+			Description: description,
+			Status:      StatusActive,
+			Fields:      fields,
+			CreatedAt:   now,
+		})
+	}
+	add(
+		"provider_health_failed",
+		"alr_default_provider_health",
+		"Provider 不可用告警",
+		"Provider 健康检测失败或被禁用时触发",
+		"provider_health",
+		"failed",
+		"critical",
+		"provider",
+		[]string{"monitor_check_failed"},
+	)
+	add(
+		"provider_resource_health_failed",
+		"alr_default_provider_resource_health",
+		"Provider 资源实例不可用告警",
+		"资源实例检测失败、被禁用或进入冷却时触发",
+		"provider_resource_health",
+		"failed",
+		"warning",
+		"provider_resource",
+		[]string{"monitor_check_failed", "provider_resource_cooling_down"},
+	)
+	add(
+		"request_quota_near_limit",
+		"alr_default_quota_requests",
+		"请求额度告警",
+		"请求次数达到额度阈值或请求被额度拒绝时触发",
+		"request_quota_usage",
+		"90%",
+		"warning",
+		"quota",
+		[]string{"quota_exceeded"},
+	)
+	add(
+		"token_quota_near_limit",
+		"alr_default_quota_tokens",
+		"Token 额度告警",
+		"日或月 Token 用量达到额度阈值时触发",
+		"token_quota_usage",
+		"90%",
+		"warning",
+		"quota",
+		[]string{"daily_tokens_near_limit", "monthly_tokens_near_limit"},
+	)
+	add(
+		"cost_quota_near_limit",
+		"alr_default_quota_cost",
+		"成本额度告警",
+		"日或月成本达到额度阈值时触发",
+		"cost_quota_usage",
+		"90%",
+		"warning",
+		"quota",
+		[]string{"daily_cost_near_limit", "monthly_cost_near_limit"},
+	)
+	return items
+}
+
+func alertRuleKey(fields map[string]any) string {
+	if ruleKey := strings.TrimSpace(stringField(fields, "rule_key")); ruleKey != "" {
+		return ruleKey
+	}
+	metric := strings.TrimSpace(stringField(fields, "metric"))
+	if metric == "" {
+		return ""
+	}
+	scope := strings.TrimSpace(stringField(fields, "scope"))
+	threshold := strings.TrimSpace(stringField(fields, "threshold"))
+	return "metric:" + metric + ":" + scope + ":" + threshold
 }
 
 func (s *Server) handleAdminMonitorRun(w http.ResponseWriter, r *http.Request, user AdminUser, monitorID string) {
@@ -2054,36 +2489,39 @@ func (s *Server) handleAdminInvoiceAction(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleAdminUsageSummary(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireAdmin(w, r, "usage", r.Method); !ok {
+	user, ok := s.requireAdmin(w, r, "usage", r.Method)
+	if !ok {
 		return
 	}
 	if r.Method != http.MethodGet {
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
 		return
 	}
-	writeJSON(w, http.StatusOK, s.store.UsageSummary())
+	writeJSON(w, http.StatusOK, s.usageSummaryForUser(user))
 }
 
 func (s *Server) handleAdminUsageBreakdown(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireAdmin(w, r, "usage", r.Method); !ok {
+	user, ok := s.requireAdmin(w, r, "usage", r.Method)
+	if !ok {
 		return
 	}
 	if r.Method != http.MethodGet {
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
 		return
 	}
-	writeJSON(w, http.StatusOK, s.store.UsageBreakdown())
+	writeJSON(w, http.StatusOK, s.usageBreakdownForUser(user))
 }
 
 func (s *Server) handleAdminUsageTimeseries(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireAdmin(w, r, "usage", r.Method); !ok {
+	user, ok := s.requireAdmin(w, r, "usage", r.Method)
+	if !ok {
 		return
 	}
 	if r.Method != http.MethodGet {
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.UsageTimeseries(31)})
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.usageTimeseriesForUser(user, 31)})
 }
 
 func (s *Server) handleAdminGenerateBilling(w http.ResponseWriter, r *http.Request) {
@@ -2114,18 +2552,20 @@ func (s *Server) handleAdminGenerateBilling(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleAdminRequestLogs(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireAdmin(w, r, "audit", r.Method); !ok {
+	user, ok := s.requireAdmin(w, r, "audit", r.Method)
+	if !ok {
 		return
 	}
 	if r.Method != http.MethodGet {
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListRequestLogs()})
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.filterRequestLogsForUser(user, s.store.ListRequestLogs())})
 }
 
 func (s *Server) handleAdminRequestDetail(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireAdmin(w, r, "audit", r.Method); !ok {
+	user, ok := s.requireAdmin(w, r, "audit", r.Method)
+	if !ok {
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -2142,11 +2582,20 @@ func (s *Server) handleAdminRequestDetail(w http.ResponseWriter, r *http.Request
 		writeError(w, r, err)
 		return
 	}
+	log, ok := detail["log"].(RequestLog)
+	if !ok {
+		writeError(w, r, NewHTTPError(500, "internal_error", "Request detail is missing request log"))
+		return
+	}
+	if !s.canAccessRequestLog(user, log) {
+		writeError(w, r, NewHTTPError(403, "admin_forbidden", "Admin role is not allowed to access this request"))
+		return
+	}
 	writeJSON(w, http.StatusOK, detail)
 }
 
 func (s *Server) handleAdminAuditEvents(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireAdmin(w, r, "audit", r.Method); !ok {
+	if _, ok := s.requireAdmin(w, r, "admin_audit", r.Method); !ok {
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -2170,6 +2619,10 @@ func (s *Server) handleAdminExport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, NewHTTPError(404, "not_found", "Not found"))
 		return
 	}
+	if !s.canExportKind(user, kind) {
+		writeError(w, r, NewHTTPError(403, "export_forbidden", "Export is not available for this user"))
+		return
+	}
 	periodFilter := normalizeExportPeriod(r.URL.Query().Get("period"))
 	w.Header().Set("content-type", "text/csv; charset=utf-8")
 	w.Header().Set("content-disposition", `attachment; filename="tokenhub-`+kind+`.csv"`)
@@ -2177,7 +2630,7 @@ func (s *Server) handleAdminExport(w http.ResponseWriter, r *http.Request) {
 	switch kind {
 	case "requests":
 		_ = writer.Write([]string{"created_at", "request_id", "project_id", "api_key_id", "model", "provider_id", "provider_resource_id", "status_code", "error_code", "latency_ms"})
-		for _, item := range s.store.ListRequestLogs() {
+		for _, item := range s.filterRequestLogsForUser(user, s.store.ListRequestLogs()) {
 			_ = writer.Write([]string{
 				item.CreatedAt.Format(time.RFC3339),
 				item.RequestID,
@@ -2193,10 +2646,19 @@ func (s *Server) handleAdminExport(w http.ResponseWriter, r *http.Request) {
 		}
 	case "usage":
 		_ = writer.Write([]string{"dimension", "id", "request_count", "input_tokens", "output_tokens", "total_tokens", "estimated_cost_usd"})
-		breakdown := s.store.UsageBreakdown()
+		records := s.filterUsageRecordsForUser(user, s.store.ListUsageRecords())
 		if periodFilter != "" {
-			breakdown = s.store.UsageBreakdownForPeriod(periodFilter)
+			filtered := make([]UsageRecord, 0, len(records))
+			start := periodStart(periodFilter)
+			end := periodEnd(periodFilter)
+			for _, record := range records {
+				if !record.CreatedAt.Before(start) && record.CreatedAt.Before(end) {
+					filtered = append(filtered, record)
+				}
+			}
+			records = filtered
 		}
+		breakdown := s.usageBreakdownFromRecords(records)
 		for _, dimension := range []string{"projects", "models", "providers", "provider_resources", "cost_centers"} {
 			rows, _ := breakdown[dimension].([]map[string]any)
 			for _, row := range rows {
@@ -2212,7 +2674,7 @@ func (s *Server) handleAdminExport(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	case "cost-centers":
-		s.writeResourceExport(writer, "cost-centers", "", []resourceExportColumn{
+		s.writeResourceExport(writer, user, "cost-centers", "", []resourceExportColumn{
 			{Header: "code", Field: "code"},
 			{Header: "name", Source: "name"},
 			{Header: "department", Field: "department"},
@@ -2222,7 +2684,7 @@ func (s *Server) handleAdminExport(w http.ResponseWriter, r *http.Request) {
 			{Header: "updated_at", Source: "updated_at"},
 		})
 	case "budgets":
-		s.writeResourceExport(writer, "budgets", periodFilter, []resourceExportColumn{
+		s.writeResourceExport(writer, user, "budgets", periodFilter, []resourceExportColumn{
 			{Header: "name", Source: "name"},
 			{Header: "scope", Field: "scope"},
 			{Header: "scope_id", Field: "scope_id"},
@@ -2237,7 +2699,7 @@ func (s *Server) handleAdminExport(w http.ResponseWriter, r *http.Request) {
 			{Header: "updated_at", Source: "updated_at"},
 		})
 	case "chargebacks":
-		s.writeResourceExport(writer, "chargebacks", periodFilter, []resourceExportColumn{
+		s.writeResourceExport(writer, user, "chargebacks", periodFilter, []resourceExportColumn{
 			{Header: "period", Field: "period"},
 			{Header: "cost_center", Field: "cost_center"},
 			{Header: "team_id", Field: "team_id"},
@@ -2252,7 +2714,7 @@ func (s *Server) handleAdminExport(w http.ResponseWriter, r *http.Request) {
 			{Header: "updated_at", Source: "updated_at"},
 		})
 	case "invoices":
-		s.writeResourceExport(writer, "invoices", periodFilter, []resourceExportColumn{
+		s.writeResourceExport(writer, user, "invoices", periodFilter, []resourceExportColumn{
 			{Header: "period", Field: "period"},
 			{Header: "cost_center", Field: "cost_center"},
 			{Header: "amount_usd", Field: "amount_usd"},
@@ -2265,7 +2727,7 @@ func (s *Server) handleAdminExport(w http.ResponseWriter, r *http.Request) {
 		})
 	case "approvals":
 		_ = writer.Write([]string{"created_at", "id", "trigger", "resource_type", "resource_id", "requester", "status", "decided_by", "decided_at", "reason"})
-		for _, item := range s.store.ListApprovalRequests() {
+		for _, item := range s.filterApprovalRequestsForUser(user, s.store.ListApprovalRequests()) {
 			decidedAt := ""
 			if item.DecidedAt != nil {
 				decidedAt = item.DecidedAt.Format(time.RFC3339)
@@ -2314,7 +2776,7 @@ func (s *Server) handleAdminExport(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	default:
-		items := s.store.ListResources(kind)
+		items := s.filterResourcesForUser(user, kind, s.store.ListResources(kind))
 		_ = writer.Write([]string{"id", "kind", "name", "status", "description", "fields", "updated_at"})
 		for _, item := range items {
 			_ = writer.Write([]string{
@@ -2387,14 +2849,15 @@ func (s *Server) handleAdminAlertDeliveries(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleAdminApprovals(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireAdmin(w, r, "approval", r.Method); !ok {
+	user, ok := s.requireAdmin(w, r, "approval", r.Method)
+	if !ok {
 		return
 	}
 	if r.Method != http.MethodGet {
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListApprovalRequests()})
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.filterApprovalRequestsForUser(user, s.store.ListApprovalRequests())})
 }
 
 func (s *Server) handleAdminApprovalItem(w http.ResponseWriter, r *http.Request) {
@@ -2474,8 +2937,12 @@ func (s *Server) approvalRequired(user AdminUser, trigger string, resourceType s
 	if !ok {
 		return ApprovalRequest{}, false
 	}
+	return s.createApprovalRequest(user, flow.ID, trigger, resourceType, resourceID, payload), true
+}
+
+func (s *Server) createApprovalRequest(user AdminUser, flowID string, trigger string, resourceType string, resourceID string, payload any) ApprovalRequest {
 	request := ApprovalRequest{
-		FlowID:       flow.ID,
+		FlowID:       flowID,
 		Trigger:      trigger,
 		ResourceType: resourceType,
 		ResourceID:   resourceID,
@@ -2484,7 +2951,7 @@ func (s *Server) approvalRequired(user AdminUser, trigger string, resourceType s
 		Status:       "pending",
 		Payload:      snapshotJSON(payload),
 	}
-	return s.store.CreateApprovalRequest(request), true
+	return s.store.CreateApprovalRequest(request)
 }
 
 func (s *Server) matchApprovalFlow(trigger string, payload any) (AdminResource, bool) {
@@ -2593,17 +3060,24 @@ func (s *Server) deliverAlert(ctx context.Context, alertID string, channelID str
 	delivery := AlertDelivery{
 		AlertID:   alert.ID,
 		ChannelID: channel.ID,
-		Channel:   stringField(channel.Fields, "type"),
-		Target:    stringField(channel.Fields, "webhook_url"),
+		Channel:   normalizeNotificationChannelType(stringField(channel.Fields, "type")),
+		Target:    notificationChannelTarget(channel),
 		Status:    "success",
 		Payload:   snapshotJSON(payload),
 	}
 	if delivery.Channel == "" {
 		delivery.Channel = "webhook"
 	}
-	if delivery.Channel != "webhook" {
+	if !supportedNotificationChannel(delivery.Channel) {
 		delivery.Status = "failed"
-		delivery.Error = "only webhook notification channels are implemented"
+		delivery.Error = "unsupported notification channel"
+		return s.store.RecordAlertDelivery(delivery), nil
+	}
+	if delivery.Channel == "email" {
+		if err := sendEmailAlert(ctx, channel, alert); err != nil {
+			delivery.Status = "failed"
+			delivery.Error = err.Error()
+		}
 		return s.store.RecordAlertDelivery(delivery), nil
 	}
 	if delivery.Target == "" {
@@ -2611,7 +3085,7 @@ func (s *Server) deliverAlert(ctx context.Context, alertID string, channelID str
 		delivery.Error = "webhook_url is required"
 		return s.store.RecordAlertDelivery(delivery), nil
 	}
-	body, _ := json.Marshal(payload)
+	body, _ := json.Marshal(notificationChannelPayload(delivery.Channel, payload, alert))
 	reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, delivery.Target, bytes.NewReader(body))
@@ -2634,6 +3108,167 @@ func (s *Server) deliverAlert(ctx context.Context, alertID string, channelID str
 		delivery.Error = resp.Status
 	}
 	return s.store.RecordAlertDelivery(delivery), nil
+}
+
+func normalizeNotificationChannelType(channelType string) string {
+	normalized := strings.ToLower(strings.TrimSpace(channelType))
+	switch normalized {
+	case "", "webhook":
+		return "webhook"
+	case "feishu", "lark":
+		return "feishu"
+	case "dingtalk", "dingding", "ding_talk":
+		return "dingtalk"
+	case "wecom", "wechat_work", "weixin_work", "enterprise_wechat":
+		return "wecom"
+	case "slack":
+		return "slack"
+	case "email", "mail", "smtp":
+		return "email"
+	default:
+		return normalized
+	}
+}
+
+func supportedNotificationChannel(channelType string) bool {
+	switch normalizeNotificationChannelType(channelType) {
+	case "webhook", "feishu", "dingtalk", "wecom", "slack", "email":
+		return true
+	default:
+		return false
+	}
+}
+
+func notificationChannelPayload(channelType string, payload map[string]any, alert AlertEvent) any {
+	text := fmt.Sprintf("[TokenHub] %s\n%s\n对象：%s/%s", alert.Code, alert.Message, alert.ScopeType, alert.ScopeID)
+	switch normalizeNotificationChannelType(channelType) {
+	case "feishu":
+		return map[string]any{
+			"msg_type": "text",
+			"content":  map[string]any{"text": text},
+		}
+	case "dingtalk", "wecom":
+		return map[string]any{
+			"msgtype": "text",
+			"text":    map[string]any{"content": text},
+		}
+	case "slack":
+		return map[string]any{
+			"text": text,
+		}
+	default:
+		return payload
+	}
+}
+
+func notificationChannelTarget(channel AdminResource) string {
+	channelType := normalizeNotificationChannelType(stringField(channel.Fields, "type"))
+	if channelType == "email" {
+		return firstStringField(channel.Fields, "email_to", "recipients", "to")
+	}
+	return firstStringField(channel.Fields, "webhook_url", "url")
+}
+
+func sendEmailAlert(ctx context.Context, channel AdminResource, alert AlertEvent) error {
+	fields := channel.Fields
+	host := strings.TrimSpace(stringField(fields, "smtp_host"))
+	if host == "" {
+		return fmt.Errorf("smtp_host is required")
+	}
+	port := int64Field(fields, "smtp_port")
+	if port <= 0 {
+		port = 587
+	}
+	from := strings.TrimSpace(firstStringField(fields, "smtp_from", "from_email", "from"))
+	if from == "" {
+		return fmt.Errorf("smtp_from is required")
+	}
+	recipients := splitNotificationRecipients(firstStringField(fields, "email_to", "recipients", "to"))
+	if len(recipients) == 0 {
+		return fmt.Errorf("email_to is required")
+	}
+
+	addr := net.JoinHostPort(host, strconv.FormatInt(port, 10))
+	dialer := net.Dialer{Timeout: 5 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return err
+	}
+	client, err := smtp.NewClient(conn, host)
+	if err != nil {
+		_ = conn.Close()
+		return err
+	}
+	defer client.Close()
+
+	if ok, _ := client.Extension("STARTTLS"); ok {
+		if err := client.StartTLS(&tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}); err != nil {
+			return err
+		}
+	}
+	username := strings.TrimSpace(firstStringField(fields, "smtp_username", "username"))
+	password := firstStringField(fields, "smtp_password", "password")
+	if username != "" {
+		if err := client.Auth(smtp.PlainAuth("", username, password, host)); err != nil {
+			return err
+		}
+	}
+	if err := client.Mail(from); err != nil {
+		return err
+	}
+	for _, recipient := range recipients {
+		if err := client.Rcpt(recipient); err != nil {
+			return err
+		}
+	}
+	writer, err := client.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := writer.Write(emailAlertMessage(from, recipients, alert)); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	return client.Quit()
+}
+
+func splitNotificationRecipients(value string) []string {
+	fields := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ';' || r == '\n' || r == '\t'
+	})
+	recipients := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if field = strings.TrimSpace(field); field != "" {
+			recipients = append(recipients, field)
+		}
+	}
+	return recipients
+}
+
+func emailAlertMessage(from string, recipients []string, alert AlertEvent) []byte {
+	subject := sanitizeEmailHeader("[TokenHub] " + alert.Code)
+	body := fmt.Sprintf("告警事件：%s\n级别：%s\n对象：%s/%s\n说明：%s\n时间：%s\n",
+		alert.Code,
+		alert.Severity,
+		alert.ScopeType,
+		alert.ScopeID,
+		alert.Message,
+		alert.CreatedAt.Format(time.RFC3339),
+	)
+	message := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
+		sanitizeEmailHeader(from),
+		sanitizeEmailHeader(strings.Join(recipients, ", ")),
+		subject,
+		body,
+	)
+	return []byte(message)
+}
+
+func sanitizeEmailHeader(value string) string {
+	return strings.NewReplacer("\r", " ", "\n", " ").Replace(value)
 }
 
 func (s *Server) resolveNotificationChannel(channelID string) (AdminResource, error) {
@@ -2707,10 +3342,22 @@ func (s *Server) applyApprovalRequest(request ApprovalRequest, actor AdminUser) 
 			Status:      stringFromPayload(payload, "status"),
 			Fields:      fieldsFromPayload(payload["fields"]),
 		}
+		var saved AdminResource
+		var err error
 		if request.ResourceID == "" {
-			return s.store.CreateResource(request.ResourceType, resource), nil
+			saved = s.store.CreateResource(request.ResourceType, resource)
+		} else {
+			saved, err = s.store.UpdateResource(request.ResourceType, request.ResourceID, resource)
+			if err != nil {
+				return nil, err
+			}
 		}
-		return s.store.UpdateResource(request.ResourceType, request.ResourceID, resource)
+		if request.ResourceType == "quota-policies" {
+			if err := s.linkProjectQuotaPolicy(saved, payload); err != nil {
+				return nil, err
+			}
+		}
+		return saved, nil
 	case request.ResourceType == "invoices" && (request.Trigger == "invoice_confirm" || request.Trigger == "invoice_reject"):
 		invoice, err := s.findResource("invoices", request.ResourceID)
 		if err != nil {
@@ -2729,13 +3376,13 @@ type resourceExportColumn struct {
 	Source string
 }
 
-func (s *Server) writeResourceExport(writer *csv.Writer, kind string, periodFilter string, columns []resourceExportColumn) {
+func (s *Server) writeResourceExport(writer *csv.Writer, user AdminUser, kind string, periodFilter string, columns []resourceExportColumn) {
 	headers := make([]string, 0, len(columns))
 	for _, column := range columns {
 		headers = append(headers, column.Header)
 	}
 	_ = writer.Write(headers)
-	for _, item := range s.store.ListResources(kind) {
+	for _, item := range s.filterResourcesForUser(user, kind, s.store.ListResources(kind)) {
 		if periodFilter != "" && !resourceMatchesPeriod(item, periodFilter) {
 			continue
 		}
@@ -2960,7 +3607,7 @@ func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request, resource s
 func canAdmin(role string, resource string, method string) bool {
 	role = normalizeAdminRole(role)
 	if role == "" {
-		role = "viewer"
+		role = "user"
 	}
 	resource = strings.ToLower(strings.TrimSpace(resource))
 	write := method != http.MethodGet
@@ -2972,22 +3619,22 @@ func canAdmin(role string, resource string, method string) bool {
 			return false
 		}
 		if write {
-			return resource == "alert" || resource == "security" || resource == "audit" || resource == "approval"
+			return resource == "alert" || resource == "security" || resource == "audit" || resource == "admin_audit" || resource == "approval"
 		}
-		return resource == "overview" || resource == "usage" || resource == "audit" || resource == "alert" || resource == "security" || resource == "approval"
-	case "project_admin":
+		return resource == "overview" || resource == "usage" || resource == "audit" || resource == "admin_audit" || resource == "alert" || resource == "security" || resource == "approval"
+	case "team_leader":
 		if resource == "backup" {
 			return false
 		}
 		if write {
-			return resource == "project" || resource == "api_key" || resource == "quota" || resource == "approval"
+			return resource == "identity" || resource == "api_key" || resource == "approval"
 		}
-		return resource == "overview" || resource == "project" || resource == "api_key" || resource == "quota" || resource == "usage" || resource == "audit" || resource == "approval"
-	case "viewer", "readonly", "read_only":
-		if resource == "backup" {
-			return false
+		return resource == "overview" || resource == "project" || resource == "api_key" || resource == "usage" || resource == "audit" || resource == "identity" || resource == "approval"
+	case "user":
+		if write {
+			return resource == "api_key"
 		}
-		return !write && resource != "identity" && resource != "provider"
+		return resource == "overview" || resource == "project" || resource == "api_key" || resource == "usage" || resource == "audit"
 	default:
 		return !write && resource == "overview"
 	}
@@ -3007,11 +3654,556 @@ func normalizeAdminRole(role string) string {
 	switch role {
 	case "security":
 		return "security_admin"
-	case "readonly":
-		return "read_only"
+	case "project_admin", "teamlead":
+		return "team_leader"
+	case "viewer", "readonly", "read_only", "member":
+		return "user"
 	default:
 		return role
 	}
+}
+
+func isPlatformAdminRole(role string) bool {
+	role = normalizeAdminRole(role)
+	return role == "admin" || role == "system_admin"
+}
+
+func (s *Server) canViewGlobalOperations(user AdminUser) bool {
+	role := normalizeAdminRole(user.Role)
+	return isPlatformAdminRole(role) || role == "security_admin"
+}
+
+func (s *Server) filterProjectsForUser(user AdminUser, projects []Project) []Project {
+	if s.canViewGlobalOperations(user) {
+		return projects
+	}
+	out := make([]Project, 0, len(projects))
+	for _, project := range projects {
+		if s.canAccessProject(user, project) {
+			out = append(out, project)
+		}
+	}
+	return out
+}
+
+func (s *Server) canAccessProject(user AdminUser, project Project) bool {
+	if s.canViewGlobalOperations(user) {
+		return true
+	}
+	if project.OwnerUserID != "" && project.OwnerUserID == user.ID {
+		return true
+	}
+	return user.TeamID != "" && project.TeamID == user.TeamID
+}
+
+func (s *Server) projectQuotaPolicy(project Project) (AdminResource, bool) {
+	if strings.TrimSpace(project.DefaultQuotaRef) != "" {
+		if quota, err := s.findResource("quota-policies", project.DefaultQuotaRef); err == nil {
+			return quota, true
+		}
+	}
+	for _, quota := range s.store.ListResources("quota-policies") {
+		scope := strings.ToLower(strings.TrimSpace(stringField(quota.Fields, "scope")))
+		if scope == "" {
+			scope = strings.ToLower(strings.TrimSpace(stringField(quota.Fields, "scope_type")))
+		}
+		scopeID := strings.TrimSpace(stringField(quota.Fields, "scope_id"))
+		if scope == "project" && scopeID == project.ID {
+			return quota, true
+		}
+	}
+	return AdminResource{}, false
+}
+
+func (s *Server) linkProjectQuotaPolicy(quota AdminResource, payload map[string]any) error {
+	projectID := strings.TrimSpace(stringFromPayload(payload, "project_id"))
+	if projectID == "" {
+		fields := fieldsFromPayload(payload["fields"])
+		scope := strings.ToLower(strings.TrimSpace(stringField(fields, "scope")))
+		if scope == "" {
+			scope = strings.ToLower(strings.TrimSpace(stringField(fields, "scope_type")))
+		}
+		if scope == "project" {
+			projectID = strings.TrimSpace(stringField(fields, "scope_id"))
+		}
+	}
+	if projectID == "" {
+		return nil
+	}
+	project, ok := s.store.GetProject(projectID)
+	if !ok {
+		return NewHTTPError(404, "project_not_found", "Project not found")
+	}
+	if project.DefaultQuotaRef == quota.ID {
+		return nil
+	}
+	project.DefaultQuotaRef = quota.ID
+	_, err := s.store.UpdateProject(project.ID, Project{
+		Name:            project.Name,
+		TeamID:          project.TeamID,
+		OwnerUserID:     project.OwnerUserID,
+		CostCenter:      project.CostCenter,
+		Status:          project.Status,
+		DefaultQuotaRef: quota.ID,
+	})
+	return err
+}
+
+func (s *Server) usageSummaryForUser(user AdminUser) map[string]any {
+	records := s.filterUsageRecordsForUser(user, s.store.ListUsageRecords())
+	logs := s.filterRequestLogsForUser(user, s.store.ListRequestLogs())
+	var input, output, total int64
+	var cost float64
+	errorsCount := 0
+	for _, record := range records {
+		input += record.InputTokens
+		output += record.OutputTokens
+		total += record.TotalTokens
+		cost += record.CostUSD
+	}
+	for _, log := range logs {
+		if log.StatusCode >= 400 {
+			errorsCount++
+		}
+	}
+	return map[string]any{
+		"request_count":      len(logs),
+		"usage_record_count": len(records),
+		"input_tokens":       input,
+		"output_tokens":      output,
+		"total_tokens":       total,
+		"estimated_cost_usd": cost,
+		"errors":             errorsCount,
+	}
+}
+
+func (s *Server) usageBreakdownForUser(user AdminUser) map[string]any {
+	records := s.filterUsageRecordsForUser(user, s.store.ListUsageRecords())
+	breakdown := s.usageBreakdownFromRecords(records)
+	breakdown["members"] = s.aggregateUsageByMember(user, records)
+	return breakdown
+}
+
+func (s *Server) usageBreakdownFromRecords(records []UsageRecord) map[string]any {
+	return map[string]any{
+		"projects":  aggregateUsage(records, func(record UsageRecord) string { return record.ProjectID }),
+		"models":    aggregateUsage(records, func(record UsageRecord) string { return record.ModelName }),
+		"providers": aggregateUsage(records, func(record UsageRecord) string { return record.ProviderID }),
+		"provider_resources": aggregateUsage(records, func(record UsageRecord) string {
+			return record.ProviderResourceID
+		}),
+		"cost_centers": aggregateUsage(records, func(record UsageRecord) string {
+			project, ok := s.store.GetProject(record.ProjectID)
+			if !ok {
+				return "unknown"
+			}
+			return s.costCenterForProject(project)
+		}),
+	}
+}
+
+func (s *Server) aggregateUsageByMember(user AdminUser, records []UsageRecord) []map[string]any {
+	keysByID := map[string]APIKey{}
+	for _, key := range s.store.ListAPIKeys() {
+		keysByID[key.ID] = key
+	}
+	projectsByID := map[string]Project{}
+	for _, project := range s.store.ListProjects() {
+		projectsByID[project.ID] = project
+	}
+	usersByID := map[string]AdminUser{}
+	for _, item := range s.store.ListAdminUsers() {
+		usersByID[item.ID] = item
+	}
+	return aggregateUsage(records, func(record UsageRecord) string {
+		if key, ok := keysByID[record.APIKeyID]; ok {
+			if owner := strings.TrimSpace(key.Metadata["created_by"]); owner != "" {
+				if canAttributeUsageToMember(user, usersByID, owner) {
+					return owner
+				}
+			}
+		}
+		if project, ok := projectsByID[record.ProjectID]; ok {
+			if canAttributeUsageToMember(user, usersByID, project.OwnerUserID) {
+				return project.OwnerUserID
+			}
+		}
+		return "unknown"
+	})
+}
+
+func canAttributeUsageToMember(user AdminUser, usersByID map[string]AdminUser, memberID string) bool {
+	memberID = strings.TrimSpace(memberID)
+	if memberID == "" {
+		return false
+	}
+	role := normalizeAdminRole(user.Role)
+	if isPlatformAdminRole(role) || role == "security_admin" {
+		return true
+	}
+	if role == "team_leader" {
+		member, ok := usersByID[memberID]
+		if !ok || member.TeamID != user.TeamID {
+			return false
+		}
+		memberRole := normalizeAdminRole(member.Role)
+		return memberRole == "user" || memberRole == "team_leader"
+	}
+	return memberID == user.ID
+}
+
+func (s *Server) usageTimeseriesForUser(user AdminUser, days int) []map[string]any {
+	if days <= 0 {
+		days = 31
+	}
+	if days > 90 {
+		days = 90
+	}
+	now := time.Now().UTC()
+	series := make([]map[string]any, 0, days)
+	indexByDay := map[string]int{}
+	for i := days - 1; i >= 0; i-- {
+		day := now.AddDate(0, 0, -i).Format("2006-01-02")
+		indexByDay[day] = len(series)
+		series = append(series, map[string]any{
+			"date":               day,
+			"request_count":      int64(0),
+			"input_tokens":       int64(0),
+			"output_tokens":      int64(0),
+			"total_tokens":       int64(0),
+			"estimated_cost_usd": float64(0),
+		})
+	}
+	for _, record := range s.filterUsageRecordsForUser(user, s.store.ListUsageRecords()) {
+		if record.CreatedAt.Before(now.AddDate(0, 0, -days+1)) {
+			continue
+		}
+		day := record.CreatedAt.UTC().Format("2006-01-02")
+		idx, ok := indexByDay[day]
+		if !ok {
+			continue
+		}
+		series[idx]["request_count"] = series[idx]["request_count"].(int64) + 1
+		series[idx]["input_tokens"] = series[idx]["input_tokens"].(int64) + record.InputTokens
+		series[idx]["output_tokens"] = series[idx]["output_tokens"].(int64) + record.OutputTokens
+		series[idx]["total_tokens"] = series[idx]["total_tokens"].(int64) + record.TotalTokens
+		series[idx]["estimated_cost_usd"] = series[idx]["estimated_cost_usd"].(float64) + record.CostUSD
+	}
+	return series
+}
+
+func (s *Server) filterUsageRecordsForUser(user AdminUser, records []UsageRecord) []UsageRecord {
+	if s.canViewGlobalOperations(user) {
+		return records
+	}
+	visibleProjects := s.visibleProjectIDSet(user)
+	visibleKeys := s.visibleAPIKeyIDSet(user)
+	out := make([]UsageRecord, 0, len(records))
+	for _, record := range records {
+		if normalizeAdminRole(user.Role) == "team_leader" && visibleProjects[record.ProjectID] {
+			out = append(out, record)
+			continue
+		}
+		if record.APIKeyID != "" && visibleKeys[record.APIKeyID] {
+			out = append(out, record)
+		}
+	}
+	return out
+}
+
+func (s *Server) filterRequestLogsForUser(user AdminUser, logs []RequestLog) []RequestLog {
+	if s.canViewGlobalOperations(user) {
+		return logs
+	}
+	visibleProjects := s.visibleProjectIDSet(user)
+	visibleKeys := s.visibleAPIKeyIDSet(user)
+	out := make([]RequestLog, 0, len(logs))
+	for _, log := range logs {
+		if canAccessRequestLogFromSets(user, log, visibleProjects, visibleKeys) {
+			out = append(out, log)
+		}
+	}
+	return out
+}
+
+func (s *Server) canAccessRequestLog(user AdminUser, log RequestLog) bool {
+	if s.canViewGlobalOperations(user) {
+		return true
+	}
+	return canAccessRequestLogFromSets(user, log, s.visibleProjectIDSet(user), s.visibleAPIKeyIDSet(user))
+}
+
+func canAccessRequestLogFromSets(user AdminUser, log RequestLog, visibleProjects map[string]bool, visibleKeys map[string]bool) bool {
+	if normalizeAdminRole(user.Role) == "team_leader" && visibleProjects[log.ProjectID] {
+		return true
+	}
+	return log.APIKeyID != "" && visibleKeys[log.APIKeyID]
+}
+
+func (s *Server) visibleProjectIDSet(user AdminUser) map[string]bool {
+	out := map[string]bool{}
+	for _, project := range s.filterProjectsForUser(user, s.store.ListProjects()) {
+		out[project.ID] = true
+	}
+	return out
+}
+
+func (s *Server) visibleAPIKeyIDSet(user AdminUser) map[string]bool {
+	out := map[string]bool{}
+	for _, key := range s.filterAPIKeysForUser(user, s.store.ListAPIKeys()) {
+		out[key.ID] = true
+	}
+	return out
+}
+
+func (s *Server) costCenterForProject(project Project) string {
+	if costCenter := strings.TrimSpace(project.CostCenter); costCenter != "" {
+		return costCenter
+	}
+	if strings.TrimSpace(project.TeamID) != "" {
+		for _, team := range s.store.ListResources("teams") {
+			if team.ID == project.TeamID {
+				if costCenter := strings.TrimSpace(stringField(team.Fields, "cost_center")); costCenter != "" {
+					return costCenter
+				}
+			}
+		}
+	}
+	if strings.TrimSpace(project.DefaultQuotaRef) != "" {
+		for _, quota := range s.store.ListResources("quota-policies") {
+			if quota.ID == project.DefaultQuotaRef {
+				if costCenter := strings.TrimSpace(stringField(quota.Fields, "cost_center")); costCenter != "" {
+					return costCenter
+				}
+			}
+		}
+	}
+	if strings.TrimSpace(project.TeamID) != "" {
+		return project.TeamID
+	}
+	if strings.TrimSpace(project.ID) != "" {
+		return "project:" + project.ID
+	}
+	return "unknown"
+}
+
+func (s *Server) filterAPIKeysForUser(user AdminUser, keys []APIKey) []APIKey {
+	role := normalizeAdminRole(user.Role)
+	if isPlatformAdminRole(role) {
+		return keys
+	}
+	out := make([]APIKey, 0, len(keys))
+	for _, key := range keys {
+		if s.canAccessAPIKey(user, key) {
+			out = append(out, key)
+		}
+	}
+	return out
+}
+
+func (s *Server) canManageAPIKey(user AdminUser, keyID string) bool {
+	role := normalizeAdminRole(user.Role)
+	if isPlatformAdminRole(role) {
+		return true
+	}
+	for _, key := range s.store.ListAPIKeys() {
+		if key.ID == keyID {
+			return s.canAccessAPIKey(user, key)
+		}
+	}
+	return false
+}
+
+func (s *Server) canAccessAPIKey(user AdminUser, key APIKey) bool {
+	role := normalizeAdminRole(user.Role)
+	if isPlatformAdminRole(role) {
+		return true
+	}
+	if key.Metadata != nil && key.Metadata["created_by"] == user.ID {
+		return true
+	}
+	if role != "team_leader" {
+		return false
+	}
+	for _, project := range s.store.ListProjects() {
+		if project.ID == key.ProjectID && s.canAccessProject(user, project) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) canUseProjectForAPIKey(user AdminUser, projectID string) bool {
+	role := normalizeAdminRole(user.Role)
+	if isPlatformAdminRole(role) {
+		return true
+	}
+	for _, project := range s.store.ListProjects() {
+		if project.ID != projectID {
+			continue
+		}
+		return s.canAccessProject(user, project)
+	}
+	return false
+}
+
+func (s *Server) filterAdminUsersForUser(user AdminUser, users []AdminUser) []AdminUser {
+	role := normalizeAdminRole(user.Role)
+	if isPlatformAdminRole(role) {
+		return users
+	}
+	if role != "team_leader" {
+		return nil
+	}
+	out := make([]AdminUser, 0, len(users))
+	for _, item := range users {
+		if item.TeamID == user.TeamID {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func (s *Server) filterApprovalRequestsForUser(user AdminUser, approvals []ApprovalRequest) []ApprovalRequest {
+	if s.canViewGlobalOperations(user) {
+		return approvals
+	}
+	role := normalizeAdminRole(user.Role)
+	if role != "team_leader" {
+		return nil
+	}
+	teamUsers := map[string]bool{user.ID: true}
+	for _, item := range s.store.ListAdminUsers() {
+		if item.TeamID == user.TeamID {
+			teamUsers[item.ID] = true
+		}
+	}
+	out := make([]ApprovalRequest, 0, len(approvals))
+	for _, item := range approvals {
+		if teamUsers[item.RequesterID] {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func (s *Server) canExportKind(user AdminUser, kind string) bool {
+	if s.canViewGlobalOperations(user) {
+		return true
+	}
+	role := normalizeAdminRole(user.Role)
+	switch role {
+	case "team_leader":
+		switch kind {
+		case "requests", "usage", "cost-centers", "budgets", "chargebacks", "invoices", "approvals":
+			return true
+		default:
+			return false
+		}
+	case "user":
+		return kind == "requests" || kind == "usage"
+	default:
+		return false
+	}
+}
+
+func (s *Server) findAdminUser(userID string) (AdminUser, bool) {
+	for _, user := range s.store.ListAdminUsers() {
+		if user.ID == userID {
+			return user, true
+		}
+	}
+	return AdminUser{}, false
+}
+
+func (s *Server) filterResourcesForUser(user AdminUser, kind string, resources []AdminResource) []AdminResource {
+	role := normalizeAdminRole(user.Role)
+	if s.canViewGlobalOperations(user) {
+		return resources
+	}
+	if role != "team_leader" {
+		return nil
+	}
+	out := make([]AdminResource, 0, len(resources))
+	for _, item := range resources {
+		if s.canAccessScopedResource(user, kind, item) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func (s *Server) canAccessScopedResource(user AdminUser, kind string, item AdminResource) bool {
+	switch kind {
+	case "teams":
+		return item.ID == user.TeamID
+	case "cost-centers":
+		return s.resourceMatchesTeamCostCenter(user.TeamID, item)
+	case "budgets":
+		scope := strings.ToLower(strings.TrimSpace(stringField(item.Fields, "scope")))
+		scopeID := strings.TrimSpace(stringField(item.Fields, "scope_id"))
+		if scope == "team" {
+			return scopeID == user.TeamID
+		}
+		if scope == "cost_center" || scope == "cost-center" {
+			return s.teamCostCenterSet(user.TeamID)[normalizeScopeValue(scopeID)]
+		}
+		return s.resourceMatchesTeamOrCostCenter(user.TeamID, item)
+	case "chargebacks", "invoices":
+		return s.resourceMatchesTeamOrCostCenter(user.TeamID, item)
+	default:
+		return false
+	}
+}
+
+func (s *Server) resourceMatchesTeamOrCostCenter(teamID string, item AdminResource) bool {
+	if strings.TrimSpace(stringField(item.Fields, "team_id")) == teamID {
+		return true
+	}
+	return s.resourceMatchesTeamCostCenter(teamID, item)
+}
+
+func (s *Server) resourceMatchesTeamCostCenter(teamID string, item AdminResource) bool {
+	costCenters := s.teamCostCenterSet(teamID)
+	for _, value := range []string{
+		item.ID,
+		item.Name,
+		stringField(item.Fields, "code"),
+		stringField(item.Fields, "cost_center"),
+		stringField(item.Fields, "scope_id"),
+	} {
+		if costCenters[normalizeScopeValue(value)] {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) teamCostCenterSet(teamID string) map[string]bool {
+	out := map[string]bool{}
+	for _, team := range s.store.ListResources("teams") {
+		if team.ID == teamID {
+			addScopeValue(out, stringField(team.Fields, "cost_center"))
+			break
+		}
+	}
+	for _, project := range s.store.ListProjects() {
+		if project.TeamID == teamID {
+			addScopeValue(out, project.CostCenter)
+			addScopeValue(out, s.costCenterForProject(project))
+		}
+	}
+	return out
+}
+
+func addScopeValue(set map[string]bool, value string) {
+	if normalized := normalizeScopeValue(value); normalized != "" {
+		set[normalized] = true
+	}
+}
+
+func normalizeScopeValue(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 func adminResourcePermission(path string) string {
