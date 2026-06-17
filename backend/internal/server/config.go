@@ -5,7 +5,9 @@ import "os"
 type Config struct {
 	AdminToken               string
 	DatabaseURL              string
+	SQLiteBackupDir          string
 	SecretKey                string
+	SeedDemo                 bool
 	ResourceFailureThreshold int
 	ResourceCooldownSeconds  int
 }
@@ -14,7 +16,9 @@ func ConfigFromEnv() Config {
 	return Config{
 		AdminToken:               getenv("TOKENHUB_ADMIN_TOKEN", "dev_admin_token"),
 		DatabaseURL:              getenv("TOKENHUB_DATABASE_URL", defaultSQLiteDatabaseURL),
+		SQLiteBackupDir:          getenv("TOKENHUB_SQLITE_BACKUP_DIR", "data/backups"),
 		SecretKey:                getenv("TOKENHUB_SECRET_KEY", "dev_tokenhub_secret_key"),
+		SeedDemo:                 getenvBool("TOKENHUB_SEED_DEMO", false),
 		ResourceFailureThreshold: getenvInt("TOKENHUB_RESOURCE_FAILURE_THRESHOLD", 3),
 		ResourceCooldownSeconds:  getenvInt("TOKENHUB_RESOURCE_COOLDOWN_SECONDS", 300),
 	}
@@ -43,4 +47,19 @@ func getenvInt(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func getenvBool(key string, fallback bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	switch value {
+	case "1", "true", "TRUE", "True", "yes", "YES", "on", "ON":
+		return true
+	case "0", "false", "FALSE", "False", "no", "NO", "off", "OFF":
+		return false
+	default:
+		return fallback
+	}
 }

@@ -1,0 +1,16 @@
+{
+  "name": "tokenhub-sdk-smoke-tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:deepseek": "node ./test-deepseek.mjs"
+  },
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "latest",
+    "ai": "latest"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

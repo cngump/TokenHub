@@ -14,10 +14,9 @@
 MVP 建议包含：
 
 ```text
-postgres
-redis
 tokenhub-backend
 tokenhub-frontend
+sqlite-data-volume
 ```
 
 后续增强：
@@ -39,7 +38,7 @@ otel-collector
 | `TOKENHUB_HTTP_ADDR` | 后端监听地址 |
 | `TOKENHUB_PUBLIC_BASE_URL` | 对外访问地址 |
 | `TOKENHUB_DATABASE_URL` | 数据库连接，当前默认 `sqlite://data/tokenhub.db` |
-| `TOKENHUB_REDIS_URL` | Redis 连接 |
+| `TOKENHUB_SQLITE_BACKUP_DIR` | SQLite 备份目录，默认 `data/backups` |
 | `TOKENHUB_SECRET_KEY` | 本地加密主密钥，生产建议接 KMS |
 | `TOKENHUB_JWT_SECRET` | 管理后台认证密钥 |
 | `TOKENHUB_LOG_LEVEL` | 日志级别 |
@@ -60,8 +59,8 @@ otel-collector
 | 类型 | 存储 | 示例 |
 | --- | --- | --- |
 | 启动配置 | 环境变量、配置文件 | 数据库连接、监听端口 |
-| 业务配置 | PostgreSQL | Provider、模型、路由、额度 |
-| 高频状态 | Redis | 额度计数、并发、Provider 健康 |
+| 业务配置 | SQLite | Provider、模型、路由、额度 |
+| 运行时状态 | SQLite + 进程内状态 | 额度计数、并发、Provider 健康 |
 
 生产环境不建议把 Provider API Key 写入静态配置文件，应该通过后台加密保存或接入企业密钥管理系统。
 
@@ -120,10 +119,11 @@ tokenhub migrate status
 
 | 数据 | 策略 |
 | --- | --- |
-| PostgreSQL | 每日全量 + WAL 增量 |
-| Redis | 可选持久化，关键配置不以 Redis 为唯一来源 |
+| SQLite 数据库文件 | 每日快照 + 发布前备份 |
 | Provider 资源凭证 | 随数据库备份，但依赖主密钥或 KMS 恢复 |
 | 配置文件 | 版本化管理 |
+
+当前后台“数据备份”页面已支持 SQLite 手动备份、备份列表、下载、确认式恢复和删除。恢复操作需要输入 `RESTORE <备份ID>`，并写入管理审计。
 
 恢复演练要求：
 
@@ -138,8 +138,8 @@ tokenhub migrate status
 
 - Backend 多副本。
 - Frontend 多副本或静态化部署。
-- PostgreSQL 主从或托管高可用。
-- Redis Sentinel 或 Redis Cluster。
+- SQLite 数据卷快照、定期离线备份和恢复演练。
+- 单机优先，必要时通过网关层做蓝绿切换。
 - Ingress/Nginx/网关层超时支持流式响应。
 - Provider 调用超时、重试、熔断和限流。
 
@@ -161,11 +161,10 @@ frontend:
     tag: latest
   replicas: 2
 
-postgresql:
-  enabled: true
-
-redis:
-  enabled: true
+sqlite:
+  persistence:
+    enabled: true
+    size: 20Gi
 
 ingress:
   enabled: true
@@ -182,7 +181,7 @@ observability:
 
 - 后端镜像。
 - 前端镜像。
-- PostgreSQL 和 Redis 镜像，或兼容版本说明。
+- SQLite 数据卷目录、备份脚本和恢复说明。
 - Helm Chart。
 - Docker Compose 文件。
 - 数据库迁移文件。

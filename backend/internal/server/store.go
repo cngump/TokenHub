@@ -1,25 +1,32 @@
 package server
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	sqlite3 "github.com/mattn/go-sqlite3"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -45,8 +52,9 @@ type Store interface {
 	ListProjectKeys(projectID string) []APIKey
 	ListAPIKeys() []APIKey
 	UpdateAPIKey(id string, patch APIKey) (APIKey, error)
+	RotateAPIKey(id string, graceUntil *time.Time) (APIKey, string, error)
 	DeleteAPIKey(id string) error
-	ValidateAPIKey(rawSecret string) (Project, APIKey, error)
+	ValidateAPIKey(rawSecret string, clientIP string) (Project, APIKey, error)
 	AddProvider(provider Provider) Provider
 	ListProviders() []Provider
 	UpdateProvider(id string, patch Provider) (Provider, error)
@@ -57,6 +65,8 @@ type Store interface {
 	UpdateProviderResource(id string, patch ProviderResource) (ProviderResource, error)
 	DeleteProviderResource(id string) error
 	SetProviderResourceHealth(resourceID string, healthy bool) (ProviderResource, error)
+	BulkOperateProviderResources(action string, ids []string) (ProviderResourceBulkResult, error)
+	ImportProviderResources(resources []ProviderResource) (ProviderResourceImportResult, error)
 	AddModel(model Model) Model
 	ListModels() []Model
 	UpdateModel(name string, patch Model) (Model, error)
@@ -71,18 +81,31 @@ type Store interface {
 	MarkProviderResourceUsed(resourceID string)
 	StartCall(project Project, key APIKey, modelName string) (CallContext, error)
 	FinishCall(call CallContext, route RouteSelection, usage Usage, statusCode int, errorCode string, clientIP string, userAgent string)
-	RecordRejectedRequest(project Project, key APIKey, modelName string, statusCode int, errorCode string, clientIP string, userAgent string)
+	RecordRouteAttempts(requestID string, attempts []RouteAttempt)
+	RecordRejectedRequest(project Project, key APIKey, modelName string, statusCode int, errorCode string, clientIP string, userAgent string) string
+	RecordRequestPayload(requestID string, requestBody string, requestTruncated bool, responseBody string, responseTruncated bool)
 	UsageSummary() map[string]any
 	UsageBreakdown() map[string]any
+	UsageBreakdownForPeriod(period string) map[string]any
 	UsageTimeseries(days int) []map[string]any
+	GenerateBillingPeriod(period string) (map[string]any, error)
 	ListRequestLogs() []RequestLog
+	GetRequestDetail(requestID string) (map[string]any, error)
 	ListAlerts() []AlertEvent
+	GetAlert(id string) (AlertEvent, error)
+	ListAlertDeliveries() []AlertDelivery
+	RecordAlertDelivery(delivery AlertDelivery) AlertDelivery
 	ListAuditEvents() []AuditEvent
 	RecordAuditEvent(event AuditEvent)
 	CreateResource(kind string, resource AdminResource) AdminResource
 	ListResources(kind string) []AdminResource
 	UpdateResource(kind string, id string, patch AdminResource) (AdminResource, error)
 	DeleteResource(kind string, id string) error
+	RunMonitor(id string) (MonitorRunResult, error)
+	CreateApprovalRequest(request ApprovalRequest) ApprovalRequest
+	ListApprovalRequests() []ApprovalRequest
+	GetApprovalRequest(id string) (ApprovalRequest, error)
+	UpdateApprovalRequestStatus(id string, status string, decidedBy string, reason string) (ApprovalRequest, error)
 	CreateAdminUser(user AdminUser, password string) (AdminUser, error)
 	ListAdminUsers() []AdminUser
 	UpdateAdminUser(id string, patch AdminUser, password string) (AdminUser, error)
@@ -90,6 +113,11 @@ type Store interface {
 	AuthenticateAdminUser(identity string, password string, ttl time.Duration) (AdminUser, AdminSession, error)
 	ValidateAdminSession(token string) (AdminUser, bool)
 	RevokeAdminSession(token string)
+	CreateSQLiteBackup(createdBy string, expireDays int) (SQLiteBackupRecord, error)
+	ListSQLiteBackups() []SQLiteBackupRecord
+	GetSQLiteBackup(id string) (SQLiteBackupRecord, error)
+	RestoreSQLiteBackup(id string, restoredBy string) (SQLiteBackupRecord, error)
+	DeleteSQLiteBackup(id string) error
 	AccessibleModels(key APIKey) []Model
 	CheckProviderResourceCapacity(resourceID string) error
 	FinishProviderResourceAttempt(resourceID string, success bool, usage Usage)
@@ -105,6 +133,8 @@ type GormStore struct {
 	secretKey        string
 	failureThreshold int
 	cooldownDuration time.Duration
+	sqliteDSN        string
+	backupDir        string
 }
 
 // MemoryStore is kept as a compatibility alias for existing tests and callers.
@@ -166,12 +196,17 @@ func NewSQLiteStoreWithConfig(databaseURL string, config Config) (*GormStore, er
 		&QuotaBucket{},
 		&UsageRecord{},
 		&RequestLog{},
+		&RequestPayloadLog{},
+		&RouteAttemptLog{},
 		&AlertEvent{},
+		&AlertDelivery{},
 		&ProviderResourceBucket{},
 		&AuditEvent{},
 		&AdminResource{},
+		&ApprovalRequest{},
 		&AdminUser{},
 		&AdminSession{},
+		&SQLiteBackupRecord{},
 	); err != nil {
 		return nil, err
 	}
@@ -182,6 +217,8 @@ func NewSQLiteStoreWithConfig(databaseURL string, config Config) (*GormStore, er
 		secretKey:        config.SecretKey,
 		failureThreshold: defaultInt(config.ResourceFailureThreshold, 3),
 		cooldownDuration: time.Duration(defaultInt(config.ResourceCooldownSeconds, 300)) * time.Second,
+		sqliteDSN:        dsn,
+		backupDir:        defaultString(config.SQLiteBackupDir, "data/backups"),
 	}, nil
 }
 
@@ -283,6 +320,7 @@ func (s *GormStore) UpdateProject(id string, patch Project) (Project, error) {
 	}
 	project.TeamID = patch.TeamID
 	project.OwnerUserID = patch.OwnerUserID
+	project.CostCenter = patch.CostCenter
 	if patch.Status != "" {
 		project.Status = patch.Status
 	}
@@ -347,6 +385,9 @@ func (s *GormStore) CreateAPIKey(projectID string, key APIKey, rawSecret string)
 	if key.Status == "" {
 		key.Status = StatusActive
 	}
+	if key.Group == "" {
+		key.Group = "default"
+	}
 	key.ProjectID = projectID
 	key.KeyHash = HashSecret(rawSecret)
 	key.KeyPrefix = prefix
@@ -388,12 +429,18 @@ func (s *GormStore) UpdateAPIKey(id string, patch APIKey) (APIKey, error) {
 	if patch.Name != "" {
 		key.Name = patch.Name
 	}
+	if patch.Group != "" {
+		key.Group = patch.Group
+	}
 	if patch.Status != "" {
 		key.Status = patch.Status
 	}
 	if patch.Allowed != nil {
 		key.Allowed = patch.Allowed
 		key.AllowedModels = AllowedModelSet(patch.Allowed)
+	}
+	if patch.IPAllowlist != nil {
+		key.IPAllowlist = patch.IPAllowlist
 	}
 	if patch.Limits != (QuotaLimits{}) {
 		key.Limits = patch.Limits
@@ -403,6 +450,52 @@ func (s *GormStore) UpdateAPIKey(id string, patch APIKey) (APIKey, error) {
 		return APIKey{}, err
 	}
 	return publicKey(key), nil
+}
+
+func (s *GormStore) RotateAPIKey(id string, graceUntil *time.Time) (APIKey, string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var oldKey APIKey
+	if err := s.db.First(&oldKey, "id = ?", id).Error; err != nil {
+		return APIKey{}, "", notFound(err, "api_key_not_found", "API key not found")
+	}
+	hydrateAPIKey(&oldKey)
+	now := time.Now().UTC()
+	newSecret := GenerateAPIKey()
+	prefix, suffix := PrefixSuffix(newSecret)
+	newKey := oldKey
+	newKey.ID = NewID("key")
+	newKey.KeyHash = HashSecret(newSecret)
+	newKey.KeyPrefix = prefix
+	newKey.KeySuffix = suffix
+	newKey.RotatedFromID = oldKey.ID
+	newKey.GraceUntil = nil
+	newKey.CreatedAt = now
+	newKey.LastUsedAt = nil
+	newKey.Status = StatusActive
+	if newKey.Metadata == nil {
+		newKey.Metadata = map[string]string{}
+	}
+	newKey.Metadata["rotated_from"] = oldKey.ID
+
+	if graceUntil != nil {
+		oldKey.GraceUntil = graceUntil
+		oldKey.Status = StatusActive
+	} else {
+		oldKey.Status = StatusRevoked
+		oldKey.GraceUntil = &now
+	}
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&oldKey).Error; err != nil {
+			return err
+		}
+		return tx.Create(&newKey).Error
+	})
+	if err != nil {
+		return APIKey{}, "", err
+	}
+	return publicKey(newKey), newSecret, nil
 }
 
 func (s *GormStore) DeleteAPIKey(id string) error {
@@ -422,7 +515,7 @@ func (s *GormStore) DeleteAPIKey(id string) error {
 	})
 }
 
-func (s *GormStore) ValidateAPIKey(rawSecret string) (Project, APIKey, error) {
+func (s *GormStore) ValidateAPIKey(rawSecret string, clientIP string) (Project, APIKey, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -432,6 +525,11 @@ func (s *GormStore) ValidateAPIKey(rawSecret string) (Project, APIKey, error) {
 	}
 	hydrateAPIKey(&key)
 	if key.Status == StatusDisabled || key.Status == StatusRevoked {
+		if !(key.Status == StatusRevoked && key.GraceUntil != nil && time.Now().UTC().Before(*key.GraceUntil)) {
+			return Project{}, APIKey{}, ErrAPIKeyDisabled
+		}
+	}
+	if len(key.IPAllowlist) > 0 && !ipAllowed(clientIP, key.IPAllowlist) {
 		return Project{}, APIKey{}, ErrAPIKeyDisabled
 	}
 	if key.ExpiresAt != nil && time.Now().UTC().After(*key.ExpiresAt) {
@@ -613,6 +711,9 @@ func (s *GormStore) UpdateProviderResource(id string, patch ProviderResource) (P
 	if patch.Name != "" {
 		resource.Name = patch.Name
 	}
+	if patch.Group != "" {
+		resource.Group = patch.Group
+	}
 	if patch.ResourceType != "" {
 		resource.ResourceType = patch.ResourceType
 	}
@@ -686,6 +787,149 @@ func (s *GormStore) SetProviderResourceHealth(resourceID string, healthy bool) (
 	resource.UpdatedAt = now
 	resource.APIKey = ""
 	return resource, nil
+}
+
+func (s *GormStore) BulkOperateProviderResources(action string, ids []string) (ProviderResourceBulkResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	action = strings.TrimSpace(action)
+	if !validProviderResourceBulkAction(action) {
+		return ProviderResourceBulkResult{}, NewHTTPError(400, "invalid_provider_resource_action", "Invalid provider resource bulk action")
+	}
+	ids = uniqueStrings(ids)
+	if len(ids) == 0 {
+		return ProviderResourceBulkResult{}, NewHTTPError(400, "missing_provider_resource_ids", "Provider resource ids are required")
+	}
+	now := time.Now().UTC()
+	result := ProviderResourceBulkResult{Action: action, Resources: make([]ProviderResource, 0, len(ids))}
+	for _, id := range ids {
+		var resource ProviderResource
+		if err := s.db.First(&resource, "id = ?", id).Error; err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, id+": "+notFound(err, "provider_resource_not_found", "Provider resource not found").Error())
+			continue
+		}
+		updates := map[string]any{"updated_at": now}
+		switch action {
+		case "enable":
+			updates["status"] = StatusActive
+			updates["healthy"] = true
+			updates["failure_count"] = 0
+			updates["cooldown_until"] = nil
+			updates["last_checked_at"] = now
+			resource.Status = StatusActive
+			resource.Healthy = true
+			resource.FailureCount = 0
+			resource.CooldownUntil = nil
+			resource.LastCheckedAt = &now
+		case "disable":
+			updates["status"] = StatusDisabled
+			updates["healthy"] = false
+			updates["cooldown_until"] = nil
+			updates["last_checked_at"] = now
+			resource.Status = StatusDisabled
+			resource.Healthy = false
+			resource.CooldownUntil = nil
+			resource.LastCheckedAt = &now
+		case "test":
+			healthy := resource.Status == StatusActive
+			updates["healthy"] = healthy
+			updates["last_checked_at"] = now
+			resource.Healthy = healthy
+			resource.LastCheckedAt = &now
+			if healthy {
+				updates["failure_count"] = 0
+				updates["cooldown_until"] = nil
+				resource.FailureCount = 0
+				resource.CooldownUntil = nil
+			}
+		case "clear_error":
+			updates["healthy"] = true
+			updates["failure_count"] = 0
+			updates["cooldown_until"] = nil
+			updates["last_checked_at"] = now
+			resource.Healthy = true
+			resource.FailureCount = 0
+			resource.CooldownUntil = nil
+			resource.LastCheckedAt = &now
+		case "reset_usage":
+			if err := s.db.Where("resource_id = ?", resource.ID).Delete(&ProviderResourceBucket{}).Error; err != nil {
+				result.Failed++
+				result.Errors = append(result.Errors, id+": "+err.Error())
+				continue
+			}
+			s.resourceInFlight[resource.ID] = 0
+		}
+		if err := s.db.Model(&ProviderResource{}).Where("id = ?", resource.ID).Updates(updates).Error; err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, id+": "+err.Error())
+			continue
+		}
+		resource.UpdatedAt = now
+		resource.APIKey = ""
+		result.Success++
+		result.Resources = append(result.Resources, resource)
+	}
+	return result, nil
+}
+
+func (s *GormStore) ImportProviderResources(resources []ProviderResource) (ProviderResourceImportResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(resources) == 0 {
+		return ProviderResourceImportResult{}, NewHTTPError(400, "missing_provider_resources", "Provider resources are required")
+	}
+	if len(resources) > 200 {
+		return ProviderResourceImportResult{}, NewHTTPError(400, "too_many_provider_resources", "Provider resource import is limited to 200 rows")
+	}
+	result := ProviderResourceImportResult{Resources: make([]ProviderResource, 0, len(resources))}
+	for index, resource := range resources {
+		row := strconv.Itoa(index + 1)
+		resource.ProviderID = strings.TrimSpace(resource.ProviderID)
+		resource.Name = strings.TrimSpace(resource.Name)
+		if resource.ProviderID == "" || resource.Name == "" {
+			result.Failed++
+			result.Errors = append(result.Errors, "row "+row+": provider_id and name are required")
+			continue
+		}
+		if err := s.db.First(&Provider{}, "id = ?", resource.ProviderID).Error; err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, "row "+row+": "+notFound(err, "provider_not_found", "Provider not found").Error())
+			continue
+		}
+		now := time.Now().UTC()
+		if resource.ID == "" {
+			resource.ID = NewID("rsrc")
+		}
+		if resource.Status == "" {
+			resource.Status = StatusActive
+		}
+		if resource.ResourceType == "" {
+			resource.ResourceType = "api_key"
+		}
+		if !resource.Healthy {
+			resource.Healthy = true
+		}
+		if resource.Weight <= 0 {
+			resource.Weight = 100
+		}
+		if resource.CreatedAt.IsZero() {
+			resource.CreatedAt = now
+		}
+		resource.UpdatedAt = now
+		resource.APIKey = s.encryptSecret(resource.APIKey)
+		if err := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&resource).Error; err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, "row "+row+": "+err.Error())
+			continue
+		}
+		resource.APIKey = ""
+		result.Success++
+		result.Resources = append(result.Resources, resource)
+	}
+	return result, nil
 }
 
 func (s *GormStore) CheckProviderResourceCapacity(resourceID string) error {
@@ -877,6 +1121,21 @@ func (s *GormStore) UpdateModel(name string, patch Model) (Model, error) {
 		model.InputPriceUSDPer1M = patch.InputPriceUSDPer1M
 		model.OutputPriceUSDPer1M = patch.OutputPriceUSDPer1M
 		model.EmbeddingPriceUSDPer1M = patch.EmbeddingPriceUSDPer1M
+		if patch.InputModalities != nil {
+			model.InputModalities = patch.InputModalities
+		}
+		if patch.OutputModalities != nil {
+			model.OutputModalities = patch.OutputModalities
+		}
+		if patch.Capabilities != nil {
+			model.Capabilities = patch.Capabilities
+		}
+		if patch.SupportedParameters != nil {
+			model.SupportedParameters = patch.SupportedParameters
+		}
+		if patch.Metadata != nil {
+			model.Metadata = patch.Metadata
+		}
 		if patch.Status != "" {
 			model.Status = patch.Status
 		}
@@ -929,7 +1188,7 @@ func (s *GormStore) AddRoute(route ModelRoute) ModelRoute {
 		route.Weight = 1
 	}
 	if route.Strategy == "" {
-		route.Strategy = "priority_weighted"
+		route.Strategy = RouteStrategyBalanced
 	}
 	if route.CreatedAt.IsZero() {
 		route.CreatedAt = time.Now().UTC()
@@ -959,6 +1218,8 @@ func (s *GormStore) UpdateRoute(id string, patch ModelRoute) (ModelRoute, error)
 		route.ProviderID = patch.ProviderID
 	}
 	route.ProviderResourceID = patch.ProviderResourceID
+	route.ResourceGroup = patch.ResourceGroup
+	route.StickySession = patch.StickySession
 	if patch.ProviderModel != "" {
 		route.ProviderModel = patch.ProviderModel
 	}
@@ -967,6 +1228,12 @@ func (s *GormStore) UpdateRoute(id string, patch ModelRoute) (ModelRoute, error)
 	}
 	if patch.Weight != 0 {
 		route.Weight = patch.Weight
+	}
+	if patch.QualityScore != 0 {
+		route.QualityScore = patch.QualityScore
+	}
+	if patch.CostScore != 0 {
+		route.CostScore = patch.CostScore
 	}
 	if patch.Status != "" {
 		route.Status = patch.Status
@@ -1031,8 +1298,11 @@ func (s *GormStore) SelectRouteCandidates(modelName string) ([]RouteSelection, e
 		}
 
 		var resources []ProviderResource
-		if err := s.db.Where("provider_id = ? AND status = ? AND healthy = ?", provider.ID, StatusActive, true).
-			Order("priority asc, weight desc, created_at asc").
+		query := s.db.Where("provider_id = ? AND status = ? AND healthy = ?", provider.ID, StatusActive, true)
+		if strings.TrimSpace(route.ResourceGroup) != "" {
+			query = query.Where("`group` = ?", strings.TrimSpace(route.ResourceGroup))
+		}
+		if err := query.Order("priority asc, weight desc, created_at asc").
 			Find(&resources).Error; err != nil {
 			return nil, err
 		}
@@ -1162,6 +1432,9 @@ func (s *GormStore) StartCall(project Project, key APIKey, modelName string) (Ca
 			exceedsCostQuota(effectiveLimits, &dayCounter.QuotaCounter, &monthCounter.QuotaCounter) {
 			return ErrQuotaExceeded
 		}
+		if err := s.checkRuntimeBudget(tx, project); err != nil {
+			return err
+		}
 		dayCounter.Requests++
 		monthCounter.Requests++
 		if err := tx.Save(&dayCounter).Error; err != nil {
@@ -1256,10 +1529,35 @@ func (s *GormStore) FinishCall(call CallContext, route RouteSelection, usage Usa
 	})
 }
 
-func (s *GormStore) RecordRejectedRequest(project Project, key APIKey, modelName string, statusCode int, errorCode string, clientIP string, userAgent string) {
+func (s *GormStore) RecordRouteAttempts(requestID string, attempts []RouteAttempt) {
+	if requestID == "" || len(attempts) == 0 {
+		return
+	}
+	now := time.Now().UTC()
+	items := make([]RouteAttemptLog, 0, len(attempts))
+	for index, attempt := range attempts {
+		items = append(items, RouteAttemptLog{
+			ID:                 NewID("rat"),
+			RequestID:          requestID,
+			AttemptIndex:       index + 1,
+			RouteID:            attempt.Selection.Route.ID,
+			ProviderID:         attempt.Selection.Provider.ID,
+			ProviderResourceID: routeResourceID(attempt.Selection),
+			ProviderModel:      attempt.Selection.ProviderModel,
+			StatusCode:         attempt.Status,
+			ErrorCode:          attempt.ErrorCode,
+			ErrorMessage:       attempt.Error,
+			CreatedAt:          now,
+		})
+	}
+	_ = s.db.Create(&items).Error
+}
+
+func (s *GormStore) RecordRejectedRequest(project Project, key APIKey, modelName string, statusCode int, errorCode string, clientIP string, userAgent string) string {
+	requestID := NewID("req")
 	_ = s.db.Create(&RequestLog{
 		ID:         NewID("log"),
-		RequestID:  NewID("req"),
+		RequestID:  requestID,
 		ProjectID:  project.ID,
 		APIKeyID:   key.ID,
 		ModelName:  modelName,
@@ -1268,6 +1566,22 @@ func (s *GormStore) RecordRejectedRequest(project Project, key APIKey, modelName
 		ClientIP:   clientIP,
 		UserAgent:  userAgent,
 		CreatedAt:  time.Now().UTC(),
+	}).Error
+	return requestID
+}
+
+func (s *GormStore) RecordRequestPayload(requestID string, requestBody string, requestTruncated bool, responseBody string, responseTruncated bool) {
+	if requestID == "" {
+		return
+	}
+	_ = s.db.Create(&RequestPayloadLog{
+		ID:                NewID("pay"),
+		RequestID:         requestID,
+		RequestBody:       requestBody,
+		ResponseBody:      responseBody,
+		RequestTruncated:  requestTruncated,
+		ResponseTruncated: responseTruncated,
+		CreatedAt:         time.Now().UTC(),
 	}).Error
 }
 
@@ -1305,12 +1619,30 @@ func (s *GormStore) UsageSummary() map[string]any {
 func (s *GormStore) UsageBreakdown() map[string]any {
 	var records []UsageRecord
 	_ = s.db.Find(&records).Error
+	return s.usageBreakdownFromRecords(records)
+}
+
+func (s *GormStore) UsageBreakdownForPeriod(period string) map[string]any {
+	period = normalizeBillingPeriod(period, time.Now().UTC())
+	var records []UsageRecord
+	_ = s.db.Where("created_at >= ? AND created_at < ?", periodStart(period), periodEnd(period)).Find(&records).Error
+	return s.usageBreakdownFromRecords(records)
+}
+
+func (s *GormStore) usageBreakdownFromRecords(records []UsageRecord) map[string]any {
 	return map[string]any{
 		"projects":  aggregateUsage(records, func(record UsageRecord) string { return record.ProjectID }),
 		"models":    aggregateUsage(records, func(record UsageRecord) string { return record.ModelName }),
 		"providers": aggregateUsage(records, func(record UsageRecord) string { return record.ProviderID }),
 		"provider_resources": aggregateUsage(records, func(record UsageRecord) string {
 			return record.ProviderResourceID
+		}),
+		"cost_centers": aggregateUsage(records, func(record UsageRecord) string {
+			project, ok := s.GetProject(record.ProjectID)
+			if !ok {
+				return "unknown"
+			}
+			return s.costCenterForProject(project)
 		}),
 	}
 }
@@ -1354,16 +1686,190 @@ func (s *GormStore) UsageTimeseries(days int) []map[string]any {
 	return series
 }
 
+func (s *GormStore) GenerateBillingPeriod(period string) (map[string]any, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	period = normalizeBillingPeriod(period, time.Now().UTC())
+	var records []UsageRecord
+	if err := s.db.Where("created_at >= ? AND created_at < ?", periodStart(period), periodEnd(period)).
+		Find(&records).Error; err != nil {
+		return nil, err
+	}
+
+	type bucket struct {
+		CostCenter   string
+		ProjectID    string
+		TeamID       string
+		RequestCount int64
+		InputTokens  int64
+		OutputTokens int64
+		TotalTokens  int64
+		CostUSD      float64
+	}
+	buckets := map[string]*bucket{}
+	projectTotals := map[string]float64{}
+	teamTotals := map[string]float64{}
+	for _, record := range records {
+		project, _ := s.GetProject(record.ProjectID)
+		costCenter := s.costCenterForProject(project)
+		key := costCenter + "\x00" + record.ProjectID
+		item, ok := buckets[key]
+		if !ok {
+			item = &bucket{CostCenter: costCenter, ProjectID: record.ProjectID, TeamID: project.TeamID}
+			buckets[key] = item
+		}
+		item.RequestCount++
+		item.InputTokens += record.InputTokens
+		item.OutputTokens += record.OutputTokens
+		item.TotalTokens += record.TotalTokens
+		item.CostUSD += record.CostUSD
+		if strings.TrimSpace(record.ProjectID) != "" {
+			projectTotals[record.ProjectID] += record.CostUSD
+		}
+		if strings.TrimSpace(project.TeamID) != "" {
+			teamTotals[project.TeamID] += record.CostUSD
+		}
+	}
+
+	chargebacks := 0
+	invoices := 0
+	totals := map[string]float64{}
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := deleteGeneratedResourcesByPeriod(tx, "chargebacks", period); err != nil {
+			return err
+		}
+		if err := deleteGeneratedResourcesByPeriod(tx, "invoices", period); err != nil {
+			return err
+		}
+		for _, item := range buckets {
+			if item.CostUSD <= 0 && item.TotalTokens <= 0 {
+				continue
+			}
+			totals[item.CostCenter] += item.CostUSD
+			if err := tx.Create(&AdminResource{
+				ID:          NewID(resourcePrefix("chargebacks")),
+				Kind:        "chargebacks",
+				Name:        fmt.Sprintf("%s %s %s 分摊", period, item.CostCenter, item.ProjectID),
+				Description: "由 TokenHub 用量记录自动生成",
+				Status:      StatusActive,
+				Fields: map[string]any{
+					"period":             period,
+					"cost_center":        item.CostCenter,
+					"project_id":         item.ProjectID,
+					"team_id":            item.TeamID,
+					"allocated_cost_usd": roundMoney(item.CostUSD),
+					"request_count":      item.RequestCount,
+					"input_tokens":       item.InputTokens,
+					"output_tokens":      item.OutputTokens,
+					"total_tokens":       item.TotalTokens,
+					"allocation_rule":    "actual_usage_cost",
+					"generated_by":       "tokenhub",
+				},
+				CreatedAt: time.Now().UTC(),
+				UpdatedAt: time.Now().UTC(),
+			}).Error; err != nil {
+				return err
+			}
+			chargebacks++
+		}
+		for costCenter, amount := range totals {
+			if err := tx.Create(&AdminResource{
+				ID:          NewID(resourcePrefix("invoices")),
+				Kind:        "invoices",
+				Name:        fmt.Sprintf("%s %s 内部账单", period, costCenter),
+				Description: "由部门分摊记录汇总生成",
+				Status:      "pending",
+				Fields: map[string]any{
+					"period":       period,
+					"cost_center":  costCenter,
+					"amount_usd":   roundMoney(amount),
+					"invoice_note": defaultInvoiceNote(period, costCenter, amount),
+					"confirmed_by": "",
+					"generated_by": "tokenhub",
+				},
+				CreatedAt: time.Now().UTC(),
+				UpdatedAt: time.Now().UTC(),
+			}).Error; err != nil {
+				return err
+			}
+			invoices++
+		}
+		return updateBudgetsFromUsage(tx, period, totals, projectTotals, teamTotals)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"period":             period,
+		"usage_records":      len(records),
+		"cost_centers":       len(totals),
+		"chargebacks":        chargebacks,
+		"invoices":           invoices,
+		"allocated_cost_usd": roundMoney(sumFloatMap(totals)),
+	}, nil
+}
+
 func (s *GormStore) ListRequestLogs() []RequestLog {
 	var items []RequestLog
 	_ = s.db.Order("created_at desc").Find(&items).Error
 	return items
 }
 
+func (s *GormStore) GetRequestDetail(requestID string) (map[string]any, error) {
+	var log RequestLog
+	if err := s.db.First(&log, "request_id = ?", requestID).Error; err != nil {
+		return nil, notFound(err, "request_not_found", "Request not found")
+	}
+	var usage []UsageRecord
+	_ = s.db.Where("request_id = ?", requestID).Find(&usage).Error
+	var attempts []RouteAttemptLog
+	_ = s.db.Where("request_id = ?", requestID).Order("attempt_index asc").Find(&attempts).Error
+	var payload RequestPayloadLog
+	var payloadValue any
+	if err := s.db.First(&payload, "request_id = ?", requestID).Error; err == nil {
+		payloadValue = payload
+	}
+	return map[string]any{
+		"log":      log,
+		"usage":    usage,
+		"attempts": attempts,
+		"payload":  payloadValue,
+	}, nil
+}
+
 func (s *GormStore) ListAlerts() []AlertEvent {
 	var items []AlertEvent
 	_ = s.db.Order("created_at desc").Find(&items).Error
 	return items
+}
+
+func (s *GormStore) GetAlert(id string) (AlertEvent, error) {
+	var item AlertEvent
+	if err := s.db.First(&item, "id = ?", id).Error; err != nil {
+		return AlertEvent{}, notFound(err, "alert_not_found", "Alert not found")
+	}
+	return item, nil
+}
+
+func (s *GormStore) ListAlertDeliveries() []AlertDelivery {
+	var items []AlertDelivery
+	_ = s.db.Order("created_at desc").Limit(500).Find(&items).Error
+	return items
+}
+
+func (s *GormStore) RecordAlertDelivery(delivery AlertDelivery) AlertDelivery {
+	if delivery.ID == "" {
+		delivery.ID = NewID("dlv")
+	}
+	if delivery.CreatedAt.IsZero() {
+		delivery.CreatedAt = time.Now().UTC()
+	}
+	if delivery.Status == "" {
+		delivery.Status = "pending"
+	}
+	_ = s.db.Create(&delivery).Error
+	return delivery
 }
 
 func (s *GormStore) ListAuditEvents() []AuditEvent {
@@ -1445,6 +1951,177 @@ func (s *GormStore) DeleteResource(kind string, id string) error {
 		return notFound(err, "resource_not_found", "Resource not found")
 	}
 	return s.db.Delete(&resource).Error
+}
+
+func (s *GormStore) RunMonitor(id string) (MonitorRunResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var monitor AdminResource
+	if err := s.db.First(&monitor, "kind = ? AND id = ?", "monitors", id).Error; err != nil {
+		return MonitorRunResult{}, notFound(err, "monitor_not_found", "Monitor not found")
+	}
+	started := time.Now().UTC()
+	result := MonitorRunResult{
+		MonitorID: monitor.ID,
+		CheckedAt: started,
+		Status:    "ok",
+	}
+	fields := cloneFields(monitor.Fields)
+	targetType := strings.ToLower(strings.TrimSpace(stringField(fields, "target_type")))
+	if targetType == "" {
+		targetType = inferMonitorTargetType(fields)
+	}
+	result.TargetType = targetType
+	switch targetType {
+	case "provider":
+		providerID := strings.TrimSpace(firstStringField(fields, "provider_id", "provider"))
+		result.ProviderID = providerID
+		result.TargetID = providerID
+		var provider Provider
+		if err := s.db.First(&provider, "id = ?", providerID).Error; err != nil {
+			result.Status = "failed"
+			result.Message = "Provider 不存在"
+		} else {
+			healthy := provider.Status == StatusActive
+			result.Status = okFailed(healthy)
+			result.Message = monitorProviderMessage(provider, healthy)
+			now := time.Now().UTC()
+			_ = s.db.Model(&Provider{}).Where("id = ?", provider.ID).Update("healthy", healthy).Error
+			if !healthy {
+				_ = s.db.Model(&ProviderResource{}).Where("provider_id = ?", provider.ID).Updates(map[string]any{"healthy": false, "last_checked_at": now, "updated_at": now}).Error
+			}
+		}
+	case "resource", "provider_resource":
+		resourceID := strings.TrimSpace(firstStringField(fields, "provider_resource_id", "resource_id", "resource"))
+		result.ResourceID = resourceID
+		result.TargetID = resourceID
+		var resource ProviderResource
+		if err := s.db.First(&resource, "id = ?", resourceID).Error; err != nil {
+			result.Status = "failed"
+			result.Message = "Provider 资源实例不存在"
+		} else {
+			healthy := resource.Status == StatusActive
+			result.ProviderID = resource.ProviderID
+			result.Status = okFailed(healthy)
+			result.Message = monitorResourceMessage(resource, healthy)
+			now := time.Now().UTC()
+			updates := map[string]any{"healthy": healthy, "last_checked_at": now, "updated_at": now}
+			if healthy {
+				updates["failure_count"] = 0
+				updates["cooldown_until"] = nil
+			}
+			_ = s.db.Model(&ProviderResource{}).Where("id = ?", resource.ID).Updates(updates).Error
+		}
+	case "model":
+		modelName := strings.TrimSpace(firstStringField(fields, "model", "model_name"))
+		result.ModelName = modelName
+		result.TargetID = modelName
+		var routes int64
+		if modelName == "" {
+			result.Status = "failed"
+			result.Message = "模型名为空"
+		} else if err := s.db.Model(&ModelRoute{}).Where("model_name = ? AND status = ?", modelName, StatusActive).Count(&routes).Error; err != nil {
+			return MonitorRunResult{}, err
+		} else if routes == 0 {
+			result.Status = "failed"
+			result.Message = "没有可用模型路由"
+		} else {
+			result.Status = "ok"
+			result.Message = fmt.Sprintf("模型路由可用，候选路由 %d 条", routes)
+		}
+	default:
+		result.Status = "failed"
+		result.Message = "不支持的监控目标"
+	}
+	result.LatencyMS = time.Since(started).Milliseconds()
+	if result.Message == "" {
+		result.Message = "监控执行完成"
+	}
+	fields["target_type"] = result.TargetType
+	fields["last_status"] = result.Status
+	fields["last_result"] = result.Status
+	fields["last_message"] = result.Message
+	fields["last_checked_at"] = result.CheckedAt.Format(time.RFC3339)
+	fields["latency_ms"] = result.LatencyMS
+	fields["provider_id"] = result.ProviderID
+	fields["provider_resource_id"] = result.ResourceID
+	fields["model"] = result.ModelName
+	monitor.Fields = fields
+	monitor.UpdatedAt = time.Now().UTC()
+	if err := s.db.Save(&monitor).Error; err != nil {
+		return MonitorRunResult{}, err
+	}
+	if result.Status != "ok" {
+		alert := AlertEvent{
+			ID:         NewID("alt"),
+			ScopeType:  "monitor",
+			ScopeID:    monitor.ID,
+			Severity:   "warning",
+			Code:       "monitor_check_failed",
+			Message:    result.Message,
+			ResourceID: result.TargetID,
+			CreatedAt:  time.Now().UTC(),
+		}
+		if err := s.db.Create(&alert).Error; err != nil {
+			return MonitorRunResult{}, err
+		}
+		result.AlertID = alert.ID
+	}
+	return result, nil
+}
+
+func (s *GormStore) CreateApprovalRequest(request ApprovalRequest) ApprovalRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if request.ID == "" {
+		request.ID = NewID("apr")
+	}
+	if request.Status == "" {
+		request.Status = "pending"
+	}
+	if request.CreatedAt.IsZero() {
+		request.CreatedAt = time.Now().UTC()
+	}
+	_ = s.db.Create(&request).Error
+	return request
+}
+
+func (s *GormStore) ListApprovalRequests() []ApprovalRequest {
+	var items []ApprovalRequest
+	_ = s.db.Order("created_at desc").Limit(500).Find(&items).Error
+	return items
+}
+
+func (s *GormStore) GetApprovalRequest(id string) (ApprovalRequest, error) {
+	var item ApprovalRequest
+	if err := s.db.First(&item, "id = ?", id).Error; err != nil {
+		return ApprovalRequest{}, notFound(err, "approval_not_found", "Approval request not found")
+	}
+	return item, nil
+}
+
+func (s *GormStore) UpdateApprovalRequestStatus(id string, status string, decidedBy string, reason string) (ApprovalRequest, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var item ApprovalRequest
+	if err := s.db.First(&item, "id = ?", id).Error; err != nil {
+		return ApprovalRequest{}, notFound(err, "approval_not_found", "Approval request not found")
+	}
+	if item.Status != "pending" {
+		return ApprovalRequest{}, NewHTTPError(http.StatusConflict, "approval_already_decided", "Approval request has already been decided")
+	}
+	now := time.Now().UTC()
+	item.Status = status
+	item.Reason = reason
+	item.DecidedAt = &now
+	item.DecidedBy = decidedBy
+	if err := s.db.Save(&item).Error; err != nil {
+		return ApprovalRequest{}, err
+	}
+	return item, nil
 }
 
 func (s *GormStore) CreateAdminUser(user AdminUser, password string) (AdminUser, error) {
@@ -1592,6 +2269,233 @@ func (s *GormStore) RevokeAdminSession(token string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_ = s.db.Delete(&AdminSession{}, "token = ?", token).Error
+}
+
+func (s *GormStore) CreateSQLiteBackup(createdBy string, expireDays int) (SQLiteBackupRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	backupID := NewID("bak")
+	fileName := backupID + ".sqlite3"
+	filePath := filepath.Join(defaultString(s.backupDir, "data/backups"), fileName)
+	record := SQLiteBackupRecord{
+		ID:        backupID,
+		Name:      "SQLite Backup " + now.Format("2006-01-02 15:04:05"),
+		FileName:  fileName,
+		FilePath:  filePath,
+		Status:    "creating",
+		Trigger:   "manual",
+		CreatedBy: createdBy,
+		CreatedAt: now,
+	}
+	if expireDays > 0 {
+		expiresAt := now.AddDate(0, 0, expireDays)
+		record.ExpiresAt = &expiresAt
+	}
+	if err := s.db.Create(&record).Error; err != nil {
+		return SQLiteBackupRecord{}, err
+	}
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+		record.Status = "failed"
+		record.Error = err.Error()
+		_ = s.db.Save(&record).Error
+		return record, err
+	}
+	if err := s.copySQLiteDatabase(filePath, false); err != nil {
+		record.Status = "failed"
+		record.Error = err.Error()
+		_ = s.db.Save(&record).Error
+		return record, err
+	}
+	info, err := os.Stat(filePath)
+	if err != nil {
+		record.Status = "failed"
+		record.Error = err.Error()
+		_ = s.db.Save(&record).Error
+		return record, err
+	}
+	checksum, err := fileSHA256(filePath)
+	if err != nil {
+		record.Status = "failed"
+		record.Error = err.Error()
+		_ = s.db.Save(&record).Error
+		return record, err
+	}
+	record.Status = "ready"
+	record.SizeBytes = info.Size()
+	record.ChecksumSHA256 = checksum
+	record.Error = ""
+	if err := s.db.Save(&record).Error; err != nil {
+		return SQLiteBackupRecord{}, err
+	}
+	return record, nil
+}
+
+func (s *GormStore) ListSQLiteBackups() []SQLiteBackupRecord {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var records []SQLiteBackupRecord
+	_ = s.db.Order("created_at desc").Find(&records).Error
+	return records
+}
+
+func (s *GormStore) GetSQLiteBackup(id string) (SQLiteBackupRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.getSQLiteBackupLocked(id)
+}
+
+func (s *GormStore) RestoreSQLiteBackup(id string, restoredBy string) (SQLiteBackupRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	record, err := s.getSQLiteBackupLocked(id)
+	if err != nil {
+		return SQLiteBackupRecord{}, err
+	}
+	if record.Status != "ready" && record.Status != "restored" {
+		return SQLiteBackupRecord{}, NewHTTPError(409, "backup_not_ready", "Backup is not ready to restore")
+	}
+	if _, err := os.Stat(record.FilePath); err != nil {
+		return SQLiteBackupRecord{}, NewHTTPError(404, "backup_file_missing", "Backup file is missing")
+	}
+	if record.ChecksumSHA256 != "" {
+		checksum, err := fileSHA256(record.FilePath)
+		if err != nil {
+			return SQLiteBackupRecord{}, err
+		}
+		if !strings.EqualFold(checksum, record.ChecksumSHA256) {
+			return SQLiteBackupRecord{}, NewHTTPError(409, "backup_checksum_mismatch", "Backup checksum does not match")
+		}
+	}
+	if err := s.copySQLiteDatabase(record.FilePath, true); err != nil {
+		record.Status = "failed"
+		record.Error = err.Error()
+		_ = s.db.Save(&record).Error
+		return record, err
+	}
+	now := time.Now().UTC()
+	record.Status = "restored"
+	record.RestoredBy = restoredBy
+	record.RestoredAt = &now
+	record.Error = ""
+	if err := s.db.Save(&record).Error; err != nil {
+		return SQLiteBackupRecord{}, err
+	}
+	return record, nil
+}
+
+func (s *GormStore) DeleteSQLiteBackup(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	record, err := s.getSQLiteBackupLocked(id)
+	if err != nil {
+		return err
+	}
+	if record.FilePath != "" {
+		if err := os.Remove(record.FilePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	if err := s.db.Delete(&SQLiteBackupRecord{}, "id = ?", id).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *GormStore) getSQLiteBackupLocked(id string) (SQLiteBackupRecord, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return SQLiteBackupRecord{}, NewHTTPError(404, "backup_not_found", "Backup not found")
+	}
+	var record SQLiteBackupRecord
+	if err := s.db.First(&record, "id = ?", id).Error; err != nil {
+		return SQLiteBackupRecord{}, notFound(err, "backup_not_found", "Backup not found")
+	}
+	return record, nil
+}
+
+func (s *GormStore) copySQLiteDatabase(path string, restore bool) error {
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		return err
+	}
+	srcDB := sqlDB
+	destDB := sqlDB
+	var external *sql.DB
+	if restore {
+		external, err = sql.Open("sqlite3", path)
+		srcDB = external
+	} else {
+		_ = os.Remove(path)
+		external, err = sql.Open("sqlite3", path)
+		destDB = external
+	}
+	if err != nil {
+		return err
+	}
+	defer external.Close()
+	destConn, err := destDB.Conn(context.Background())
+	if err != nil {
+		return err
+	}
+	defer destConn.Close()
+	srcConn, err := srcDB.Conn(context.Background())
+	if err != nil {
+		return err
+	}
+	defer srcConn.Close()
+	return withSQLiteConn(destConn, func(dest *sqlite3.SQLiteConn) error {
+		return withSQLiteConn(srcConn, func(src *sqlite3.SQLiteConn) error {
+			backup, err := dest.Backup("main", src, "main")
+			if err != nil {
+				return err
+			}
+			defer backup.Finish()
+			for {
+				done, err := backup.Step(64)
+				if err != nil {
+					return err
+				}
+				if done {
+					return nil
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+		})
+	})
+}
+
+func withSQLiteConn(conn *sql.Conn, fn func(*sqlite3.SQLiteConn) error) error {
+	var err error
+	rawErr := conn.Raw(func(driverConn any) error {
+		sqliteConn, ok := driverConn.(*sqlite3.SQLiteConn)
+		if !ok {
+			return fmt.Errorf("sqlite connection expected, got %T", driverConn)
+		}
+		err = fn(sqliteConn)
+		return err
+	})
+	if rawErr != nil {
+		return rawErr
+	}
+	return err
+}
+
+func fileSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func (s *GormStore) AccessibleModels(key APIKey) []Model {
@@ -1753,6 +2657,134 @@ func quotaPolicyApplies(scope string, scopeID string, project Project, key APIKe
 	}
 }
 
+func (s *GormStore) checkRuntimeBudget(tx *gorm.DB, project Project) error {
+	now := time.Now().UTC()
+	period := now.Format("2006-01")
+	costCenter := s.costCenterForProjectWithDB(tx, project)
+	var budgets []AdminResource
+	if err := tx.Where("kind = ? AND status = ?", "budgets", StatusActive).Find(&budgets).Error; err != nil {
+		return err
+	}
+	for _, budget := range budgets {
+		if !budgetEnforced(budget) {
+			continue
+		}
+		if !budgetAppliesToProject(budget, project, costCenter) {
+			continue
+		}
+		if budgetPeriod := strings.TrimSpace(stringField(budget.Fields, "period_ref")); budgetPeriod != "" && normalizeBillingPeriod(budgetPeriod, now) != period {
+			continue
+		}
+		amount := float64Field(budget.Fields, "amount_usd")
+		if amount <= 0 {
+			continue
+		}
+		used, err := s.runtimeBudgetUsed(tx, budget, period)
+		if err != nil {
+			return err
+		}
+		if used >= amount {
+			return ErrBudgetExceeded
+		}
+	}
+	return nil
+}
+
+func (s *GormStore) runtimeBudgetUsed(tx *gorm.DB, budget AdminResource, period string) (float64, error) {
+	scope := strings.ToLower(strings.TrimSpace(stringField(budget.Fields, "scope")))
+	scopeID := budgetScopeID(budget, scope)
+	start := periodStart(period)
+	end := periodEnd(period)
+	switch scope {
+	case "project":
+		var total sql.NullFloat64
+		if err := tx.Model(&UsageRecord{}).
+			Where("project_id = ? AND created_at >= ? AND created_at < ?", scopeID, start, end).
+			Select("sum(cost_usd)").Scan(&total).Error; err != nil {
+			return 0, err
+		}
+		return total.Float64, nil
+	case "global", "organization":
+		var total sql.NullFloat64
+		if err := tx.Model(&UsageRecord{}).
+			Where("created_at >= ? AND created_at < ?", start, end).
+			Select("sum(cost_usd)").Scan(&total).Error; err != nil {
+			return 0, err
+		}
+		return total.Float64, nil
+	case "team", "cost_center", "cost-center":
+		var records []UsageRecord
+		if err := tx.Where("created_at >= ? AND created_at < ?", start, end).Find(&records).Error; err != nil {
+			return 0, err
+		}
+		projectCache := map[string]Project{}
+		var total float64
+		for _, record := range records {
+			project, ok := projectCache[record.ProjectID]
+			if !ok {
+				if err := tx.First(&project, "id = ?", record.ProjectID).Error; err != nil {
+					continue
+				}
+				projectCache[record.ProjectID] = project
+			}
+			if scope == "team" && project.TeamID == scopeID {
+				total += record.CostUSD
+				continue
+			}
+			if (scope == "cost_center" || scope == "cost-center") && s.costCenterForProjectWithDB(tx, project) == scopeID {
+				total += record.CostUSD
+			}
+		}
+		return total, nil
+	default:
+		return 0, nil
+	}
+}
+
+func budgetScopeID(budget AdminResource, scope string) string {
+	scopeID := strings.TrimSpace(stringField(budget.Fields, "scope_id"))
+	switch scope {
+	case "project":
+		if scopeID == "" {
+			scopeID = strings.TrimSpace(stringField(budget.Fields, "project_id"))
+		}
+	case "team":
+		if scopeID == "" {
+			scopeID = strings.TrimSpace(stringField(budget.Fields, "team_id"))
+		}
+	case "cost_center", "cost-center":
+		if scopeID == "" {
+			scopeID = strings.TrimSpace(stringField(budget.Fields, "cost_center"))
+		}
+	}
+	return scopeID
+}
+
+func budgetEnforced(budget AdminResource) bool {
+	mode := strings.ToLower(strings.TrimSpace(stringField(budget.Fields, "enforcement")))
+	if mode == "warn" || mode == "monitor" || mode == "off" || mode == "disabled" {
+		return false
+	}
+	return true
+}
+
+func budgetAppliesToProject(budget AdminResource, project Project, costCenter string) bool {
+	scope := strings.ToLower(strings.TrimSpace(stringField(budget.Fields, "scope")))
+	scopeID := budgetScopeID(budget, scope)
+	switch scope {
+	case "project":
+		return scopeID != "" && scopeID == project.ID
+	case "team":
+		return scopeID != "" && scopeID == project.TeamID
+	case "cost_center", "cost-center":
+		return scopeID != "" && scopeID == costCenter
+	case "global", "organization":
+		return true
+	default:
+		return false
+	}
+}
+
 func mergeQuotaLimits(base QuotaLimits, override QuotaLimits) QuotaLimits {
 	return QuotaLimits{
 		DailyRequests:   strictInt64(base.DailyRequests, override.DailyRequests),
@@ -1881,6 +2913,177 @@ func float64Field(fields map[string]any, key string) float64 {
 	}
 }
 
+func (s *GormStore) costCenterForProject(project Project) string {
+	return s.costCenterForProjectWithDB(s.db, project)
+}
+
+func (s *GormStore) costCenterForProjectWithDB(db *gorm.DB, project Project) string {
+	if costCenter := strings.TrimSpace(project.CostCenter); costCenter != "" {
+		return costCenter
+	}
+	if strings.TrimSpace(project.TeamID) != "" {
+		var team AdminResource
+		if err := db.First(&team, "kind = ? AND id = ?", "teams", project.TeamID).Error; err == nil {
+			if costCenter := strings.TrimSpace(stringField(team.Fields, "cost_center")); costCenter != "" {
+				return costCenter
+			}
+		}
+	}
+	if strings.TrimSpace(project.DefaultQuotaRef) != "" {
+		var quota AdminResource
+		if err := db.First(&quota, "kind = ? AND id = ?", "quota-policies", project.DefaultQuotaRef).Error; err == nil {
+			if costCenter := strings.TrimSpace(stringField(quota.Fields, "cost_center")); costCenter != "" {
+				return costCenter
+			}
+		}
+	}
+	if strings.TrimSpace(project.TeamID) != "" {
+		return project.TeamID
+	}
+	if strings.TrimSpace(project.ID) != "" {
+		return "project:" + project.ID
+	}
+	return "unknown"
+}
+
+func normalizeBillingPeriod(period string, now time.Time) string {
+	period = strings.TrimSpace(period)
+	if period == "" {
+		return now.UTC().Format("2006-01")
+	}
+	if len(period) >= 7 {
+		return period[:7]
+	}
+	return now.UTC().Format("2006-01")
+}
+
+func periodStart(period string) time.Time {
+	t, err := time.Parse("2006-01", period)
+	if err != nil {
+		t, _ = time.Parse("2006-01", time.Now().UTC().Format("2006-01"))
+	}
+	return t.UTC()
+}
+
+func periodEnd(period string) time.Time {
+	return periodStart(period).AddDate(0, 1, 0)
+}
+
+func defaultInvoiceNote(period string, costCenter string, amount float64) string {
+	return fmt.Sprintf("TokenHub %s AI 用量内部结算，成本中心 %s，金额 USD %.4f。", period, costCenter, roundMoney(amount))
+}
+
+func roundMoney(value float64) float64 {
+	return math.Round(value*10000) / 10000
+}
+
+func sumFloatMap(items map[string]float64) float64 {
+	var total float64
+	for _, value := range items {
+		total += value
+	}
+	return total
+}
+
+func deleteGeneratedResourcesByPeriod(tx *gorm.DB, kind string, period string) error {
+	var items []AdminResource
+	if err := tx.Where("kind = ?", kind).Find(&items).Error; err != nil {
+		return err
+	}
+	for _, item := range items {
+		if stringField(item.Fields, "period") != period {
+			continue
+		}
+		if generated := strings.TrimSpace(stringField(item.Fields, "generated_by")); generated != "tokenhub" {
+			continue
+		}
+		if err := tx.Delete(&item).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func updateBudgetsFromUsage(tx *gorm.DB, period string, costCenterTotals map[string]float64, projectTotals map[string]float64, teamTotals map[string]float64) error {
+	var budgets []AdminResource
+	if err := tx.Where("kind = ? AND status = ?", "budgets", StatusActive).Find(&budgets).Error; err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	for _, budget := range budgets {
+		scope := strings.ToLower(strings.TrimSpace(stringField(budget.Fields, "scope")))
+		scopeID := strings.TrimSpace(stringField(budget.Fields, "scope_id"))
+		switch scope {
+		case "cost_center", "cost-center":
+			if scopeID == "" {
+				scopeID = strings.TrimSpace(stringField(budget.Fields, "cost_center"))
+			}
+		case "project":
+			if scopeID == "" {
+				scopeID = strings.TrimSpace(stringField(budget.Fields, "project_id"))
+			}
+		case "team":
+			if scopeID == "" {
+				scopeID = strings.TrimSpace(stringField(budget.Fields, "team_id"))
+			}
+		default:
+			continue
+		}
+		if scopeID == "" {
+			continue
+		}
+		budgetPeriod := normalizeBillingPeriod(stringField(budget.Fields, "period_ref"), now)
+		if budgetPeriod != period && strings.TrimSpace(stringField(budget.Fields, "period_ref")) != "" {
+			continue
+		}
+		amount := float64Field(budget.Fields, "amount_usd")
+		used := budgetUsedByScope(scope, scopeID, costCenterTotals, projectTotals, teamTotals)
+		budget.Fields["used_usd"] = roundMoney(used)
+		budget.Fields["remaining_usd"] = roundMoney(amount - used)
+		budget.Fields["usage_percent"] = float64(0)
+		if amount > 0 {
+			budget.Fields["usage_percent"] = roundMoney(used / amount * 100)
+		}
+		budget.Fields["last_calculated_period"] = period
+		budget.UpdatedAt = now
+		if err := tx.Save(&budget).Error; err != nil {
+			return err
+		}
+		warnPercent := float64Field(budget.Fields, "warn_percent")
+		if warnPercent <= 0 {
+			warnPercent = 80
+		}
+		if amount > 0 && used/amount*100 >= warnPercent {
+			if err := tx.Create(&AlertEvent{
+				ID:         NewID("alt"),
+				ScopeType:  "budget",
+				ScopeID:    budget.ID,
+				Severity:   "warning",
+				Code:       "budget_warn_threshold",
+				Message:    fmt.Sprintf("Budget %s reached %.2f%% for %s", budget.Name, used/amount*100, period),
+				ResourceID: scopeID,
+				CreatedAt:  now,
+			}).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func budgetUsedByScope(scope string, scopeID string, costCenterTotals map[string]float64, projectTotals map[string]float64, teamTotals map[string]float64) float64 {
+	switch scope {
+	case "cost_center", "cost-center":
+		return costCenterTotals[scopeID]
+	case "project":
+		return projectTotals[scopeID]
+	case "team":
+		return teamTotals[scopeID]
+	default:
+		return 0
+	}
+}
+
 func createAdminUser(db *gorm.DB, user AdminUser, password string) (AdminUser, error) {
 	now := time.Now().UTC()
 	if user.ID == "" {
@@ -1956,6 +3159,29 @@ func publicAdminUser(user AdminUser) AdminUser {
 	return user
 }
 
+func ipAllowed(clientIP string, allowlist []string) bool {
+	clientIP = strings.TrimSpace(clientIP)
+	if clientIP == "" {
+		return false
+	}
+	parsedIP := net.ParseIP(clientIP)
+	for _, item := range allowlist {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if item == "*" || item == clientIP {
+			return true
+		}
+		if strings.Contains(item, "/") && parsedIP != nil {
+			if _, network, err := net.ParseCIDR(item); err == nil && network.Contains(parsedIP) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func notFound(err error, code, message string) error {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return NewHTTPError(404, code, message)
@@ -2028,6 +3254,89 @@ func defaultInt(value int, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func defaultString(value string, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func validProviderResourceBulkAction(action string) bool {
+	switch action {
+	case "enable", "disable", "test", "clear_error", "reset_usage":
+		return true
+	default:
+		return false
+	}
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
+}
+
+func cloneFields(fields map[string]any) map[string]any {
+	cloned := map[string]any{}
+	for key, value := range fields {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func inferMonitorTargetType(fields map[string]any) string {
+	if strings.TrimSpace(firstStringField(fields, "provider_resource_id", "resource_id", "resource")) != "" {
+		return "resource"
+	}
+	if strings.TrimSpace(firstStringField(fields, "model", "model_name")) != "" {
+		return "model"
+	}
+	if strings.TrimSpace(firstStringField(fields, "provider_id", "provider")) != "" {
+		return "provider"
+	}
+	return "unknown"
+}
+
+func firstStringField(fields map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value := stringField(fields, key)
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func okFailed(ok bool) string {
+	if ok {
+		return "ok"
+	}
+	return "failed"
+}
+
+func monitorProviderMessage(provider Provider, healthy bool) string {
+	if healthy {
+		return "Provider 状态正常"
+	}
+	return "Provider 未启用或不可用：" + provider.Status
+}
+
+func monitorResourceMessage(resource ProviderResource, healthy bool) string {
+	if healthy {
+		return "Provider 资源实例状态正常"
+	}
+	return "Provider 资源实例未启用或不可用：" + resource.Status
 }
 
 func exceedsRequestQuota(limits QuotaLimits, day, month *QuotaCounter) bool {
@@ -2118,6 +3427,8 @@ func resourcePrefix(kind string) string {
 	switch kind {
 	case "teams":
 		return "team"
+	case "role-configs":
+		return "role"
 	case "users":
 		return "usr"
 	case "monitors":
@@ -2134,6 +3445,20 @@ func resourcePrefix(kind string) string {
 		return "alr"
 	case "quota-policies":
 		return "quo"
+	case "notification-channels":
+		return "ntf"
+	case "cost-centers":
+		return "cc"
+	case "budgets":
+		return "bdg"
+	case "chargebacks":
+		return "cbk"
+	case "invoices":
+		return "inv"
+	case "reports":
+		return "rpt"
+	case "approval-flows":
+		return "apf"
 	default:
 		return "res"
 	}

@@ -17,6 +17,12 @@ const (
 	StatusDisabled = "disabled"
 	StatusRevoked  = "revoked"
 
+	RouteStrategyBalanced         = "balanced"
+	RouteStrategyCost             = "cost"
+	RouteStrategyQuality          = "quality"
+	RouteStrategyPriorityWeighted = "priority_weighted"
+	RouteStrategyPriorityOnly     = "priority_only"
+
 	ProviderMock             = "mock"
 	ProviderOpenAI           = "openai"
 	ProviderOpenAICompatible = "openai_compatible"
@@ -32,6 +38,7 @@ var (
 	ErrModelNotAllowed   = NewHTTPError(403, "model_not_allowed", "Model is not allowed for this API key")
 	ErrRateLimitExceeded = NewHTTPError(429, "rate_limit_exceeded", "Rate limit exceeded")
 	ErrQuotaExceeded     = NewHTTPError(429, "quota_exceeded", "Quota exceeded")
+	ErrBudgetExceeded    = NewHTTPError(429, "budget_exceeded", "Budget exceeded")
 	ErrProviderMissing   = NewHTTPError(503, "provider_unavailable", "No available provider route")
 )
 
@@ -65,6 +72,7 @@ type Project struct {
 	Name            string    `json:"name"`
 	TeamID          string    `json:"team_id,omitempty"`
 	OwnerUserID     string    `json:"owner_user_id,omitempty"`
+	CostCenter      string    `json:"cost_center,omitempty" gorm:"index"`
 	Status          string    `json:"status"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
@@ -75,14 +83,18 @@ type APIKey struct {
 	ID            string            `json:"id" gorm:"primaryKey"`
 	ProjectID     string            `json:"project_id" gorm:"index"`
 	Name          string            `json:"name"`
+	Group         string            `json:"group,omitempty" gorm:"index"`
 	KeyHash       string            `json:"-" gorm:"uniqueIndex"`
 	KeyPrefix     string            `json:"key_prefix"`
 	KeySuffix     string            `json:"key_suffix"`
 	AllowedModels map[string]bool   `json:"-" gorm:"-"`
 	Allowed       []string          `json:"allowed_models" gorm:"serializer:json"`
+	IPAllowlist   []string          `json:"ip_allowlist,omitempty" gorm:"serializer:json"`
 	Limits        QuotaLimits       `json:"limits" gorm:"embedded;embeddedPrefix:limit_"`
 	Status        string            `json:"status"`
 	ExpiresAt     *time.Time        `json:"expires_at,omitempty"`
+	RotatedFromID string            `json:"rotated_from_id,omitempty" gorm:"index"`
+	GraceUntil    *time.Time        `json:"grace_until,omitempty"`
 	CreatedAt     time.Time         `json:"created_at"`
 	LastUsedAt    *time.Time        `json:"last_used_at,omitempty"`
 	Metadata      map[string]string `json:"metadata,omitempty" gorm:"serializer:json"`
@@ -107,16 +119,81 @@ type QuotaCounter struct {
 }
 
 type Model struct {
-	ID                     string    `json:"id" gorm:"primaryKey"`
-	Name                   string    `json:"name" gorm:"uniqueIndex"`
-	Family                 string    `json:"family"`
-	Modality               string    `json:"modality"`
-	ContextWindow          int64     `json:"context_window"`
-	InputPriceUSDPer1M     float64   `json:"input_price_usd_per_1m"`
-	OutputPriceUSDPer1M    float64   `json:"output_price_usd_per_1m"`
-	EmbeddingPriceUSDPer1M float64   `json:"embedding_price_usd_per_1m"`
-	Status                 string    `json:"status"`
-	CreatedAt              time.Time `json:"created_at"`
+	ID                     string            `json:"id" gorm:"primaryKey"`
+	Name                   string            `json:"name" gorm:"uniqueIndex"`
+	Category               string            `json:"category,omitempty" gorm:"index"`
+	Family                 string            `json:"family"`
+	Modality               string            `json:"modality"`
+	ContextWindow          int64             `json:"context_window"`
+	InputPriceUSDPer1M     float64           `json:"input_price_usd_per_1m"`
+	OutputPriceUSDPer1M    float64           `json:"output_price_usd_per_1m"`
+	EmbeddingPriceUSDPer1M float64           `json:"embedding_price_usd_per_1m"`
+	InputModalities        []string          `json:"input_modalities,omitempty" gorm:"serializer:json"`
+	OutputModalities       []string          `json:"output_modalities,omitempty" gorm:"serializer:json"`
+	Capabilities           []string          `json:"capabilities,omitempty" gorm:"serializer:json"`
+	SupportedParameters    []string          `json:"supported_parameters,omitempty" gorm:"serializer:json"`
+	Metadata               map[string]string `json:"metadata,omitempty" gorm:"serializer:json"`
+	Status                 string            `json:"status"`
+	CreatedAt              time.Time         `json:"created_at"`
+}
+
+type ProviderCatalogModel struct {
+	ID                  string            `json:"id"`
+	Name                string            `json:"name"`
+	DisplayName         string            `json:"display_name,omitempty"`
+	CanonicalName       string            `json:"canonical_name,omitempty"`
+	Category            string            `json:"category,omitempty"`
+	Family              string            `json:"family,omitempty"`
+	Type                string            `json:"type,omitempty"`
+	ContextWindow       int64             `json:"context_window,omitempty"`
+	MaxOutputTokens     int64             `json:"max_output_tokens,omitempty"`
+	InputPriceUSDPer1M  float64           `json:"input_price_usd_per_1m,omitempty"`
+	OutputPriceUSDPer1M float64           `json:"output_price_usd_per_1m,omitempty"`
+	InputModalities     []string          `json:"input_modalities,omitempty"`
+	OutputModalities    []string          `json:"output_modalities,omitempty"`
+	Capabilities        []string          `json:"capabilities,omitempty"`
+	SupportedParameters []string          `json:"supported_parameters,omitempty"`
+	LastUpdated         string            `json:"last_updated,omitempty"`
+	Metadata            map[string]string `json:"metadata,omitempty"`
+}
+
+type ProviderCatalogEntry struct {
+	ID             string                 `json:"id"`
+	Name           string                 `json:"name"`
+	DisplayName    string                 `json:"display_name"`
+	Type           string                 `json:"type"`
+	BaseURL        string                 `json:"base_url,omitempty"`
+	DocURL         string                 `json:"doc_url,omitempty"`
+	Categories     []string               `json:"categories,omitempty"`
+	CategoryCounts map[string]int         `json:"category_counts,omitempty"`
+	ModelsCount    int                    `json:"models_count"`
+	Source         string                 `json:"source"`
+	Models         []ProviderCatalogModel `json:"models,omitempty"`
+}
+
+type ProviderCreateRequest struct {
+	ID             string            `json:"id"`
+	Name           string            `json:"name"`
+	Type           string            `json:"type"`
+	BaseURL        string            `json:"base_url"`
+	APIKey         string            `json:"api_key"`
+	Status         string            `json:"status"`
+	Healthy        bool              `json:"healthy"`
+	Priority       int               `json:"priority"`
+	Headers        map[string]string `json:"headers"`
+	Options        map[string]string `json:"options"`
+	CatalogID      string            `json:"catalog_id"`
+	ModelCategory  string            `json:"model_category"`
+	CreateRoutes   *bool             `json:"create_routes"`
+	SelectedModels []string          `json:"selected_models"`
+}
+
+type ProviderCreateResult struct {
+	Provider      Provider `json:"provider"`
+	CreatedRoutes int      `json:"created_routes"`
+	ModelNames    []string `json:"model_names,omitempty"`
+	RouteIDs      []string `json:"route_ids,omitempty"`
+	CatalogSource string   `json:"catalog_source,omitempty"`
 }
 
 type Provider struct {
@@ -137,6 +214,7 @@ type ProviderResource struct {
 	ID             string            `json:"id" gorm:"primaryKey"`
 	ProviderID     string            `json:"provider_id" gorm:"index"`
 	Name           string            `json:"name"`
+	Group          string            `json:"group,omitempty" gorm:"index"`
 	ResourceType   string            `json:"resource_type"`
 	BaseURL        string            `json:"base_url,omitempty"`
 	APIKey         string            `json:"api_key,omitempty"`
@@ -159,14 +237,33 @@ type ProviderResource struct {
 	UpdatedAt      time.Time         `json:"updated_at"`
 }
 
+type ProviderResourceBulkResult struct {
+	Action    string             `json:"action"`
+	Success   int                `json:"success"`
+	Failed    int                `json:"failed"`
+	Resources []ProviderResource `json:"resources"`
+	Errors    []string           `json:"errors,omitempty"`
+}
+
+type ProviderResourceImportResult struct {
+	Success   int                `json:"success"`
+	Failed    int                `json:"failed"`
+	Resources []ProviderResource `json:"resources"`
+	Errors    []string           `json:"errors,omitempty"`
+}
+
 type ModelRoute struct {
 	ID                 string     `json:"id" gorm:"primaryKey"`
 	ModelName          string     `json:"model_name" gorm:"index"`
 	ProviderID         string     `json:"provider_id" gorm:"index"`
 	ProviderResourceID string     `json:"provider_resource_id,omitempty" gorm:"index"`
+	ResourceGroup      string     `json:"resource_group,omitempty" gorm:"index"`
+	StickySession      bool       `json:"sticky_session"`
 	ProviderModel      string     `json:"provider_model"`
 	Priority           int        `json:"priority"`
 	Weight             int        `json:"weight"`
+	QualityScore       int        `json:"quality_score,omitempty"`
+	CostScore          int        `json:"cost_score,omitempty"`
 	Status             string     `json:"status"`
 	Strategy           string     `json:"strategy,omitempty"`
 	LastUsedAt         *time.Time `json:"last_used_at,omitempty"`
@@ -212,6 +309,30 @@ type RequestLog struct {
 	CreatedAt          time.Time `json:"created_at"`
 }
 
+type RequestPayloadLog struct {
+	ID                string    `json:"id" gorm:"primaryKey"`
+	RequestID         string    `json:"request_id" gorm:"uniqueIndex"`
+	RequestBody       string    `json:"request_body,omitempty"`
+	ResponseBody      string    `json:"response_body,omitempty"`
+	RequestTruncated  bool      `json:"request_truncated"`
+	ResponseTruncated bool      `json:"response_truncated"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+
+type RouteAttemptLog struct {
+	ID                 string    `json:"id" gorm:"primaryKey"`
+	RequestID          string    `json:"request_id" gorm:"index"`
+	AttemptIndex       int       `json:"attempt_index"`
+	RouteID            string    `json:"route_id,omitempty" gorm:"index"`
+	ProviderID         string    `json:"provider_id,omitempty" gorm:"index"`
+	ProviderResourceID string    `json:"provider_resource_id,omitempty" gorm:"index"`
+	ProviderModel      string    `json:"provider_model,omitempty"`
+	StatusCode         int       `json:"status_code"`
+	ErrorCode          string    `json:"error_code,omitempty"`
+	ErrorMessage       string    `json:"error_message,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+
 type AlertEvent struct {
 	ID         string    `json:"id" gorm:"primaryKey"`
 	ScopeType  string    `json:"scope_type" gorm:"index"`
@@ -220,6 +341,19 @@ type AlertEvent struct {
 	Code       string    `json:"code"`
 	Message    string    `json:"message"`
 	ResourceID string    `json:"resource_id,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type AlertDelivery struct {
+	ID         string    `json:"id" gorm:"primaryKey"`
+	AlertID    string    `json:"alert_id" gorm:"index"`
+	ChannelID  string    `json:"channel_id,omitempty" gorm:"index"`
+	Channel    string    `json:"channel"`
+	Target     string    `json:"target,omitempty"`
+	Status     string    `json:"status" gorm:"index"`
+	StatusCode int       `json:"status_code,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	Payload    string    `json:"payload,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 
@@ -259,6 +393,36 @@ type AdminResource struct {
 	UpdatedAt   time.Time      `json:"updated_at"`
 }
 
+type MonitorRunResult struct {
+	MonitorID  string    `json:"monitor_id"`
+	TargetType string    `json:"target_type"`
+	TargetID   string    `json:"target_id,omitempty"`
+	Status     string    `json:"status"`
+	Message    string    `json:"message,omitempty"`
+	LatencyMS  int64     `json:"latency_ms"`
+	CheckedAt  time.Time `json:"checked_at"`
+	AlertID    string    `json:"alert_id,omitempty"`
+	ProviderID string    `json:"provider_id,omitempty"`
+	ResourceID string    `json:"resource_id,omitempty"`
+	ModelName  string    `json:"model,omitempty"`
+}
+
+type ApprovalRequest struct {
+	ID           string     `json:"id" gorm:"primaryKey"`
+	FlowID       string     `json:"flow_id,omitempty" gorm:"index"`
+	Trigger      string     `json:"trigger" gorm:"index"`
+	ResourceType string     `json:"resource_type" gorm:"index"`
+	ResourceID   string     `json:"resource_id,omitempty" gorm:"index"`
+	RequesterID  string     `json:"requester_id,omitempty" gorm:"index"`
+	Requester    string     `json:"requester,omitempty"`
+	Status       string     `json:"status" gorm:"index"`
+	Reason       string     `json:"reason,omitempty"`
+	Payload      string     `json:"payload,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	DecidedAt    *time.Time `json:"decided_at,omitempty"`
+	DecidedBy    string     `json:"decided_by,omitempty"`
+}
+
 type AdminUser struct {
 	ID           string     `json:"id" gorm:"primaryKey"`
 	Username     string     `json:"username" gorm:"uniqueIndex"`
@@ -280,6 +444,23 @@ type AdminSession struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type SQLiteBackupRecord struct {
+	ID             string     `json:"id" gorm:"primaryKey"`
+	Name           string     `json:"name"`
+	FileName       string     `json:"file_name"`
+	FilePath       string     `json:"-"`
+	Status         string     `json:"status" gorm:"index"`
+	Trigger        string     `json:"trigger"`
+	SizeBytes      int64      `json:"size_bytes"`
+	ChecksumSHA256 string     `json:"checksum_sha256,omitempty"`
+	CreatedBy      string     `json:"created_by,omitempty" gorm:"index"`
+	CreatedAt      time.Time  `json:"created_at"`
+	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
+	RestoredBy     string     `json:"restored_by,omitempty"`
+	RestoredAt     *time.Time `json:"restored_at,omitempty"`
+	Error          string     `json:"error,omitempty"`
+}
+
 type ChatMessage struct {
 	Role    string `json:"role"`
 	Content any    `json:"content"`
@@ -292,6 +473,36 @@ type ChatCompletionRequest struct {
 	MaxTokens   int            `json:"max_tokens,omitempty"`
 	Temperature *float64       `json:"temperature,omitempty"`
 	Metadata    map[string]any `json:"metadata,omitempty"`
+}
+
+type PlaygroundChatResponse struct {
+	Response  any                      `json:"response"`
+	Route     PlaygroundRouteSummary   `json:"route"`
+	Usage     Usage                    `json:"usage"`
+	Attempts  []PlaygroundRouteAttempt `json:"attempts"`
+	RequestID string                   `json:"request_id"`
+}
+
+type PlaygroundRouteSummary struct {
+	RouteID          string `json:"route_id,omitempty"`
+	ProviderID       string `json:"provider_id,omitempty"`
+	ProviderName     string `json:"provider_name,omitempty"`
+	ResourceID       string `json:"resource_id,omitempty"`
+	ResourceName     string `json:"resource_name,omitempty"`
+	ProviderModel    string `json:"provider_model,omitempty"`
+	Priority         int    `json:"priority,omitempty"`
+	ResourcePriority int    `json:"resource_priority,omitempty"`
+	Weight           int    `json:"weight,omitempty"`
+	QualityScore     int    `json:"quality_score,omitempty"`
+	CostScore        int    `json:"cost_score,omitempty"`
+	Strategy         string `json:"strategy,omitempty"`
+}
+
+type PlaygroundRouteAttempt struct {
+	Route  PlaygroundRouteSummary `json:"route"`
+	Status int                    `json:"status"`
+	Code   string                 `json:"code,omitempty"`
+	Error  string                 `json:"error,omitempty"`
 }
 
 type ResponsesRequest struct {
@@ -312,6 +523,20 @@ type RouteSelection struct {
 	Resource      *ProviderResource
 	ProviderModel string
 	Route         ModelRoute
+}
+
+type RouteExplainStep struct {
+	RouteID          string `json:"route_id"`
+	ProviderID       string `json:"provider_id"`
+	ResourceID       string `json:"resource_id,omitempty"`
+	ProviderModel    string `json:"provider_model"`
+	Priority         int    `json:"priority"`
+	ResourcePriority int    `json:"resource_priority"`
+	Weight           int    `json:"weight"`
+	QualityScore     int    `json:"quality_score,omitempty"`
+	CostScore        int    `json:"cost_score,omitempty"`
+	Strategy         string `json:"strategy"`
+	Status           string `json:"status"`
 }
 
 type RouteAttempt struct {

@@ -3,21 +3,14 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"time"
 )
 
+const defaultProjectID = "prj_default"
+
 func SeedDemoData(store Store) error {
-	if _, err := store.CreateAdminUser(AdminUser{
-		ID:       "usr_admin",
-		Username: "admin",
-		Name:     "平台管理员",
-		Email:    "admin@tokenhub.local",
-		Role:     "admin",
-		TeamID:   "team_platform",
-		Status:   StatusActive,
-	}, "admin123456"); err != nil {
-		if AsHTTPError(err).Code != "admin_user_conflict" {
-			return err
-		}
+	if err := BootstrapBaseData(store); err != nil {
+		return err
 	}
 
 	project := store.CreateProject(Project{
@@ -122,6 +115,54 @@ func SeedDemoData(store Store) error {
 	return nil
 }
 
+func BootstrapBaseData(store Store) error {
+	if _, err := store.CreateAdminUser(AdminUser{
+		ID:       "usr_admin",
+		Username: "admin",
+		Name:     "平台管理员",
+		Email:    "admin@tokenhub.local",
+		Role:     "admin",
+		TeamID:   "team_platform",
+		Status:   StatusActive,
+	}, "admin123456"); err != nil {
+		if AsHTTPError(err).Code != "admin_user_conflict" {
+			return err
+		}
+	}
+	seedDefaultProject(store)
+	pruneProviderImportedModelCatalog(store)
+	seedDefaultModelCatalog(store)
+	return nil
+}
+
+func seedDefaultProject(store Store) {
+	if _, ok := store.GetProject(defaultProjectID); ok {
+		return
+	}
+	store.CreateProject(Project{
+		ID:          defaultProjectID,
+		Name:        "默认项目空间",
+		TeamID:      "team_platform",
+		OwnerUserID: "usr_admin",
+		CostCenter:  "AI-PLATFORM",
+		Status:      StatusActive,
+	})
+}
+
+func pruneProviderImportedModelCatalog(store Store) {
+	for _, model := range store.ListModels() {
+		if model.Metadata != nil && model.Metadata["source"] == "public-provider-conf" {
+			_ = store.DeleteModel(model.Name)
+		}
+	}
+}
+
+func seedDefaultModelCatalog(store Store) {
+	for _, model := range defaultModelCatalog() {
+		store.AddModel(model)
+	}
+}
+
 func seedAdminResources(store Store) {
 	store.CreateResource("teams", AdminResource{
 		ID:          "team_platform",
@@ -140,6 +181,7 @@ func seedAdminResources(store Store) {
 		Description: "每 60 秒检测 gpt-4.1-mini 路由链路",
 		Status:      StatusActive,
 		Fields: map[string]any{
+			"target_type":      "model",
 			"provider":         "mock",
 			"model":            "gpt-4.1-mini",
 			"interval_seconds": 60,
@@ -212,6 +254,69 @@ func seedAdminResources(store Store) {
 			"max_concurrency":  20,
 			"scope":            "project",
 			"enforcement_mode": "hard",
+		},
+	})
+	store.CreateResource("cost-centers", AdminResource{
+		ID:          "cc_ai_platform",
+		Name:        "AI 平台成本中心",
+		Description: "平台工程与共享 AI 基础设施费用归属",
+		Status:      StatusActive,
+		Fields: map[string]any{
+			"code":               "AI-PLATFORM",
+			"department":         "技术平台部",
+			"owner":              "张工",
+			"monthly_budget_usd": 5000,
+		},
+	})
+	store.CreateResource("budgets", AdminResource{
+		ID:          "bdg_ai_platform_monthly",
+		Name:        "AI 平台月度预算",
+		Description: "成本中心维度的 AI 调用预算与预警线",
+		Status:      StatusActive,
+		Fields: map[string]any{
+			"scope":         "cost_center",
+			"scope_id":      "AI-PLATFORM",
+			"period":        "monthly",
+			"period_ref":    time.Now().UTC().Format("2006-01"),
+			"amount_usd":    5000,
+			"warn_percent":  80,
+			"used_usd":      0,
+			"usage_percent": 0,
+		},
+	})
+	store.CreateResource("approval-flows", AdminResource{
+		ID:          "apf_budget_change",
+		Name:        "预算变更审批",
+		Description: "预算调整超过阈值时需要管理员审批",
+		Status:      StatusActive,
+		Fields: map[string]any{
+			"trigger":       "budget_change",
+			"approver_role": "admin",
+			"threshold_usd": 1000,
+			"sla_hours":     24,
+		},
+	})
+	store.CreateResource("approval-flows", AdminResource{
+		ID:          "apf_invoice_confirm",
+		Name:        "内部账单确认审批",
+		Description: "高金额内部账单确认前进入审批流",
+		Status:      StatusActive,
+		Fields: map[string]any{
+			"trigger":       "invoice_confirm",
+			"approver_role": "admin",
+			"threshold_usd": 1000,
+			"sla_hours":     48,
+		},
+	})
+	store.CreateResource("reports", AdminResource{
+		ID:          "rpt_monthly_invoices",
+		Name:        "月度内部账单导出",
+		Description: "财务月结使用的内部账单 CSV",
+		Status:      StatusActive,
+		Fields: map[string]any{
+			"dataset":    "invoices",
+			"schedule":   "monthly",
+			"recipients": "finance@example.com",
 		},
 	})
 }
@@ -484,7 +589,7 @@ func seedMockUsage(store Store) {
 	}
 	for i := 1; i <= 260; i++ {
 		secret := fmt.Sprintf("thk_mock_%03d_%d", ((i-1)%80)+1, (i%2)+1)
-		project, key, err := store.ValidateAPIKey(secret)
+		project, key, err := store.ValidateAPIKey(secret, "127.0.0.1")
 		if err != nil {
 			continue
 		}
@@ -512,7 +617,7 @@ func seedMockUsage(store Store) {
 		store.FinishCall(call, route, usage, status, errorCode, mockIP(i), "mock-seed/1.0")
 	}
 	for i := 1; i <= 40; i++ {
-		project, key, err := store.ValidateAPIKey(fmt.Sprintf("thk_mock_%03d_%d", ((i-1)%80)+1, (i%2)+1))
+		project, key, err := store.ValidateAPIKey(fmt.Sprintf("thk_mock_%03d_%d", ((i-1)%80)+1, (i%2)+1), "127.0.0.1")
 		if err != nil {
 			continue
 		}

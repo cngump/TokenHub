@@ -7,9 +7,9 @@
 | API Gateway | Go |
 | Admin API | Go |
 | 前端后台 | Next.js + TypeScript |
-| 主数据库 | PostgreSQL |
-| 缓存与限流 | Redis |
-| 异步任务 | Redis Stream 或独立队列抽象 |
+| 主数据库 | SQLite + GORM |
+| 限流与额度状态 | SQLite 计数表 + 进程内并发计数 |
+| 异步任务 | Go 后台任务 + SQLite 状态表 |
 | 部署 | Docker Compose、Helm |
 | 观测 | OpenTelemetry、Prometheus、Grafana、结构化日志 |
 
@@ -36,8 +36,7 @@ flowchart TB
     end
 
     subgraph Infra[Infrastructure]
-        PG[(PostgreSQL)]
-        Redis[(Redis)]
+        DB[(SQLite)]
         Metrics[Metrics and Logs]
     end
 
@@ -58,13 +57,10 @@ flowchart TB
     Adapter --> Providers
     Gateway --> Usage
     Gateway --> Audit
-    Usage --> PG
-    Usage --> Redis
-    Audit --> PG
-    Alert --> PG
-    Alert --> Redis
-    AdminAPI --> PG
-    AdminAPI --> Redis
+    Usage --> DB
+    Audit --> DB
+    Alert --> DB
+    AdminAPI --> DB
     Go --> Metrics
 ```
 
@@ -84,7 +80,7 @@ flowchart TB
 | audit | 请求日志、管理操作日志、安全事件 |
 | alert | 额度、错误率、成本异常、Provider 不可用告警 |
 | admin | 管理后台 API |
-| storage | 数据库、缓存、事务、迁移 |
+| storage | SQLite 数据库、事务、迁移、备份恢复 |
 
 ## 推荐后端目录
 
@@ -115,8 +111,7 @@ backend/
     audit/
     alert/
     storage/
-      postgres/
-      redis/
+      sqlite/
   migrations/
   api/
     openapi/
@@ -175,7 +170,7 @@ sequenceDiagram
 | --- | --- |
 | ModelRequest | 统一请求，包含模型、消息、输入、工具、流式参数、元数据 |
 | ModelResponse | 统一响应，包含文本、工具调用、Token 用量、停止原因 |
-| ProviderRoute | 一次调用选择的 Provider、资源实例、模型映射和策略信息 |
+| ProviderRoute | 一次调用选择的 Provider、模型映射和策略信息 |
 | UsageEvent | 请求完成后的 Token、成本、延迟、状态、错误信息 |
 | AuditEvent | 用于审计的调用元信息、主体、项目、IP、策略命中 |
 
@@ -199,7 +194,9 @@ MVP 阶段支持以下策略：
 - 质量评分。
 - 灰度路由。
 - 多 Provider 预算均衡。
-- Provider 资源池调度、粘性会话、资源级熔断和冷却。
+- Provider 内部多区域、多 Key、多集群资源池调度、粘性会话、资源级熔断和冷却。
+
+MVP 阶段不把 Provider 资源池暴露为独立管理入口。Provider 本身就是可调用的上游渠道实例，包含 Base URL、API Key、健康状态和标准模型路由映射；多上游备份通过创建多个 Provider 并在同一个对外模型下配置多条路由实现。
 
 ## 数据流
 
@@ -207,19 +204,18 @@ MVP 阶段支持以下策略：
 | --- | --- | --- |
 | API 请求 | Gateway -> Audit/Usage | Audit、Usage、Dashboard |
 | Token 用量 | Adapter response -> Usage Collector | Usage aggregation |
-| Provider 健康 | Health job -> Redis/PostgreSQL | Router、Admin |
-| Key 配置 | Admin API -> PostgreSQL | Gateway auth cache |
-| 额度状态 | Gateway -> Redis counters -> PostgreSQL aggregation | Quota、Dashboard |
+| Provider 健康 | Health job -> SQLite | Router、Admin |
+| Key 配置 | Admin API -> SQLite | Gateway auth |
+| 额度状态 | Gateway -> SQLite counters -> usage aggregation | Quota、Dashboard |
 
 ## 高可用规划
 
-MVP 可以先支持单实例部署，但设计上应满足横向扩展：
+MVP 和后续私有化版本以 SQLite-only 为基础，优先保证单机/内网部署简单可靠：
 
-- Go Gateway 无状态化。
-- API Key、Project、Policy 缓存在 Redis，数据库为最终来源。
-- 限流和额度计数使用 Redis 原子操作。
-- 使用 PostgreSQL 行级锁或幂等事件避免统计重复。
-- Provider 健康状态可被多实例共享。
+- Go Gateway 通过 Admin API 访问 SQLite，不要求外部数据库服务。
+- API Key、Project、Policy、额度计数、Provider 健康状态都以 SQLite 为唯一持久化来源。
+- 单进程内并发计数配合 SQLite 额度表完成运行时治理。
+- 通过 SQLite 备份、归档和迁移脚本满足升级与恢复。
 - 管理后台不直接访问数据库，只通过 Admin API。
 
 ## 可观测性

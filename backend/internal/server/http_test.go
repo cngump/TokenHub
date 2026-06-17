@@ -7,8 +7,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGatewayModelsAndChatCompletion(t *testing.T) {
@@ -87,6 +89,53 @@ func TestGatewayStreamingChatCompletion(t *testing.T) {
 	}
 }
 
+func TestAdminPlaygroundChatUsesRoutesWithoutProjectBilling(t *testing.T) {
+	app := newTestServer()
+	before := doJSON(t, app, http.MethodGet, "/api/admin/usage/summary", nil, "")
+	if before.Code != http.StatusOK {
+		t.Fatalf("usage summary before failed: %d %s", before.Code, before.Body)
+	}
+	var beforeSummary struct {
+		RequestCount int `json:"request_count"`
+	}
+	if err := json.Unmarshal([]byte(before.Body), &beforeSummary); err != nil {
+		t.Fatal(err)
+	}
+
+	resp := doJSON(t, app, http.MethodPost, "/api/admin/playground/chat", map[string]any{
+		"model": "gpt-4.1-mini",
+		"messages": []map[string]any{
+			{"role": "user", "content": "playground smoke"},
+		},
+	}, "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body)
+	}
+	if !strings.Contains(resp.Body, "Echo: playground smoke") {
+		t.Fatalf("unexpected playground body: %s", resp.Body)
+	}
+	if !strings.Contains(resp.Body, `"provider_name":"Mock Provider"`) || !strings.Contains(resp.Body, `"provider_model":"mock-chat"`) {
+		t.Fatalf("expected route summary without provider secrets: %s", resp.Body)
+	}
+	if strings.Contains(resp.Body, "thk_demo_local") {
+		t.Fatalf("playground response leaked a key: %s", resp.Body)
+	}
+
+	after := doJSON(t, app, http.MethodGet, "/api/admin/usage/summary", nil, "")
+	if after.Code != http.StatusOK {
+		t.Fatalf("usage summary after failed: %d %s", after.Code, after.Body)
+	}
+	var afterSummary struct {
+		RequestCount int `json:"request_count"`
+	}
+	if err := json.Unmarshal([]byte(after.Body), &afterSummary); err != nil {
+		t.Fatal(err)
+	}
+	if afterSummary.RequestCount != beforeSummary.RequestCount {
+		t.Fatalf("playground should not create project usage records: before=%d after=%d", beforeSummary.RequestCount, afterSummary.RequestCount)
+	}
+}
+
 func TestGatewayEmbeddings(t *testing.T) {
 	app := newTestServer()
 	resp := doJSON(t, app, http.MethodPost, "/v1/embeddings", map[string]any{
@@ -98,6 +147,94 @@ func TestGatewayEmbeddings(t *testing.T) {
 	}
 	if !strings.Contains(resp.Body, `"embedding"`) {
 		t.Fatalf("expected embedding response: %s", resp.Body)
+	}
+}
+
+func TestBootstrapSeedsStandardModelCatalog(t *testing.T) {
+	store := NewMemoryStore()
+	if err := BootstrapBaseData(store); err != nil {
+		t.Fatal(err)
+	}
+	project, ok := store.GetProject(defaultProjectID)
+	if !ok {
+		t.Fatalf("expected default project %s", defaultProjectID)
+	}
+	if project.Name != "默认项目空间" || project.Status != StatusActive {
+		t.Fatalf("unexpected default project: %+v", project)
+	}
+	if project.OwnerUserID != "usr_admin" || project.TeamID != "team_platform" || project.CostCenter != "AI-PLATFORM" {
+		t.Fatalf("default project should have enterprise ownership fields: %+v", project)
+	}
+	models := store.ListModels()
+	if len(models) < 220 {
+		t.Fatalf("expected standard model catalog, got %d models", len(models))
+	}
+	byName := map[string]Model{}
+	for _, model := range models {
+		byName[strings.ToLower(model.Name)] = model
+	}
+	for name, category := range map[string]string{
+		"deepseek-v3.2-thinking": "deepseek",
+		"gemini-3-pro-preview":   "gemini",
+		"minimax-m2":             "minimax",
+		"step-tts-mini":          "stepfun",
+		"baichuan-m2-128k":       "baichuan",
+		"ernie-4.5-turbo-128k":   "ernie",
+		"wanx2.1-t2i-plus":       "wanx",
+	} {
+		model, ok := byName[name]
+		if !ok {
+			t.Fatalf("expected model %s in catalog", name)
+		}
+		if model.Category != category {
+			t.Fatalf("expected %s category %s, got %s", name, category, model.Category)
+		}
+	}
+	if byName["gpt-image-2"].Modality != "image" {
+		t.Fatalf("expected gpt-image-2 image modality, got %s", byName["gpt-image-2"].Modality)
+	}
+	if byName["sora-2"].Modality != "video" {
+		t.Fatalf("expected sora-2 video modality, got %s", byName["sora-2"].Modality)
+	}
+	if byName["step-tts-mini"].Modality != "audio" {
+		t.Fatalf("expected step-tts-mini audio modality, got %s", byName["step-tts-mini"].Modality)
+	}
+}
+
+func TestAdminCreatesAPIKeyUnderDefaultProject(t *testing.T) {
+	store := NewMemoryStore()
+	if err := BootstrapBaseData(store); err != nil {
+		t.Fatal(err)
+	}
+	app := New(store).Handler()
+
+	resp := doJSON(t, app, http.MethodPost, "/api/admin/projects/"+defaultProjectID+"/keys", map[string]any{
+		"name":           "Default Project Key",
+		"group":          "default",
+		"allowed_models": []string{"gpt-4.1-mini"},
+		"limits": map[string]any{
+			"daily_requests":   1000,
+			"monthly_requests": 30000,
+			"daily_tokens":     1000000,
+			"monthly_tokens":   20000000,
+			"daily_cost_usd":   100,
+			"monthly_cost_usd": 2000,
+			"max_concurrency":  20,
+		},
+	}, "")
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", resp.Code, resp.Body)
+	}
+	if !strings.Contains(resp.Body, `"project_id":"`+defaultProjectID+`"`) || !strings.Contains(resp.Body, `"api_key"`) {
+		t.Fatalf("expected issued key under default project: %s", resp.Body)
+	}
+
+	keys := store.ListProjectKeys(defaultProjectID)
+	if len(keys) != 1 {
+		t.Fatalf("expected one default project key, got %d", len(keys))
+	}
+	if keys[0].ProjectID != defaultProjectID {
+		t.Fatalf("expected key project %s, got %s", defaultProjectID, keys[0].ProjectID)
 	}
 }
 
@@ -192,6 +329,148 @@ func TestQuotaPolicyAppliesAtRuntime(t *testing.T) {
 	}
 }
 
+func TestBudgetExceededBlocksRuntimeCalls(t *testing.T) {
+	store := NewMemoryStore()
+	project := store.CreateProject(Project{Name: "Budget Limited", CostCenter: "CC-BLOCK"})
+	apiKey, secret, err := store.CreateAPIKey(project.ID, APIKey{
+		Name:    "budget-key",
+		Allowed: []string{"gpt-4.1-mini"},
+		Limits:  QuotaLimits{DailyRequests: 100},
+		Status:  StatusActive,
+	}, "thk_budget_limited")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	period := now.Format("2006-01")
+	store.CreateResource("budgets", AdminResource{
+		Name:   "Blocking budget",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"scope":       "cost_center",
+			"scope_id":    "CC-BLOCK",
+			"period_ref":  period,
+			"amount_usd":  1,
+			"enforcement": "block",
+		},
+	})
+	if err := store.db.Create(&UsageRecord{
+		ID:          NewID("usage"),
+		RequestID:   NewID("req"),
+		ProjectID:   project.ID,
+		APIKeyID:    apiKey.ID,
+		ModelName:   "gpt-4.1-mini",
+		InputTokens: 10,
+		TotalTokens: 10,
+		CostUSD:     1,
+		CreatedAt:   now,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	mock := store.AddProvider(Provider{Name: "Mock", Type: ProviderMock, Status: StatusActive, Healthy: true})
+	store.AddModel(Model{Name: "gpt-4.1-mini", Modality: "chat", Status: StatusActive})
+	store.AddRoute(ModelRoute{ModelName: "gpt-4.1-mini", ProviderID: mock.ID, ProviderModel: "mock-chat", Status: StatusActive})
+	app := New(store).Handler()
+
+	blocked := doJSON(t, app, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"model": "gpt-4.1-mini",
+		"messages": []map[string]any{
+			{"role": "user", "content": "budget should block"},
+		},
+	}, secret)
+	if blocked.Code != http.StatusTooManyRequests || !strings.Contains(blocked.Body, "budget_exceeded") {
+		t.Fatalf("expected budget_exceeded, got %d: %s", blocked.Code, blocked.Body)
+	}
+	budgets := store.ListResources("budgets")
+	budgets[0].Fields["enforcement"] = "warn"
+	if _, err := store.UpdateResource("budgets", budgets[0].ID, budgets[0]); err != nil {
+		t.Fatal(err)
+	}
+	allowed := doJSON(t, app, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"model": "gpt-4.1-mini",
+		"messages": []map[string]any{
+			{"role": "user", "content": "budget warn only"},
+		},
+	}, secret)
+	if allowed.Code != http.StatusOK {
+		t.Fatalf("warn-only budget should allow runtime call, got %d: %s", allowed.Code, allowed.Body)
+	}
+}
+
+func TestRuntimeBudgetUsesActualUsageInsteadOfCachedUsedField(t *testing.T) {
+	store := NewMemoryStore()
+	project := store.CreateProject(Project{Name: "Fresh Budget", CostCenter: "CC-FRESH"})
+	_, secret, err := store.CreateAPIKey(project.ID, APIKey{
+		Name:    "fresh-budget-key",
+		Allowed: []string{"gpt-4.1-mini"},
+		Limits:  QuotaLimits{DailyRequests: 100},
+		Status:  StatusActive,
+	}, "thk_fresh_budget")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.CreateResource("budgets", AdminResource{
+		Name:   "Stale report cache",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"scope":       "cost_center",
+			"scope_id":    "CC-FRESH",
+			"period_ref":  time.Now().UTC().Format("2006-01"),
+			"amount_usd":  1,
+			"used_usd":    99,
+			"enforcement": "block",
+		},
+	})
+	mock := store.AddProvider(Provider{Name: "Mock", Type: ProviderMock, Status: StatusActive, Healthy: true})
+	store.AddModel(Model{Name: "gpt-4.1-mini", Modality: "chat", Status: StatusActive})
+	store.AddRoute(ModelRoute{ModelName: "gpt-4.1-mini", ProviderID: mock.ID, ProviderModel: "mock-chat", Status: StatusActive})
+	app := New(store).Handler()
+
+	resp := doJSON(t, app, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"model": "gpt-4.1-mini",
+		"messages": []map[string]any{
+			{"role": "user", "content": "budget should use actual usage"},
+		},
+	}, secret)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("stale used_usd should not block runtime call, got %d: %s", resp.Code, resp.Body)
+	}
+}
+
+func TestAPIKeyIPAllowlistAndRotation(t *testing.T) {
+	store := NewMemoryStore()
+	project := store.CreateProject(Project{Name: "Key Ops"})
+	key, secret, err := store.CreateAPIKey(project.ID, APIKey{
+		Name:        "restricted",
+		Group:       "dedicated",
+		Allowed:     []string{"gpt-4.1-mini"},
+		IPAllowlist: []string{"10.0.0.0/8"},
+		Status:      StatusActive,
+	}, "thk_restricted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.ValidateAPIKey(secret, "127.0.0.1"); AsHTTPError(err).Code != "api_key_disabled" {
+		t.Fatalf("expected ip allowlist rejection, got %v", err)
+	}
+	if _, valid, err := store.ValidateAPIKey(secret, "10.1.2.3"); err != nil || valid.Group != "dedicated" {
+		t.Fatalf("expected valid key with group, got key=%+v err=%v", valid, err)
+	}
+	rotated, newSecret, err := store.RotateAPIKey(key.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotated.RotatedFromID != key.ID || newSecret == "" {
+		t.Fatalf("unexpected rotated key: %+v secret=%q", rotated, newSecret)
+	}
+	if _, _, err := store.ValidateAPIKey(secret, "10.1.2.3"); AsHTTPError(err).Code != "api_key_disabled" {
+		t.Fatalf("old key should be revoked, got %v", err)
+	}
+	if _, _, err := store.ValidateAPIKey(newSecret, "10.1.2.3"); err != nil {
+		t.Fatalf("new key should work: %v", err)
+	}
+}
+
 func TestAdminCreatesProjectAndKey(t *testing.T) {
 	app := newTestServer()
 	project := doJSON(t, app, http.MethodPost, "/api/admin/projects", map[string]any{
@@ -219,6 +498,496 @@ func TestAdminCreatesProjectAndKey(t *testing.T) {
 	}
 	if !strings.Contains(key.Body, `"plain_text_visible_once":true`) || !strings.Contains(key.Body, `"api_key":"thk_`) {
 		t.Fatalf("expected one-time key response: %s", key.Body)
+	}
+}
+
+func TestApprovalFlowInterceptsAPIKeyCreate(t *testing.T) {
+	store := NewMemoryStore()
+	project := store.CreateProject(Project{Name: "Approval Project"})
+	store.CreateResource("approval-flows", AdminResource{
+		Name:   "Key approval",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"trigger":       "api_key_create",
+			"approver_role": "admin",
+		},
+	})
+	app := New(store).Handler()
+
+	key := doJSON(t, app, http.MethodPost, "/api/admin/projects/"+project.ID+"/keys", map[string]any{
+		"name":           "needs-approval",
+		"allowed_models": []string{"gpt-4.1-mini"},
+		"limits": map[string]any{
+			"daily_requests": 10,
+		},
+	}, "")
+	if key.Code != http.StatusAccepted {
+		t.Fatalf("expected approval response, got %d: %s", key.Code, key.Body)
+	}
+	if !strings.Contains(key.Body, `"approval_required":true`) || strings.Contains(key.Body, `"api_key":"thk_`) {
+		t.Fatalf("expected pending approval without secret: %s", key.Body)
+	}
+
+	approvals := doJSON(t, app, http.MethodGet, "/api/admin/approvals", nil, "")
+	if approvals.Code != http.StatusOK {
+		t.Fatalf("expected approvals list, got %d: %s", approvals.Code, approvals.Body)
+	}
+	var list struct {
+		Data []ApprovalRequest `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(approvals.Body), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Data) != 1 || list.Data[0].Status != "pending" || list.Data[0].Trigger != "api_key_create" {
+		t.Fatalf("unexpected approvals: %s", approvals.Body)
+	}
+
+	approved := doJSON(t, app, http.MethodPost, "/api/admin/approvals/"+list.Data[0].ID+"/approve", map[string]any{}, "")
+	if approved.Code != http.StatusOK {
+		t.Fatalf("expected approval apply, got %d: %s", approved.Code, approved.Body)
+	}
+	if !strings.Contains(approved.Body, `"api_key":"thk_`) || !strings.Contains(approved.Body, `"status":"approved"`) {
+		t.Fatalf("expected approved key result: %s", approved.Body)
+	}
+	if len(store.ListAPIKeys()) != 1 {
+		t.Fatalf("expected key created after approval")
+	}
+}
+
+func TestAlertWebhookDeliveryIsRecorded(t *testing.T) {
+	store := NewMemoryStore()
+	var received bytes.Buffer
+	webhook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("expected POST webhook, got %s", r.Method)
+		}
+		_, _ = io.Copy(&received, r.Body)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer webhook.Close()
+
+	store.CreateResource("notification-channels", AdminResource{
+		Name:   "Webhook",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"type":        "webhook",
+			"webhook_url": webhook.URL,
+		},
+	})
+	alert := AlertEvent{
+		ID:        "alt_test",
+		ScopeType: "api_key",
+		ScopeID:   "key_demo",
+		Severity:  "warning",
+		Code:      "monthly_cost_near_limit",
+		Message:   "Monthly cost quota is near or above limit",
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.db.Create(&alert).Error; err != nil {
+		t.Fatal(err)
+	}
+	app := New(store).Handler()
+
+	resp := doJSON(t, app, http.MethodPost, "/api/admin/alerts/"+alert.ID+"/deliver", map[string]any{}, "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected delivery success, got %d: %s", resp.Code, resp.Body)
+	}
+	if !strings.Contains(resp.Body, `"status":"success"`) || !strings.Contains(resp.Body, `"status_code":202`) {
+		t.Fatalf("unexpected delivery response: %s", resp.Body)
+	}
+	if !strings.Contains(received.String(), "monthly_cost_near_limit") {
+		t.Fatalf("webhook did not receive alert payload: %s", received.String())
+	}
+	deliveries := store.ListAlertDeliveries()
+	if len(deliveries) < 1 || deliveries[0].AlertID != alert.ID || deliveries[0].Status != "success" {
+		t.Fatalf("expected recorded delivery, got %+v", deliveries)
+	}
+}
+
+func TestBillingGenerationUpdatesBudgetsAndInvoices(t *testing.T) {
+	store := NewMemoryStore()
+	period := time.Now().UTC().Format("2006-01")
+	store.CreateResource("teams", AdminResource{
+		ID:     "team_finance",
+		Name:   "Finance",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"cost_center": "CC-FIN",
+		},
+	})
+	project := store.CreateProject(Project{Name: "Finance App", TeamID: "team_finance"})
+	directProject := store.CreateProject(Project{Name: "Direct Cost Center App", TeamID: "team_finance", CostCenter: "CC-DIRECT"})
+	store.CreateResource("budgets", AdminResource{
+		ID:     "bdg_finance",
+		Name:   "Finance monthly budget",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"scope":        "cost_center",
+			"scope_id":     "CC-FIN",
+			"period":       "monthly",
+			"period_ref":   period,
+			"amount_usd":   1,
+			"warn_percent": 50,
+		},
+	})
+	store.CreateResource("budgets", AdminResource{
+		ID:     "bdg_project",
+		Name:   "Project monthly budget",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"scope":        "project",
+			"scope_id":     project.ID,
+			"period":       "monthly",
+			"period_ref":   period,
+			"amount_usd":   2,
+			"warn_percent": 90,
+		},
+	})
+	store.CreateResource("budgets", AdminResource{
+		ID:     "bdg_direct",
+		Name:   "Direct cost center monthly budget",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"scope":        "cost_center",
+			"scope_id":     "CC-DIRECT",
+			"period":       "monthly",
+			"period_ref":   period,
+			"amount_usd":   2,
+			"warn_percent": 90,
+		},
+	})
+	if err := store.db.Create(&UsageRecord{
+		ID:           "use_finance_1",
+		RequestID:    "req_finance_1",
+		ProjectID:    project.ID,
+		APIKeyID:     "key_finance",
+		ModelName:    "gpt-4.1-mini",
+		ProviderID:   "prv_mock",
+		InputTokens:  1000,
+		OutputTokens: 1000,
+		TotalTokens:  2000,
+		CostUSD:      0.75,
+		CreatedAt:    time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Create(&UsageRecord{
+		ID:           "use_direct_1",
+		RequestID:    "req_direct_1",
+		ProjectID:    directProject.ID,
+		APIKeyID:     "key_direct",
+		ModelName:    "gpt-4.1-mini",
+		ProviderID:   "prv_mock",
+		InputTokens:  100,
+		OutputTokens: 100,
+		TotalTokens:  200,
+		CostUSD:      0.25,
+		CreatedAt:    time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	app := New(store).Handler()
+
+	resp := doJSON(t, app, http.MethodPost, "/api/admin/billing/generate", map[string]any{"period": period}, "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected billing generation, got %d: %s", resp.Code, resp.Body)
+	}
+	if !strings.Contains(resp.Body, `"chargebacks":2`) || !strings.Contains(resp.Body, `"invoices":2`) {
+		t.Fatalf("expected generated chargeback and invoice: %s", resp.Body)
+	}
+	chargebacks := store.ListResources("chargebacks")
+	invoices := store.ListResources("invoices")
+	if len(chargebacks) != 2 {
+		t.Fatalf("unexpected chargebacks: %+v", chargebacks)
+	}
+	var hasFinanceChargeback, hasDirectChargeback bool
+	for _, chargeback := range chargebacks {
+		if stringField(chargeback.Fields, "cost_center") == "CC-FIN" {
+			hasFinanceChargeback = true
+		}
+		if stringField(chargeback.Fields, "cost_center") == "CC-DIRECT" {
+			hasDirectChargeback = true
+		}
+	}
+	if !hasFinanceChargeback || !hasDirectChargeback {
+		t.Fatalf("expected finance and direct cost center chargebacks: %+v", chargebacks)
+	}
+	if len(invoices) != 2 {
+		t.Fatalf("unexpected invoices: %+v", invoices)
+	}
+	var hasDirectInvoice bool
+	for _, invoice := range invoices {
+		if strings.Contains(stringField(invoice.Fields, "invoice_note"), "CC-DIRECT") {
+			hasDirectInvoice = true
+		}
+	}
+	if !hasDirectInvoice {
+		t.Fatalf("expected direct cost center invoice: %+v", invoices)
+	}
+	budgets := store.ListResources("budgets")
+	if len(budgets) != 3 {
+		t.Fatalf("expected two budgets, got %+v", budgets)
+	}
+	var costCenterBudget, projectBudget, directBudget AdminResource
+	for _, budget := range budgets {
+		switch budget.ID {
+		case "bdg_finance":
+			costCenterBudget = budget
+		case "bdg_project":
+			projectBudget = budget
+		case "bdg_direct":
+			directBudget = budget
+		}
+	}
+	if float64Field(costCenterBudget.Fields, "used_usd") != 0.75 ||
+		float64Field(projectBudget.Fields, "used_usd") != 0.75 ||
+		float64Field(directBudget.Fields, "used_usd") != 0.25 {
+		t.Fatalf("expected budget usage update: %+v", budgets)
+	}
+	alerts := store.ListAlerts()
+	if len(alerts) != 1 || alerts[0].Code != "budget_warn_threshold" {
+		t.Fatalf("expected budget threshold alert, got %+v", alerts)
+	}
+}
+
+func TestInvoiceConfirmRejectAndStructuredExport(t *testing.T) {
+	store := NewMemoryStore()
+	if _, err := store.CreateAdminUser(AdminUser{
+		Username: "finance-admin",
+		Name:     "Finance Admin",
+		Email:    "finance-admin@tokenhub.local",
+		Role:     "admin",
+		Status:   StatusActive,
+	}, "admin123456"); err != nil {
+		t.Fatal(err)
+	}
+	invoice := store.CreateResource("invoices", AdminResource{
+		ID:     "inv_confirm_me",
+		Name:   "2026-06 CC-FIN internal invoice",
+		Status: "pending",
+		Fields: map[string]any{
+			"period":       "2026-06",
+			"cost_center":  "CC-FIN",
+			"amount_usd":   12.34,
+			"invoice_note": "Initial note",
+		},
+	})
+	rejected := store.CreateResource("invoices", AdminResource{
+		ID:     "inv_reject_me",
+		Name:   "2026-06 CC-RND internal invoice",
+		Status: "pending",
+		Fields: map[string]any{
+			"period":       "2026-06",
+			"cost_center":  "CC-RND",
+			"amount_usd":   2.5,
+			"invoice_note": "Needs review",
+		},
+	})
+	app := New(store).Handler()
+
+	confirmed := doJSON(t, app, http.MethodPost, "/api/admin/resources/invoices/"+invoice.ID+"/confirm", map[string]any{
+		"invoice_note": "PO-2026-06-FIN",
+	}, "")
+	if confirmed.Code != http.StatusOK {
+		t.Fatalf("expected invoice confirm 200, got %d: %s", confirmed.Code, confirmed.Body)
+	}
+	if !strings.Contains(confirmed.Body, `"status":"confirmed"`) ||
+		!strings.Contains(confirmed.Body, `"confirmed_by":"Finance Admin"`) ||
+		!strings.Contains(confirmed.Body, `"invoice_note":"PO-2026-06-FIN"`) {
+		t.Fatalf("unexpected confirm body: %s", confirmed.Body)
+	}
+	again := doJSON(t, app, http.MethodPost, "/api/admin/resources/invoices/"+invoice.ID+"/confirm", map[string]any{}, "")
+	if again.Code != http.StatusConflict || !strings.Contains(again.Body, "invoice_already_decided") {
+		t.Fatalf("expected already decided conflict, got %d: %s", again.Code, again.Body)
+	}
+
+	rejectResp := doJSON(t, app, http.MethodPost, "/api/admin/resources/invoices/"+rejected.ID+"/reject", map[string]any{
+		"reject_reason": "department disputed allocation",
+	}, "")
+	if rejectResp.Code != http.StatusOK {
+		t.Fatalf("expected invoice reject 200, got %d: %s", rejectResp.Code, rejectResp.Body)
+	}
+	if !strings.Contains(rejectResp.Body, `"status":"rejected"`) ||
+		!strings.Contains(rejectResp.Body, `"reject_reason":"department disputed allocation"`) {
+		t.Fatalf("unexpected reject body: %s", rejectResp.Body)
+	}
+
+	exported := doJSON(t, app, http.MethodGet, "/api/admin/export/invoices", nil, "")
+	if exported.Code != http.StatusOK {
+		t.Fatalf("expected invoice export 200, got %d: %s", exported.Code, exported.Body)
+	}
+	if !strings.HasPrefix(exported.Body, "period,cost_center,amount_usd,invoice_note,confirmed_by,confirmed_at,reject_reason,status,updated_at") {
+		t.Fatalf("expected structured invoice csv, got: %s", exported.Body)
+	}
+	if !strings.Contains(exported.Body, "2026-06,CC-FIN,12.34,PO-2026-06-FIN,Finance Admin") ||
+		!strings.Contains(exported.Body, "2026-06,CC-RND,2.5,Needs review,,,department disputed allocation,rejected") {
+		t.Fatalf("expected invoice rows in export: %s", exported.Body)
+	}
+	filtered := doJSON(t, app, http.MethodGet, "/api/admin/export/invoices?period=2026-05", nil, "")
+	if filtered.Code != http.StatusOK {
+		t.Fatalf("expected filtered invoice export 200, got %d: %s", filtered.Code, filtered.Body)
+	}
+	if strings.Contains(filtered.Body, "CC-FIN") || strings.Contains(filtered.Body, "CC-RND") {
+		t.Fatalf("period filtered export should not include 2026-06 rows: %s", filtered.Body)
+	}
+	audit := store.ListAuditEvents()
+	if len(audit) < 3 {
+		t.Fatalf("expected audit events for invoice actions and export, got %+v", audit)
+	}
+}
+
+func TestInvoiceConfirmCanRequireApproval(t *testing.T) {
+	store := NewMemoryStore()
+	if _, err := store.CreateAdminUser(AdminUser{
+		Username: "approver",
+		Name:     "Approver",
+		Email:    "approver@tokenhub.local",
+		Role:     "admin",
+		Status:   StatusActive,
+	}, "admin123456"); err != nil {
+		t.Fatal(err)
+	}
+	projectApprover, err := store.CreateAdminUser(AdminUser{
+		Username: "project-approver",
+		Name:     "Project Approver",
+		Email:    "project-approver@tokenhub.local",
+		Role:     "project_admin",
+		Status:   StatusActive,
+	}, "admin123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, projectSession, err := store.AuthenticateAdminUser(projectApprover.Email, "admin123456", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invoice := store.CreateResource("invoices", AdminResource{
+		ID:     "inv_needs_approval",
+		Name:   "2026-06 CC-AI internal invoice",
+		Status: "pending",
+		Fields: map[string]any{
+			"period":       "2026-06",
+			"cost_center":  "CC-AI",
+			"amount_usd":   100,
+			"invoice_note": "Pending approval",
+		},
+	})
+	store.CreateResource("approval-flows", AdminResource{
+		Name:   "Invoice confirmation approval",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"trigger":       "invoice_confirm",
+			"approver_role": "admin",
+			"threshold_usd": 50,
+		},
+	})
+	app := New(store).Handler()
+
+	confirm := doJSON(t, app, http.MethodPost, "/api/admin/resources/invoices/"+invoice.ID+"/confirm", map[string]any{
+		"invoice_note": "Approve this invoice",
+	}, "")
+	if confirm.Code != http.StatusAccepted {
+		t.Fatalf("expected invoice confirmation approval, got %d: %s", confirm.Code, confirm.Body)
+	}
+	if !strings.Contains(confirm.Body, `"approval_required":true`) || !strings.Contains(confirm.Body, `"trigger":"invoice_confirm"`) {
+		t.Fatalf("expected invoice approval payload: %s", confirm.Body)
+	}
+	pendingInvoices := store.ListResources("invoices")
+	if len(pendingInvoices) != 1 || pendingInvoices[0].Status != "pending" {
+		t.Fatalf("invoice should remain pending before approval, got %+v", pendingInvoices)
+	}
+	approvals := store.ListApprovalRequests()
+	if len(approvals) != 1 || approvals[0].ResourceID != invoice.ID {
+		t.Fatalf("expected one invoice approval, got %+v", approvals)
+	}
+	forbidden := doJSON(t, app, http.MethodPost, "/api/admin/approvals/"+approvals[0].ID+"/approve", map[string]any{}, projectSession.Token)
+	if forbidden.Code != http.StatusForbidden || !strings.Contains(forbidden.Body, "approval_role_forbidden") {
+		t.Fatalf("expected approval role forbidden, got %d: %s", forbidden.Code, forbidden.Body)
+	}
+	approved := doJSON(t, app, http.MethodPost, "/api/admin/approvals/"+approvals[0].ID+"/approve", map[string]any{}, "")
+	if approved.Code != http.StatusOK {
+		t.Fatalf("expected invoice approval apply, got %d: %s", approved.Code, approved.Body)
+	}
+	items := store.ListResources("invoices")
+	if len(items) != 1 || items[0].Status != "confirmed" || stringField(items[0].Fields, "confirmed_by") != "Approver" {
+		t.Fatalf("expected approved invoice confirmation, got %+v", items)
+	}
+	var applied bool
+	for _, event := range store.ListAuditEvents() {
+		if event.Action == "apply_approval" && event.ResourceType == "invoices" && event.ResourceID == invoice.ID {
+			applied = true
+		}
+	}
+	if !applied {
+		t.Fatalf("expected apply_approval audit event, got %+v", store.ListAuditEvents())
+	}
+}
+
+func TestSQLiteBackupCreateDownloadRestoreAndDelete(t *testing.T) {
+	tmp := t.TempDir()
+	store, err := NewSQLiteStoreWithConfig("sqlite:"+filepath.Join(tmp, "tokenhub.db"), Config{
+		AdminToken:      "dev_admin_token",
+		SQLiteBackupDir: filepath.Join(tmp, "backups"),
+		SecretKey:       "test-secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SeedDemoData(store); err != nil {
+		t.Fatal(err)
+	}
+	project := store.CreateProject(Project{Name: "Backup Restore Project", Status: StatusActive})
+	app := New(store).Handler()
+
+	created := doJSON(t, app, http.MethodPost, "/api/admin/sqlite/backups", map[string]any{"expire_days": 7}, "")
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create backup failed: %d %s", created.Code, created.Body)
+	}
+	var backup SQLiteBackupRecord
+	if err := json.Unmarshal([]byte(created.Body), &backup); err != nil {
+		t.Fatal(err)
+	}
+	if backup.ID == "" || backup.Status != "ready" || backup.SizeBytes <= 0 || backup.ChecksumSHA256 == "" {
+		t.Fatalf("unexpected backup payload: %+v body=%s", backup, created.Body)
+	}
+
+	if err := store.DeleteProject(project.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.GetProject(project.ID); ok {
+		t.Fatal("project should be deleted before restore")
+	}
+
+	invalidRestore := doJSON(t, app, http.MethodPost, "/api/admin/sqlite/backups/"+backup.ID+"/restore", map[string]any{
+		"confirmation": "RESTORE wrong",
+	}, "")
+	if invalidRestore.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid restore confirmation, got %d %s", invalidRestore.Code, invalidRestore.Body)
+	}
+
+	restored := doJSON(t, app, http.MethodPost, "/api/admin/sqlite/backups/"+backup.ID+"/restore", map[string]any{
+		"confirmation": "RESTORE " + backup.ID,
+	}, "")
+	if restored.Code != http.StatusOK {
+		t.Fatalf("restore failed: %d %s", restored.Code, restored.Body)
+	}
+	if _, ok := store.GetProject(project.ID); !ok {
+		t.Fatalf("project %s should exist after restore", project.ID)
+	}
+
+	download := doJSON(t, app, http.MethodGet, "/api/admin/sqlite/backups/"+backup.ID+"/download", nil, "")
+	if download.Code != http.StatusOK || !strings.Contains(download.Body, "SQLite format") {
+		t.Fatalf("download failed: %d %q", download.Code, download.Body[:minInt(len(download.Body), 80)])
+	}
+
+	listed := doJSON(t, app, http.MethodGet, "/api/admin/sqlite/backups", nil, "")
+	if listed.Code != http.StatusOK || !strings.Contains(listed.Body, backup.ID) {
+		t.Fatalf("list backups failed: %d %s", listed.Code, listed.Body)
+	}
+
+	deleted := doJSON(t, app, http.MethodDelete, "/api/admin/sqlite/backups/"+backup.ID, nil, "")
+	if deleted.Code != http.StatusNoContent {
+		t.Fatalf("delete backup failed: %d %s", deleted.Code, deleted.Body)
 	}
 }
 
@@ -327,10 +1096,13 @@ func TestAdminCreatesProviderModelAndRoute(t *testing.T) {
 	if providerResp.Code != http.StatusCreated {
 		t.Fatalf("expected provider created, got %d: %s", providerResp.Code, providerResp.Body)
 	}
-	var provider Provider
-	if err := json.Unmarshal([]byte(providerResp.Body), &provider); err != nil {
+	var providerPayload struct {
+		Provider Provider `json:"provider"`
+	}
+	if err := json.Unmarshal([]byte(providerResp.Body), &providerPayload); err != nil {
 		t.Fatal(err)
 	}
+	provider := providerPayload.Provider
 
 	modelResp := doJSON(t, app, http.MethodPost, "/api/admin/models", map[string]any{
 		"name":                    "local-coder",
@@ -356,12 +1128,205 @@ func TestAdminCreatesProviderModelAndRoute(t *testing.T) {
 		t.Fatalf("expected route created, got %d: %s", routeResp.Code, routeResp.Body)
 	}
 
+	secondRouteResp := doJSON(t, app, http.MethodPost, "/api/admin/routing-rules", map[string]any{
+		"model_name":     "local-coder",
+		"provider_id":    provider.ID,
+		"provider_model": "qwen2.5-coder-backup",
+		"weight":         100,
+		"status":         "active",
+	}, "")
+	if secondRouteResp.Code != http.StatusCreated {
+		t.Fatalf("expected second route created, got %d: %s", secondRouteResp.Code, secondRouteResp.Body)
+	}
+	var secondRoute ModelRoute
+	if err := json.Unmarshal([]byte(secondRouteResp.Body), &secondRoute); err != nil {
+		t.Fatal(err)
+	}
+	if secondRoute.Priority != 2 {
+		t.Fatalf("expected second route to append with priority 2, got %d: %s", secondRoute.Priority, secondRouteResp.Body)
+	}
+
 	routes := doJSON(t, app, http.MethodGet, "/api/admin/routing-rules", nil, "")
 	if routes.Code != http.StatusOK {
 		t.Fatalf("expected routes list, got %d: %s", routes.Code, routes.Body)
 	}
 	if !strings.Contains(routes.Body, "local-coder") || !strings.Contains(routes.Body, "qwen2.5-coder") {
 		t.Fatalf("expected new route in list: %s", routes.Body)
+	}
+}
+
+func TestAdminProviderCatalogAndTemplateRouteMapping(t *testing.T) {
+	app := newTestServer()
+
+	catalogResp := doJSON(t, app, http.MethodGet, "/api/admin/provider-catalog/openai", nil, "")
+	if catalogResp.Code != http.StatusOK {
+		t.Fatalf("expected openai catalog, got %d: %s", catalogResp.Code, catalogResp.Body)
+	}
+	if !strings.Contains(catalogResp.Body, `"gpt-5"`) || !strings.Contains(catalogResp.Body, `"category":"openai"`) {
+		t.Fatalf("expected openai model details: %s", catalogResp.Body)
+	}
+
+	createResp := doJSON(t, app, http.MethodPost, "/api/admin/providers", map[string]any{
+		"catalog_id":      "openai",
+		"id":              "prv_openai_test",
+		"name":            "OpenAI Test",
+		"base_url":        "https://api.openai.com/v1",
+		"status":          "active",
+		"healthy":         true,
+		"create_routes":   true,
+		"selected_models": []string{"gpt-5"},
+	}, "")
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("expected template provider created, got %d: %s", createResp.Code, createResp.Body)
+	}
+	var result ProviderCreateResult
+	if err := json.Unmarshal([]byte(createResp.Body), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Provider.ID != "prv_openai_test" || result.CreatedRoutes != 1 {
+		t.Fatalf("unexpected route result: %s", createResp.Body)
+	}
+
+	models := doJSON(t, app, http.MethodGet, "/api/admin/models", nil, "")
+	if models.Code != http.StatusOK {
+		t.Fatalf("expected models list, got %d: %s", models.Code, models.Body)
+	}
+	if !strings.Contains(models.Body, `"gpt-5"`) || !strings.Contains(models.Body, `"claude-sonnet-4.5"`) {
+		t.Fatalf("expected default model catalog: %s", models.Body)
+	}
+
+	routes := doJSON(t, app, http.MethodGet, "/api/admin/routing-rules", nil, "")
+	if routes.Code != http.StatusOK {
+		t.Fatalf("expected routes list, got %d: %s", routes.Code, routes.Body)
+	}
+	if !strings.Contains(routes.Body, `"provider_id":"prv_openai_test"`) || !strings.Contains(routes.Body, `"model_name":"gpt-5"`) || !strings.Contains(routes.Body, `"provider_model":"gpt-5"`) {
+		t.Fatalf("expected mapped route: %s", routes.Body)
+	}
+
+	autoResp := doJSON(t, app, http.MethodPost, "/api/admin/providers", map[string]any{
+		"catalog_id":     "openai",
+		"id":             "prv_openai_auto",
+		"name":           "OpenAI Auto",
+		"base_url":       "https://api.openai.com/v1",
+		"status":         "active",
+		"healthy":        true,
+		"model_category": "openai",
+	}, "")
+	if autoResp.Code != http.StatusCreated {
+		t.Fatalf("expected auto provider created, got %d: %s", autoResp.Code, autoResp.Body)
+	}
+	var autoResult ProviderCreateResult
+	if err := json.Unmarshal([]byte(autoResp.Body), &autoResult); err != nil {
+		t.Fatal(err)
+	}
+	if autoResult.CreatedRoutes < 2 {
+		t.Fatalf("expected default openai routes, got %d: %s", autoResult.CreatedRoutes, autoResp.Body)
+	}
+	hasGPT5 := false
+	for _, modelName := range autoResult.ModelNames {
+		if modelName == "gpt-5" {
+			hasGPT5 = true
+			break
+		}
+	}
+	if !hasGPT5 {
+		t.Fatalf("expected auto-created gpt-5 route: %s", autoResp.Body)
+	}
+	routesAfterAuto := doJSON(t, app, http.MethodGet, "/api/admin/routing-rules", nil, "")
+	if routesAfterAuto.Code != http.StatusOK {
+		t.Fatalf("expected routes list after auto provider, got %d: %s", routesAfterAuto.Code, routesAfterAuto.Body)
+	}
+	var routeList struct {
+		Data []ModelRoute `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(routesAfterAuto.Body), &routeList); err != nil {
+		t.Fatal(err)
+	}
+	gpt5Priorities := map[string]int{}
+	for _, route := range routeList.Data {
+		if route.ModelName == "gpt-5" {
+			gpt5Priorities[route.ProviderID] = route.Priority
+		}
+	}
+	if gpt5Priorities["prv_openai_test"] != 1 || gpt5Priorities["prv_openai_auto"] != 2 {
+		t.Fatalf("expected gpt-5 provider routes to append by priority, got %#v", gpt5Priorities)
+	}
+
+	autoAgainResp := doJSON(t, app, http.MethodPost, "/api/admin/providers", map[string]any{
+		"catalog_id":     "openai",
+		"id":             "prv_openai_auto",
+		"name":           "OpenAI Auto",
+		"base_url":       "https://api.openai.com/v1",
+		"status":         "active",
+		"healthy":        true,
+		"model_category": "openai",
+	}, "")
+	if autoAgainResp.Code != http.StatusCreated {
+		t.Fatalf("expected idempotent auto provider create, got %d: %s", autoAgainResp.Code, autoAgainResp.Body)
+	}
+	var autoAgainResult ProviderCreateResult
+	if err := json.Unmarshal([]byte(autoAgainResp.Body), &autoAgainResult); err != nil {
+		t.Fatal(err)
+	}
+	if autoAgainResult.CreatedRoutes != 0 {
+		t.Fatalf("expected existing routes to be preserved, got %d: %s", autoAgainResult.CreatedRoutes, autoAgainResp.Body)
+	}
+
+	off := false
+	disabledReq := map[string]any{
+		"catalog_id":     "openai",
+		"id":             "prv_openai_no_routes",
+		"name":           "OpenAI No Routes",
+		"base_url":       "https://api.openai.com/v1",
+		"status":         "active",
+		"healthy":        true,
+		"model_category": "openai",
+		"create_routes":  off,
+	}
+	disabledResp := doJSON(t, app, http.MethodPost, "/api/admin/providers", disabledReq, "")
+	if disabledResp.Code != http.StatusCreated {
+		t.Fatalf("expected disabled auto provider created, got %d: %s", disabledResp.Code, disabledResp.Body)
+	}
+	var disabledResult ProviderCreateResult
+	if err := json.Unmarshal([]byte(disabledResp.Body), &disabledResult); err != nil {
+		t.Fatal(err)
+	}
+	if disabledResult.CreatedRoutes != 0 {
+		t.Fatalf("expected no routes when create_routes is false: %s", disabledResp.Body)
+	}
+}
+
+func TestProviderCatalogUsesStandardModelCategories(t *testing.T) {
+	entries := []ProviderCatalogEntry{
+		{
+			ID: "mixed",
+			Models: []ProviderCatalogModel{
+				{ID: "deepseekv4", DisplayName: "DeepSeek V4"},
+				{ID: "Phi-4-multimodal-instruct"},
+				{ID: "agent-max-preview"},
+			},
+		},
+	}
+
+	categories, counts := catalogCategorySummary(entries[0].Models)
+	joined := strings.Join(categories, ",")
+	if joined != "custom,deepseek,microsoft" {
+		t.Fatalf("expected standard categories, got %s", joined)
+	}
+	if counts["deepseek"] != 1 || counts["microsoft"] != 1 || counts["custom"] != 1 {
+		t.Fatalf("unexpected standard category counts: %+v", counts)
+	}
+	if counts["agent"] != 0 || counts["phi"] != 0 {
+		t.Fatalf("unexpected raw long-tail categories: %+v", counts)
+	}
+	if normalizeModelLookupName("DeepSeekV4") != "deepseek-v4" || normalizeModelLookupName("openai/gpt5") != "gpt-5" {
+		t.Fatalf("expected compact provider model names to normalize")
+	}
+	if got := normalizeProviderBaseURL("302ai", "https://api.highwayapi.ai/openai"); got != "https://api.highwayapi.ai/openai/v1" {
+		t.Fatalf("expected JieKou OpenAI-compatible base URL to include /v1, got %s", got)
+	}
+	if got := normalizeProviderBaseURL("dmxapi", "https://www.dmxapi.cn"); got != "https://www.dmxapi.cn/v1" {
+		t.Fatalf("expected dmxapi OpenAI-compatible base URL to include /v1, got %s", got)
 	}
 }
 
@@ -499,6 +1464,189 @@ func TestProviderAndResourceTestEndpoints(t *testing.T) {
 	}
 	if !strings.Contains(resource.Body, `"healthy":true`) || !strings.Contains(resource.Body, `"last_checked_at"`) {
 		t.Fatalf("expected checked healthy resource: %s", resource.Body)
+	}
+}
+
+func TestProviderResourceBulkOperations(t *testing.T) {
+	store := NewMemoryStore()
+	if err := SeedDemoData(store); err != nil {
+		t.Fatal(err)
+	}
+	provider := store.AddProvider(Provider{Name: "Bulk Provider", Type: ProviderMock, Status: StatusActive, Healthy: true})
+	resource, err := store.AddProviderResource(ProviderResource{
+		Name:           "Bulk Resource",
+		ProviderID:     provider.ID,
+		ResourceType:   "api_key",
+		Status:         StatusActive,
+		Healthy:        true,
+		RateLimitRPM:   1,
+		TokenLimitTPM:  1,
+		MaxConcurrency: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.FinishProviderResourceAttempt(resource.ID, false, Usage{})
+	store.FinishProviderResourceAttempt(resource.ID, false, Usage{})
+	store.FinishProviderResourceAttempt(resource.ID, false, Usage{})
+	if err := store.CheckProviderResourceCapacity(resource.ID); AsHTTPError(err).Code != "provider_resource_cooling_down" {
+		t.Fatalf("expected cooldown before clear_error, got %v", err)
+	}
+	app := New(store).Handler()
+
+	disabled := doJSON(t, app, http.MethodPost, "/api/admin/provider-resources/bulk", map[string]any{
+		"action": "disable",
+		"ids":    []string{resource.ID},
+	}, "")
+	if disabled.Code != http.StatusOK || !strings.Contains(disabled.Body, `"success":1`) {
+		t.Fatalf("disable failed: %d %s", disabled.Code, disabled.Body)
+	}
+	found := findResource(t, store, resource.ID)
+	if found.Status != StatusDisabled || found.Healthy {
+		t.Fatalf("expected disabled unhealthy resource, got %+v", found)
+	}
+
+	cleared := doJSON(t, app, http.MethodPost, "/api/admin/provider-resources/bulk", map[string]any{
+		"action": "clear_error",
+		"ids":    []string{resource.ID, resource.ID},
+	}, "")
+	if cleared.Code != http.StatusOK || !strings.Contains(cleared.Body, `"success":1`) {
+		t.Fatalf("clear error failed: %d %s", cleared.Code, cleared.Body)
+	}
+	if err := store.CheckProviderResourceCapacity(resource.ID); err != nil {
+		t.Fatalf("capacity should be available after clear_error: %v", err)
+	}
+	store.FinishProviderResourceAttempt(resource.ID, true, Usage{TotalTokens: 5})
+	if err := store.CheckProviderResourceCapacity(resource.ID); AsHTTPError(err).Code != "provider_resource_rpm_exceeded" {
+		t.Fatalf("expected rpm limit before reset, got %v", err)
+	}
+	reset := doJSON(t, app, http.MethodPost, "/api/admin/provider-resources/bulk", map[string]any{
+		"action": "reset_usage",
+		"ids":    []string{resource.ID},
+	}, "")
+	if reset.Code != http.StatusOK || !strings.Contains(reset.Body, `"success":1`) {
+		t.Fatalf("reset usage failed: %d %s", reset.Code, reset.Body)
+	}
+	if err := store.CheckProviderResourceCapacity(resource.ID); err != nil {
+		t.Fatalf("capacity should be available after reset_usage: %v", err)
+	}
+	store.FinishProviderResourceAttempt(resource.ID, true, Usage{})
+}
+
+func TestProviderResourceImport(t *testing.T) {
+	store := NewMemoryStore()
+	if err := SeedDemoData(store); err != nil {
+		t.Fatal(err)
+	}
+	provider := store.AddProvider(Provider{Name: "Import Provider", Type: ProviderMock, Status: StatusActive, Healthy: true})
+	app := New(store).Handler()
+
+	resp := doJSON(t, app, http.MethodPost, "/api/admin/provider-resources/import", map[string]any{
+		"resources": []map[string]any{
+			{
+				"provider_id":     provider.ID,
+				"name":            "Imported Primary",
+				"group":           "prod-east",
+				"resource_type":   "api_key",
+				"api_key":         "import-secret-1",
+				"region":          "us-east-1",
+				"environment":     "prod",
+				"priority":        1,
+				"weight":          80,
+				"rate_limit_rpm":  120,
+				"token_limit_tpm": 60000,
+				"max_concurrency": 8,
+			},
+			{
+				"provider_id": "missing-provider",
+				"name":        "Broken Resource",
+			},
+		},
+	}, "")
+	if resp.Code != http.StatusMultiStatus || !strings.Contains(resp.Body, `"success":1`) || !strings.Contains(resp.Body, `"failed":1`) {
+		t.Fatalf("expected partial import result, got %d %s", resp.Code, resp.Body)
+	}
+	if strings.Contains(resp.Body, "import-secret-1") {
+		t.Fatalf("resource secret should not be returned: %s", resp.Body)
+	}
+	resources := store.ListProviderResources()
+	var imported ProviderResource
+	for _, item := range resources {
+		if item.Name == "Imported Primary" {
+			imported = item
+			break
+		}
+	}
+	if imported.ID == "" || imported.Group != "prod-east" || imported.RateLimitRPM != 120 || imported.APIKey != "" {
+		t.Fatalf("expected imported resource with redacted key, got %+v", imported)
+	}
+}
+
+func TestMonitorRunUpdatesResourceAndCreatesAlert(t *testing.T) {
+	store := NewMemoryStore()
+	if err := SeedDemoData(store); err != nil {
+		t.Fatal(err)
+	}
+	monitor := store.CreateResource("monitors", AdminResource{
+		Name:   "Mock resource monitor",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"target_type":          "resource",
+			"provider_resource_id": "rsrc_mock_primary",
+		},
+	})
+	app := New(store).Handler()
+
+	okRun := doJSON(t, app, http.MethodPost, "/api/admin/resources/monitors/"+monitor.ID+"/run", map[string]any{}, "")
+	if okRun.Code != http.StatusOK || !strings.Contains(okRun.Body, `"status":"ok"`) {
+		t.Fatalf("monitor ok run failed: %d %s", okRun.Code, okRun.Body)
+	}
+	updated, err := store.UpdateProviderResource("rsrc_mock_primary", ProviderResource{Status: StatusDisabled, Healthy: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != StatusDisabled {
+		t.Fatalf("expected disabled resource before failed monitor, got %+v", updated)
+	}
+	failedRun := doJSON(t, app, http.MethodPost, "/api/admin/resources/monitors/"+monitor.ID+"/run", map[string]any{}, "")
+	if failedRun.Code != http.StatusOK || !strings.Contains(failedRun.Body, `"status":"failed"`) || !strings.Contains(failedRun.Body, `"alert_id"`) {
+		t.Fatalf("monitor failed run did not create alert: %d %s", failedRun.Code, failedRun.Body)
+	}
+	alerts := store.ListAlerts()
+	if len(alerts) == 0 || alerts[0].Code != "monitor_check_failed" || alerts[0].ScopeID != monitor.ID {
+		t.Fatalf("expected monitor alert, got %+v", alerts)
+	}
+	monitors := store.ListResources("monitors")
+	var found AdminResource
+	for _, item := range monitors {
+		if item.ID == monitor.ID {
+			found = item
+			break
+		}
+	}
+	if stringifyValueForTest(found.Fields["last_status"]) != "failed" || stringifyValueForTest(found.Fields["last_checked_at"]) == "" {
+		t.Fatalf("monitor fields not updated: %+v", found.Fields)
+	}
+}
+
+func TestMonitorRunInfersLegacyModelMonitor(t *testing.T) {
+	store := NewMemoryStore()
+	if err := SeedDemoData(store); err != nil {
+		t.Fatal(err)
+	}
+	monitor := store.CreateResource("monitors", AdminResource{
+		Name:   "Legacy model monitor",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"provider": "mock",
+			"model":    "gpt-4.1-mini",
+		},
+	})
+	app := New(store).Handler()
+
+	run := doJSON(t, app, http.MethodPost, "/api/admin/resources/monitors/"+monitor.ID+"/run", map[string]any{}, "")
+	if run.Code != http.StatusOK || !strings.Contains(run.Body, `"target_type":"model"`) || !strings.Contains(run.Body, `"status":"ok"`) {
+		t.Fatalf("expected legacy monitor to run as model monitor, got %d %s", run.Code, run.Body)
 	}
 }
 
@@ -706,6 +1854,54 @@ func TestGatewayFailoverUsesBackupRoute(t *testing.T) {
 	if !backupTouched {
 		t.Fatalf("backup route should be marked last used")
 	}
+
+	detail := doJSON(t, app, http.MethodGet, "/api/admin/audit/requests/"+logs[0].RequestID, nil, "")
+	if detail.Code != http.StatusOK {
+		t.Fatalf("request detail failed: %d %s", detail.Code, detail.Body)
+	}
+	if !strings.Contains(detail.Body, `"attempts"`) || !strings.Contains(detail.Body, `"route_failing"`) || !strings.Contains(detail.Body, `"route_backup"`) {
+		t.Fatalf("expected route attempts in detail: %s", detail.Body)
+	}
+}
+
+func TestModelRouterStrategiesRankCandidates(t *testing.T) {
+	store := NewMemoryStore()
+	project := store.CreateProject(Project{Name: "Router Strategy App"})
+	key := APIKey{ID: "key_router_strategy", ProjectID: project.ID, Name: "router-key", Status: StatusActive}
+	model := Model{Name: "gpt-4.1-mini", Modality: "chat", Status: StatusActive}
+	call := CallContext{RequestID: "req_router_strategy", Project: project, Key: key, Model: model}
+	fast := store.AddProvider(Provider{ID: "prv_fast", Name: "Fast", Type: ProviderMock, Status: StatusActive, Healthy: true})
+	cheap := store.AddProvider(Provider{ID: "prv_cheap", Name: "Cheap", Type: ProviderMock, Status: StatusActive, Healthy: true})
+	quality := store.AddProvider(Provider{ID: "prv_quality", Name: "Quality", Type: ProviderMock, Status: StatusActive, Healthy: true})
+	store.AddModel(model)
+	store.AddRoute(ModelRoute{ID: "route_fast", ModelName: model.Name, ProviderID: fast.ID, ProviderModel: "fast-chat", Priority: 1, Weight: 100, QualityScore: 50, CostScore: 50, Status: StatusActive, Strategy: RouteStrategyQuality})
+	store.AddRoute(ModelRoute{ID: "route_cheap", ModelName: model.Name, ProviderID: cheap.ID, ProviderModel: "cheap-chat", Priority: 1, Weight: 80, QualityScore: 40, CostScore: 95, Status: StatusActive, Strategy: RouteStrategyQuality})
+	store.AddRoute(ModelRoute{ID: "route_quality", ModelName: model.Name, ProviderID: quality.ID, ProviderModel: "quality-chat", Priority: 1, Weight: 60, QualityScore: 95, CostScore: 35, Status: StatusActive, Strategy: RouteStrategyQuality})
+
+	server := New(store)
+	candidates, err := store.SelectRouteCandidates(model.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planned := server.planRouteOrder(call, candidates)
+	if planned[0].Route.ID != "route_quality" {
+		t.Fatalf("quality strategy should pick highest quality first, got %s", planned[0].Route.ID)
+	}
+
+	for _, route := range store.ListRoutes() {
+		route.Strategy = RouteStrategyCost
+		if _, err := store.UpdateRoute(route.ID, route); err != nil {
+			t.Fatal(err)
+		}
+	}
+	candidates, err = store.SelectRouteCandidates(model.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planned = server.planRouteOrder(call, candidates)
+	if planned[0].Route.ID != "route_cheap" {
+		t.Fatalf("cost strategy should pick highest cost score first, got %s", planned[0].Route.ID)
+	}
 }
 
 func TestHealth(t *testing.T) {
@@ -752,6 +1948,24 @@ func doJSON(t *testing.T, handler http.Handler, method string, path string, payl
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 	return responseBody{Code: rr.Code, Body: rr.Body.String()}
+}
+
+func minInt(a int, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func stringifyValueForTest(value any) string {
+	if value == nil {
+		return ""
+	}
+	if text, ok := value.(string); ok {
+		return text
+	}
+	data, _ := json.Marshal(value)
+	return strings.Trim(string(data), `"`)
 }
 
 func newResourceRoutedStore(t *testing.T, providerType string) (*GormStore, string, string) {

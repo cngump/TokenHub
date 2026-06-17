@@ -16,7 +16,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := server.SeedDemoData(store); err != nil {
+	if config.SeedDemo {
+		if err := server.SeedDemoData(store); err != nil {
+			log.Fatal(err)
+		}
+	} else if err := server.BootstrapBaseData(store); err != nil {
 		log.Fatal(err)
 	}
 

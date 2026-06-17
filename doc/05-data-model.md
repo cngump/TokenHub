@@ -6,7 +6,7 @@
 - Provider 资源凭证加密保存，密钥由环境变量或外部 KMS 管理。
 - 请求正文默认不完整落库，优先保存摘要、哈希、Token、元信息和策略命中结果。
 - 用量明细与聚合表分离，避免 Dashboard 查询拖慢网关写入。
-- 高频额度计数走 Redis，PostgreSQL 作为配置源和统计归档。
+- 额度计数、配置源和统计归档统一使用 SQLite，保持 SQLite-only 部署形态。
 
 ## 核心实体
 
@@ -18,7 +18,6 @@ erDiagram
     PROJECT ||--o{ API_KEY : issues
     PROJECT ||--o{ QUOTA_POLICY : uses
     API_KEY ||--o{ REQUEST_LOG : creates
-    PROVIDER ||--o{ PROVIDER_RESOURCE : has
     PROVIDER ||--o{ MODEL_MAPPING : serves
     MODEL ||--o{ MODEL_MAPPING : maps
     ROUTING_RULE ||--o{ MODEL_MAPPING : selects
@@ -116,13 +115,15 @@ erDiagram
 
 ### provider_resources
 
-Provider 资源池。一个 Provider 可以挂多个企业授权资源实例，例如 OpenAI 项目 Key、Azure OpenAI 区域资源、Gemini service account、本地 vLLM 集群。
+高级扩展表，不作为 MVP 主流程。MVP 中 Provider 本身就是可调用上游渠道实例，直接保存 Base URL、API Key、健康状态和标准模型路由映射；企业需要多个上游备份时，创建多个 Provider 并在同一个对外模型下配置多条路由。
+
+当后续企业场景需要在同一个 Provider 下管理多区域、多 Key、多本地集群时，可以启用该表作为 Provider 内部资源池。
 
 | 字段 | 说明 |
 | --- | --- |
 | id | 主键 |
 | provider_id | Provider ID |
-| name | 资源实例名称 |
+| name | 内部资源名称 |
 | resource_type | api_key、azure_resource、service_account、local_cluster |
 | base_url | 资源级地址，可覆盖 Provider 默认地址 |
 | encrypted_secret | 加密后的资源凭证 |
@@ -162,7 +163,7 @@ TokenHub 对外暴露的统一模型目录。
 | id | 主键 |
 | model_id | 统一模型 ID |
 | provider_id | Provider ID |
-| provider_resource_id | 可选，指定资源实例；为空时由该 Provider 资源池自动选择 |
+| provider_resource_id | 高级扩展字段，MVP 不使用 |
 | provider_model | Provider 模型名或 deployment |
 | weight | 权重 |
 | priority | 优先级 |
@@ -214,7 +215,7 @@ TokenHub 对外暴露的统一模型目录。
 | api_key_id | Key ID |
 | model_id | 统一模型 ID |
 | provider_id | Provider ID |
-| provider_resource_id | 实际命中的 Provider 资源实例 |
+| provider_resource_id | 高级扩展字段，MVP 可为空 |
 | provider_model | 实际模型 |
 | status_code | HTTP 状态 |
 | error_code | 错误码 |
@@ -237,7 +238,7 @@ TokenHub 对外暴露的统一模型目录。
 | api_key_id | Key ID |
 | model_id | 模型 ID |
 | provider_id | Provider ID |
-| provider_resource_id | Provider 资源实例 ID |
+| provider_resource_id | 高级扩展字段，MVP 可为空 |
 | input_tokens | 输入 Token |
 | output_tokens | 输出 Token |
 | total_tokens | 总 Token |
@@ -256,7 +257,6 @@ TokenHub 对外暴露的统一模型目录。
 - api_key_id
 - model_id
 - provider_id
-- provider_resource_id
 - time_bucket
 
 指标建议：
@@ -300,18 +300,18 @@ TokenHub 对外暴露的统一模型目录。
 | channels | 通知渠道 |
 | status | active、disabled |
 
-## Redis Key 规划
+## SQLite 运行时状态规划
 
-| Key | 说明 |
+| 数据 | 说明 |
 | --- | --- |
-| `key:{hash}:meta` | API Key 元数据缓存 |
-| `quota:day:{scope}:{id}:{date}` | 日额度计数 |
-| `quota:month:{scope}:{id}:{yyyymm}` | 月额度计数 |
-| `concurrency:{api_key_id}` | Key 并发计数 |
-| `provider:health:{provider_id}` | Provider 健康状态 |
-| `route:model:{model_name}` | 模型路由缓存 |
-| `usage:queue` | 用量事件队列 |
-| `audit:queue` | 审计事件队列 |
+| `quota_buckets` | 日/月额度计数 |
+| `provider_resource_buckets` | Provider 资源 RPM/TPM 计数 |
+| `request_logs` | 请求审计与状态码 |
+| `usage_records` | Token 与成本明细 |
+| `alert_events` | 告警事件 |
+| `alert_deliveries` | 通知发送记录 |
+| `approval_requests` | 审批申请与处理结果 |
+| `audit_events` | 管理操作审计 |
 
 ## 数据保留策略
 

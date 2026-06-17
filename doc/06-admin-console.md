@@ -30,7 +30,6 @@ Admin Console
   API Keys
   Providers
     Provider Detail
-    Resources
     Health
   Models
     Model Catalog
@@ -107,8 +106,8 @@ Admin Console
 | 功能 | 说明 |
 | --- | --- |
 | Provider 列表 | 类型、状态、健康、优先级 |
-| Provider 配置 | base_url、认证方式、超时、重试 |
-| 资源池 | 管理 API Key、云厂商区域资源、本地推理集群、权重和健康状态 |
+| Provider 配置 | base_url、认证方式、API Key、超时、重试 |
+| 模型映射 | 从 Provider 模板选择上游模型，并映射到标准模型目录 |
 | 健康检查 | 手动测试和定时探测 |
 | 模型映射 | Provider 模型到统一模型的映射 |
 
@@ -176,8 +175,8 @@ Admin Console
 1. 管理员选择 Provider 类型。
 2. 输入 base_url、认证凭证、超时、重试策略。
 3. 点击测试连接。
-4. 配置 Provider 模型映射。
-5. 将映射加入路由规则。
+4. 从 Provider 模板选择上游模型，并映射到已有标准模型目录。
+5. 将 Provider 模型加入路由规则。
 6. 在 Provider 健康页观察成功率和延迟。
 
 ### 处理成本突增

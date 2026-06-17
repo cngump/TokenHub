@@ -8,7 +8,7 @@ TokenHub 是一个面向企业私有化部署的 AI API Gateway 与 Token 治理
 
 - 后端：Go，负责高并发 API 网关、Provider Adapter、额度与路由策略、审计日志、计费统计、管理 API。
 - 前端：Next.js，负责企业管理后台，包括项目、Key、模型、额度、账单、告警与审计视图。
-- 存储：当前实现使用 GORM，默认 SQLite 本地持久化；生产规划可切换 PostgreSQL，并引入 Redis 承载限流、额度缓存、异步队列与短周期统计缓存。
+- 存储：GORM + SQLite 本地持久化。配置、额度计数、审计、用量、告警、审批、成本治理数据都落在 SQLite，后续保持 SQLite-only。
 - 部署：支持 Docker Compose、Helm、离线包与企业内网部署。
 
 ## 产品定位
@@ -28,8 +28,7 @@ TokenHub 的核心价值是企业级 AI 基础设施：
 | 模块 | 作用 |
 | --- | --- |
 | 统一 API 网关 | 对外兼容 OpenAI API，并预留 Anthropic、Gemini、自定义协议入口 |
-| Provider 管理 | 管理 OpenAI、Azure OpenAI、Claude、Gemini、DeepSeek、Qwen、本地模型等 |
-| Provider 资源池 | 管理企业授权 API、云厂商区域资源、本地推理集群、权重和健康状态 |
+| Provider 管理 | 管理可调用的上游渠道实例，包括服务商类型、Base URL、API Key、模型路由映射和健康状态 |
 | Key 管理 | 按企业内部用户、团队、项目维度发放和吊销 API Key |
 | 额度管理 | 为 Key、用户、项目设置日额度、月额度、模型白名单、并发上限 |
 | 路由策略 | 按模型、成本、可用性、延迟、区域、优先级进行路由 |
@@ -88,8 +87,6 @@ flowchart LR
     Adapter --> Local[Local vLLM/Ollama]
     Gateway --> Usage[Usage Collector]
     Usage --> DB[(SQLite via GORM)]
-    Usage -. production roadmap .-> PG[(PostgreSQL)]
-    Usage -. production roadmap .-> Redis[(Redis)]
     Admin[Next.js Admin Console] --> AdminAPI[Go Admin API]
     AdminAPI --> DB
 ```
@@ -143,7 +140,7 @@ TokenHub 只面向企业自有、合规授权的模型 API 访问场景：
 - 不以规避上游服务条款、风控或计费规则作为产品卖点。
 - 不承诺规避官方 API 费用。
 - 不把个人 Claude、ChatGPT、Gemini 等订阅转成API 分发 分发作为核心功能。
-- Provider 资源池应来自企业自有官方 API、云厂商实例或企业授权的私有模型服务。
+- Provider 凭证应来自企业自有官方 API、云厂商实例或企业授权的私有模型服务。
 
 ## 当前状态
 
@@ -158,10 +155,16 @@ TokenHub 只面向企业自有、合规授权的模型 API 访问场景：
 - 用量统计、成本估算、请求审计、额度告警。
 - Admin API Bearer Token 认证。
 - 日粒度用量趋势接口与后台柱状图。
-- Admin API：项目、Key、Provider、Provider 资源池、模型、路由、用量、审计、告警。
-- Next.js 管理后台：参考用量分析类企业后台风格，包含总览、项目、Provider、Provider 资源池、模型、路由、审计、告警、创建项目、创建 Provider、创建资源实例、创建模型路由、发放 Key。
+- Admin API：项目、Key、Provider、模型、路由、用量、审计、告警。
+- Provider 管理：配置上游 Base URL、API Key、服务商模板、标准模型映射、连接测试和健康状态。
+- 健康监控：Provider 和模型路由手动检测，状态回写并在失败时生成告警事件。
+- 成本治理：成本中心、预算、部门分摊、内部账单、发票备注、账单确认/驳回、审批流、结构化 CSV 导出。
+- SQLite 数据管理：手动备份、备份列表、下载、确认式恢复和删除。
+- Next.js 管理后台：参考用量分析类企业后台风格，包含总览、项目、Provider、模型、路由、成本中心、预算、部门分摊、内部账单、审批、审计、健康监控、告警、报表导出、数据备份、创建项目、创建 Provider、映射标准模型、创建模型路由、发放 Key。
 
-MVP 当前已使用 GORM + SQLite 做默认持久化，项目、Key、Provider、模型、路由、审计、用量、告警、后台用户与会话都会落库。后续生产化仍建议补齐 PostgreSQL、Redis、RBAC 和更完整的 Provider 配置管理。
+MVP 当前已使用 GORM + SQLite 做默认持久化，项目、Key、Provider、模型、路由、审计、用量、告警、审批、通知、后台用户、会话和备份记录都会落库。后续生产化继续围绕 SQLite 做定时备份、迁移、RBAC、企业 SSO 和更完整的 Provider 配置管理。
+
+当前 MVP 的产品模型刻意保持简单：Provider 就是一个可调用上游渠道实例。一个企业需要多个上游备份时，直接创建多个 Provider，并在同一个对外模型下配置多条路由的优先级和权重。更细粒度的 Provider 内部资源池只作为后续高级扩展，不作为第一版后台主菜单。
 
 ## 本地运行
 
@@ -177,6 +180,8 @@ go run ./cmd/tokenhub
 ```bash
 TOKENHUB_DATABASE_URL=sqlite:///absolute/path/tokenhub.db go run ./cmd/tokenhub
 ```
+
+默认备份目录为 `backend/data/backups`。可通过 `TOKENHUB_SQLITE_BACKUP_DIR` 覆盖。
 
 前端：
 
