@@ -2329,8 +2329,8 @@ func (s *Server) defaultMonitorResources(existingIDs map[string]bool, existingTa
 		add(
 			"provider:"+provider.ID,
 			autoMonitorID("provider", provider.ID),
-			fmt.Sprintf("%s Provider 连通性", provider.Name),
-			"系统默认检测 Provider 状态是否启用并可参与路由",
+			fmt.Sprintf("%s Provider Connectivity", provider.Name),
+			"System default check for whether the Provider is enabled and can participate in routing.",
 			map[string]any{
 				"target_type": "provider",
 				"provider_id": provider.ID,
@@ -2341,8 +2341,8 @@ func (s *Server) defaultMonitorResources(existingIDs map[string]bool, existingTa
 		add(
 			"resource:"+resource.ID,
 			autoMonitorID("resource", resource.ID),
-			fmt.Sprintf("%s 资源实例健康", resource.Name),
-			"系统默认检测 Provider 资源实例是否可用",
+			fmt.Sprintf("%s Resource Health", resource.Name),
+			"System default check for Provider resource availability.",
 			map[string]any{
 				"target_type":          "resource",
 				"provider_id":          resource.ProviderID,
@@ -2360,8 +2360,8 @@ func (s *Server) defaultMonitorResources(existingIDs map[string]bool, existingTa
 		add(
 			"model:"+modelName,
 			autoMonitorID("model", modelName),
-			fmt.Sprintf("%s 模型路由心跳", modelName),
-			"系统默认检测模型 API 是否存在启用路由",
+			fmt.Sprintf("%s Model Route Heartbeat", modelName),
+			"System default check for whether the model API has an enabled route.",
 			map[string]any{
 				"target_type": "model",
 				"model":       modelName,
@@ -2478,8 +2478,8 @@ func defaultAlertRuleResources(existingIDs map[string]bool, existingKeys map[str
 	add(
 		"provider_health_failed",
 		"alr_default_provider_health",
-		"Provider 不可用告警",
-		"Provider 健康检测失败或被禁用时触发",
+		"Provider Unavailable Alert",
+		"Triggered when Provider health checks fail or the Provider is disabled.",
 		"provider_health",
 		"failed",
 		"critical",
@@ -2489,8 +2489,8 @@ func defaultAlertRuleResources(existingIDs map[string]bool, existingKeys map[str
 	add(
 		"provider_resource_health_failed",
 		"alr_default_provider_resource_health",
-		"Provider 资源实例不可用告警",
-		"资源实例检测失败、被禁用或进入冷却时触发",
+		"Provider Resource Unavailable Alert",
+		"Triggered when a resource check fails, the resource is disabled, or it enters cooldown.",
 		"provider_resource_health",
 		"failed",
 		"warning",
@@ -2500,8 +2500,8 @@ func defaultAlertRuleResources(existingIDs map[string]bool, existingKeys map[str
 	add(
 		"request_quota_near_limit",
 		"alr_default_quota_requests",
-		"请求额度告警",
-		"请求次数达到额度阈值或请求被额度拒绝时触发",
+		"Request Quota Alert",
+		"Triggered when request usage reaches the quota threshold or requests are rejected by quota.",
 		"request_quota_usage",
 		"90%",
 		"warning",
@@ -2511,8 +2511,8 @@ func defaultAlertRuleResources(existingIDs map[string]bool, existingKeys map[str
 	add(
 		"token_quota_near_limit",
 		"alr_default_quota_tokens",
-		"Token 额度告警",
-		"日或月 Token 用量达到额度阈值时触发",
+		"Token Quota Alert",
+		"Triggered when daily or monthly token usage reaches the quota threshold.",
 		"token_quota_usage",
 		"90%",
 		"warning",
@@ -2522,8 +2522,8 @@ func defaultAlertRuleResources(existingIDs map[string]bool, existingKeys map[str
 	add(
 		"cost_quota_near_limit",
 		"alr_default_quota_cost",
-		"成本额度告警",
-		"日或月成本达到额度阈值时触发",
+		"Cost Quota Alert",
+		"Triggered when daily or monthly cost reaches the quota threshold.",
 		"cost_quota_usage",
 		"90%",
 		"warning",

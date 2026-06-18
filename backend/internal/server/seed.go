@@ -52,7 +52,7 @@ func SeedDemoData(store Store) error {
 	mockResource, err := store.AddProviderResource(ProviderResource{
 		ID:           "rsrc_mock_primary",
 		ProviderID:   mock.ID,
-		Name:         "Mock 主资源",
+		Name:         "Mock Primary Resource",
 		ResourceType: "mock",
 		Region:       "local",
 		Environment:  "dev",
@@ -119,7 +119,7 @@ func BootstrapBaseData(store Store) error {
 	if _, err := store.CreateAdminUser(AdminUser{
 		ID:       "usr_admin",
 		Username: "admin",
-		Name:     "平台管理员",
+		Name:     "Platform Admin",
 		Email:    "admin@tokenhub.local",
 		Role:     "admin",
 		TeamID:   "team_platform",
@@ -144,7 +144,7 @@ func seedDefaultProject(store Store) {
 	}
 	store.CreateProject(Project{
 		ID:          defaultProjectID,
-		Name:        "默认项目空间",
+		Name:        "Default Project Space",
 		TeamID:      "team_platform",
 		OwnerUserID: "usr_admin",
 		CostCenter:  "AI-PLATFORM",
@@ -174,8 +174,8 @@ func seedDefaultModelCatalog(store Store, catalogFile string) error {
 func seedDefaultOrgResources(store Store) {
 	seedResourceIfMissing(store, "teams", AdminResource{
 		ID:          "team_platform",
-		Name:        "平台工程团队",
-		Description: "负责内部 AI Gateway 接入与平台治理",
+		Name:        "Platform Engineering Team",
+		Description: "Owns internal AI Gateway onboarding and platform governance.",
 		Status:      StatusActive,
 		Fields: map[string]any{
 			"owner":       "usr_admin",
@@ -184,20 +184,20 @@ func seedDefaultOrgResources(store Store) {
 	})
 	seedResourceIfMissing(store, "cost-centers", AdminResource{
 		ID:          "cc_ai_platform",
-		Name:        "AI 平台成本中心",
-		Description: "平台工程与共享 AI 基础设施费用归属",
+		Name:        "AI Platform Cost Center",
+		Description: "Cost attribution for platform engineering and shared AI infrastructure.",
 		Status:      StatusActive,
 		Fields: map[string]any{
 			"code":               "AI-PLATFORM",
-			"department":         "技术平台部",
+			"department":         "Platform Engineering",
 			"owner":              "usr_admin",
 			"monthly_budget_usd": 5000,
 		},
 	})
 	seedResourceIfMissing(store, "security-policies", AdminResource{
 		ID:          "sec_ip_allowlist",
-		Name:        "生产 IP 白名单策略",
-		Description: "记录模型 API 的推荐 IP 白名单、Prompt 脱敏和错误透传规则",
+		Name:        "Production IP Allowlist Policy",
+		Description: "Recommended model API IP allowlist, prompt masking, and sanitized error passthrough rules.",
 		Status:      StatusActive,
 		Fields: map[string]any{
 			"mask_prompts":      true,
@@ -207,8 +207,8 @@ func seedDefaultOrgResources(store Store) {
 	})
 	seedResourceIfMissing(store, "settings", AdminResource{
 		ID:          "cfg_gateway",
-		Name:        "网关基础设置",
-		Description: "模型 API 对外地址、请求超时和审计保留周期",
+		Name:        "Gateway Base Settings",
+		Description: "Public model API address, request timeout, and audit retention period.",
 		Status:      StatusActive,
 		Fields: map[string]any{
 			"public_base_url": "http://localhost:8080",
@@ -218,8 +218,8 @@ func seedDefaultOrgResources(store Store) {
 	})
 	seedResourceIfMissing(store, "identity-providers", AdminResource{
 		ID:          "idp_oidc_template",
-		Name:        "企业 OIDC/OAuth 身份源",
-		Description: "对接企业已有 SSO/OAuth/OIDC 身份系统，用于后续统一登录和用户同步。",
+		Name:        "Enterprise OIDC/OAuth Identity Source",
+		Description: "Template for connecting existing SSO, OAuth, or OIDC identity systems for unified login and user sync.",
 		Status:      "draft",
 		Fields: map[string]any{
 			"provider_type":  "oidc",
@@ -242,36 +242,36 @@ func seedDefaultRoleConfigs(store Store) {
 	roles := []AdminResource{
 		{
 			ID:          "role_user",
-			Name:        "普通用户",
-			Description: "允许创建自己的 API Key，查看自己的请求日志和用量。",
+			Name:        "Regular User",
+			Description: "Can create personal API keys and view personal request logs and usage.",
 			Status:      StatusActive,
 			Fields: map[string]any{
 				"role_key":     "user",
-				"display_name": "普通用户",
+				"display_name": "Regular User",
 				"data_scope":   "self",
 				"assignable":   true,
 			},
 		},
 		{
 			ID:          "role_team_leader",
-			Name:        "团队 Leader",
-			Description: "管理团队成员，查看团队用量和团队成本。",
+			Name:        "Team Leader",
+			Description: "Manages team members and views team usage and cost.",
 			Status:      StatusActive,
 			Fields: map[string]any{
 				"role_key":     "team_leader",
-				"display_name": "团队 Leader",
+				"display_name": "Team Leader",
 				"data_scope":   "team",
 				"assignable":   true,
 			},
 		},
 		{
 			ID:          "role_admin",
-			Name:        "平台管理员",
-			Description: "管理平台配置、Provider、模型路由、用户和治理策略。",
+			Name:        "Platform Admin",
+			Description: "Manages platform settings, Providers, model routes, users, and governance policies.",
 			Status:      StatusActive,
 			Fields: map[string]any{
 				"role_key":     "admin",
-				"display_name": "平台管理员",
+				"display_name": "Platform Admin",
 				"data_scope":   "global",
 				"assignable":   true,
 			},
@@ -295,8 +295,8 @@ func seedAdminResources(store Store) {
 	seedDefaultOrgResources(store)
 	store.CreateResource("monitors", AdminResource{
 		ID:          "mon_gateway",
-		Name:        "核心聊天模型心跳",
-		Description: "每 60 秒检测 gpt-4.1-mini 路由链路",
+		Name:        "Core Chat Model Heartbeat",
+		Description: "Checks the gpt-4.1-mini routing chain every 60 seconds.",
 		Status:      StatusActive,
 		Fields: map[string]any{
 			"target_type":      "model",
@@ -308,8 +308,8 @@ func seedAdminResources(store Store) {
 	})
 	store.CreateResource("proxies", AdminResource{
 		ID:          "prx_direct",
-		Name:        "直连出口",
-		Description: "默认不走代理",
+		Name:        "Direct Egress",
+		Description: "Default egress without a proxy.",
 		Status:      StatusActive,
 		Fields: map[string]any{
 			"protocol": "direct",
@@ -319,8 +319,8 @@ func seedAdminResources(store Store) {
 	})
 	store.CreateResource("announcements", AdminResource{
 		ID:          "ann_mvp",
-		Name:        "MVP 试运行公告",
-		Description: "TokenHub 内部试运行，Provider 资源凭证仅用于企业授权 API。",
+		Name:        "Internal Rollout Notice",
+		Description: "TokenHub is available for internal rollout. Provider credentials must only be used for enterprise-authorized APIs.",
 		Status:      StatusActive,
 		Fields: map[string]any{
 			"notify_mode": "silent",
@@ -329,8 +329,8 @@ func seedAdminResources(store Store) {
 	})
 	store.CreateResource("settings", AdminResource{
 		ID:          "cfg_gateway",
-		Name:        "网关基础设置",
-		Description: "OpenAI Compatible Gateway 默认配置",
+		Name:        "Gateway Base Settings",
+		Description: "Default OpenAI-compatible gateway configuration.",
 		Status:      StatusActive,
 		Fields: map[string]any{
 			"public_base_url": "http://localhost:8080",
@@ -340,8 +340,8 @@ func seedAdminResources(store Store) {
 	})
 	store.CreateResource("security-policies", AdminResource{
 		ID:          "sec_default",
-		Name:        "默认安全策略",
-		Description: "记录请求元信息，隐藏敏感请求体字段",
+		Name:        "Default Security Policy",
+		Description: "Records request metadata and masks sensitive request body fields.",
 		Status:      StatusActive,
 		Fields: map[string]any{
 			"mask_prompts":      true,
@@ -351,8 +351,8 @@ func seedAdminResources(store Store) {
 	})
 	store.CreateResource("alert-rules", AdminResource{
 		ID:          "alr_quota",
-		Name:        "额度耗尽告警",
-		Description: "Key 或项目额度达到阈值时提醒管理员",
+		Name:        "Quota Exhaustion Alert",
+		Description: "Notifies administrators when key or project quota reaches the threshold.",
 		Status:      StatusActive,
 		Fields: map[string]any{
 			"metric":    "daily_cost_usd",
@@ -362,8 +362,8 @@ func seedAdminResources(store Store) {
 	})
 	store.CreateResource("quota-policies", AdminResource{
 		ID:          "quo_default_project",
-		Name:        "默认项目额度",
-		Description: "新项目默认日请求、Token 与成本上限",
+		Name:        "Default Project Quota",
+		Description: "Default daily request, token, and cost limits for new projects.",
 		Status:      StatusActive,
 		Fields: map[string]any{
 			"daily_requests":   1000,
@@ -376,8 +376,8 @@ func seedAdminResources(store Store) {
 	})
 	store.CreateResource("budgets", AdminResource{
 		ID:          "bdg_ai_platform_monthly",
-		Name:        "AI 平台月度预算",
-		Description: "成本中心维度的 AI 调用预算与预警线",
+		Name:        "AI Platform Monthly Budget",
+		Description: "AI usage budget and warning line by cost center.",
 		Status:      StatusActive,
 		Fields: map[string]any{
 			"scope":         "cost_center",
@@ -392,8 +392,8 @@ func seedAdminResources(store Store) {
 	})
 	store.CreateResource("approval-flows", AdminResource{
 		ID:          "apf_budget_change",
-		Name:        "预算变更审批",
-		Description: "预算调整超过阈值时需要管理员审批",
+		Name:        "Budget Change Approval",
+		Description: "Requires administrator approval when a budget change exceeds the threshold.",
 		Status:      StatusActive,
 		Fields: map[string]any{
 			"trigger":       "budget_change",
@@ -404,8 +404,8 @@ func seedAdminResources(store Store) {
 	})
 	store.CreateResource("approval-flows", AdminResource{
 		ID:          "apf_invoice_confirm",
-		Name:        "内部账单确认审批",
-		Description: "高金额内部账单确认前进入审批流",
+		Name:        "Internal Invoice Confirmation Approval",
+		Description: "Routes high-value internal invoice confirmations through approval.",
 		Status:      StatusActive,
 		Fields: map[string]any{
 			"trigger":       "invoice_confirm",
@@ -416,8 +416,8 @@ func seedAdminResources(store Store) {
 	})
 	store.CreateResource("reports", AdminResource{
 		ID:          "rpt_monthly_invoices",
-		Name:        "月度内部账单导出",
-		Description: "财务月结使用的内部账单 CSV",
+		Name:        "Monthly Internal Invoice Export",
+		Description: "Internal billing CSV for finance month-end close.",
 		Status:      StatusActive,
 		Fields: map[string]any{
 			"dataset":    "invoices",
@@ -433,7 +433,7 @@ func seedMockData(store Store) error {
 		projectID := fmt.Sprintf("prj_mock_%03d", i)
 		project := store.CreateProject(Project{
 			ID:              projectID,
-			Name:            fmt.Sprintf("Mock 应用项目 %03d", i),
+			Name:            fmt.Sprintf("Mock App Project %03d", i),
 			TeamID:          teamID,
 			OwnerUserID:     fmt.Sprintf("usr_mock_%03d", ((i-1)%60)+1),
 			Status:          activeEvery(i, 11),
@@ -493,7 +493,7 @@ func seedMockData(store Store) error {
 			_, err := store.AddProviderResource(ProviderResource{
 				ID:             fmt.Sprintf("rsrc_mock_%03d_%d", i, resourceIndex),
 				ProviderID:     provider.ID,
-				Name:           fmt.Sprintf("Mock 资源实例 %03d-%d", i, resourceIndex),
+				Name:           fmt.Sprintf("Mock Resource Instance %03d-%d", i, resourceIndex),
 				ResourceType:   mockResourceType(providerType),
 				BaseURL:        provider.BaseURL,
 				Region:         mockRegion(i + resourceIndex),
@@ -563,7 +563,7 @@ func seedMockData(store Store) error {
 		_, err := store.CreateAdminUser(AdminUser{
 			ID:       fmt.Sprintf("usr_mock_%03d", i),
 			Username: fmt.Sprintf("mock.user%03d", i),
-			Name:     fmt.Sprintf("Mock 用户 %03d", i),
+			Name:     fmt.Sprintf("Mock User %03d", i),
 			Email:    fmt.Sprintf("mock.user%03d@tokenhub.local", i),
 			Role:     mockRole(i),
 			TeamID:   fmt.Sprintf("team_mock_%02d", ((i-1)%24)+1),
@@ -583,11 +583,11 @@ func seedMockResources(store Store) {
 	for i := 1; i <= 60; i++ {
 		store.CreateResource("teams", AdminResource{
 			ID:          fmt.Sprintf("team_mock_%02d", i),
-			Name:        fmt.Sprintf("Mock 业务团队 %02d", i),
-			Description: fmt.Sprintf("负责第 %02d 条产品线的 AI 接入、额度治理与成本归因", i),
+			Name:        fmt.Sprintf("Mock Business Team %02d", i),
+			Description: fmt.Sprintf("Owns AI onboarding, quota governance, and cost attribution for product line %02d.", i),
 			Status:      activeEvery(i, 14),
 			Fields: map[string]any{
-				"owner":       fmt.Sprintf("Mock 负责人 %02d", i),
+				"owner":       fmt.Sprintf("Mock Owner %02d", i),
 				"cost_center": fmt.Sprintf("MOCK-CC-%03d", i),
 			},
 		})
@@ -595,8 +595,8 @@ func seedMockResources(store Store) {
 	for i := 1; i <= 70; i++ {
 		store.CreateResource("quota-policies", AdminResource{
 			ID:          fmt.Sprintf("quo_mock_%02d", i),
-			Name:        fmt.Sprintf("Mock 额度策略 %02d", i),
-			Description: "用于分页、筛选和策略编辑测试的额度模板",
+			Name:        fmt.Sprintf("Mock Quota Policy %02d", i),
+			Description: "Quota template for pagination, filtering, and policy editing tests.",
 			Status:      activeEvery(i, 15),
 			Fields: map[string]any{
 				"scope":            quotaScope(i),
@@ -611,8 +611,8 @@ func seedMockResources(store Store) {
 	for i := 1; i <= 90; i++ {
 		store.CreateResource("monitors", AdminResource{
 			ID:          fmt.Sprintf("mon_mock_%03d", i),
-			Name:        fmt.Sprintf("Mock 健康监控 %03d", i),
-			Description: "模型路由链路心跳与 Provider 可用性监控",
+			Name:        fmt.Sprintf("Mock Health Monitor %03d", i),
+			Description: "Model route heartbeat and Provider availability monitor.",
 			Status:      activeEvery(i, 18),
 			Fields: map[string]any{
 				"provider":         fmt.Sprintf("prv_mock_%03d", ((i-1)%36)+1),
@@ -625,8 +625,8 @@ func seedMockResources(store Store) {
 	for i := 1; i <= 60; i++ {
 		store.CreateResource("proxies", AdminResource{
 			ID:          fmt.Sprintf("prx_mock_%02d", i),
-			Name:        fmt.Sprintf("Mock 代理出口 %02d", i),
-			Description: fmt.Sprintf("%s 区域出口策略", mockRegion(i)),
+			Name:        fmt.Sprintf("Mock Proxy Egress %02d", i),
+			Description: fmt.Sprintf("Egress policy for the %s region.", mockRegion(i)),
 			Status:      activeEvery(i, 20),
 			Fields: map[string]any{
 				"protocol": proxyProtocol(i),
@@ -638,8 +638,8 @@ func seedMockResources(store Store) {
 	for i := 1; i <= 45; i++ {
 		store.CreateResource("announcements", AdminResource{
 			ID:          fmt.Sprintf("ann_mock_%02d", i),
-			Name:        fmt.Sprintf("Mock 运营公告 %02d", i),
-			Description: "用于验证公告列表、分页和编辑行为",
+			Name:        fmt.Sprintf("Mock Operations Notice %02d", i),
+			Description: "Used to verify announcement lists, pagination, and editing behavior.",
 			Status:      activeEvery(i, 9),
 			Fields: map[string]any{
 				"notify_mode": mockNotifyMode(i),
@@ -650,8 +650,8 @@ func seedMockResources(store Store) {
 	for i := 1; i <= 50; i++ {
 		store.CreateResource("settings", AdminResource{
 			ID:          fmt.Sprintf("cfg_mock_%02d", i),
-			Name:        fmt.Sprintf("Mock 系统设置 %02d", i),
-			Description: "用于后台设置页分页与配置编辑测试",
+			Name:        fmt.Sprintf("Mock System Setting %02d", i),
+			Description: "Used to test settings pagination and configuration editing.",
 			Status:      activeEvery(i, 22),
 			Fields: map[string]any{
 				"public_base_url": fmt.Sprintf("https://gateway-%02d.internal", i),
@@ -663,8 +663,8 @@ func seedMockResources(store Store) {
 	for i := 1; i <= 65; i++ {
 		store.CreateResource("security-policies", AdminResource{
 			ID:          fmt.Sprintf("sec_mock_%02d", i),
-			Name:        fmt.Sprintf("Mock 安全策略 %02d", i),
-			Description: "用于测试安全策略列表、编辑和分页",
+			Name:        fmt.Sprintf("Mock Security Policy %02d", i),
+			Description: "Used to test security policy lists, editing, and pagination.",
 			Status:      activeEvery(i, 13),
 			Fields: map[string]any{
 				"mask_prompts":      i%3 != 0,
@@ -676,8 +676,8 @@ func seedMockResources(store Store) {
 	for i := 1; i <= 75; i++ {
 		store.CreateResource("alert-rules", AdminResource{
 			ID:          fmt.Sprintf("alr_mock_%02d", i),
-			Name:        fmt.Sprintf("Mock 告警规则 %02d", i),
-			Description: "用于测试额度、成本、错误率和 Provider 健康告警配置",
+			Name:        fmt.Sprintf("Mock Alert Rule %02d", i),
+			Description: "Used to test quota, cost, error-rate, and Provider health alert configuration.",
 			Status:      activeEvery(i, 19),
 			Fields: map[string]any{
 				"metric":    alertMetric(i),

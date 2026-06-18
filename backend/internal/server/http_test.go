@@ -161,7 +161,7 @@ func TestBootstrapSeedsStandardModelCatalog(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected default project %s", defaultProjectID)
 	}
-	if project.Name != "默认项目空间" || project.Status != StatusActive {
+	if project.Name != "Default Project Space" || project.Status != StatusActive {
 		t.Fatalf("unexpected default project: %+v", project)
 	}
 	if project.OwnerUserID != "usr_admin" || project.TeamID != "team_platform" || project.CostCenter != "AI-PLATFORM" {
@@ -288,7 +288,7 @@ func TestBootstrapBaseDataSeedsGovernanceResources(t *testing.T) {
 	if found.ID == "" {
 		t.Fatalf("expected seeded security policy, got %+v", policies)
 	}
-	if found.Name != "生产 IP 白名单策略" || found.Status != StatusActive {
+	if found.Name != "Production IP Allowlist Policy" || found.Status != StatusActive {
 		t.Fatalf("unexpected security policy metadata: %+v", found)
 	}
 	if stringField(found.Fields, "error_passthrough") != "sanitized" || !strings.Contains(stringField(found.Fields, "ip_allowlist"), "127.0.0.1/32") {

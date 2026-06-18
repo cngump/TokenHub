@@ -626,6 +626,708 @@ const defaultBaseURL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
 const sessionStorageKey = "tokenhub.admin.session";
 const authExpiredEventName = "tokenhub-admin-auth-expired";
+const languageStorageKey = "tokenhub.admin.language";
+
+type AppLanguage = "zh-CN" | "en" | "ja";
+
+const languageOptions: Array<{ value: AppLanguage; label: string; nativeLabel: string }> = [
+  { value: "zh-CN", label: "Chinese", nativeLabel: "简体中文" },
+  { value: "en", label: "English", nativeLabel: "English" },
+  { value: "ja", label: "Japanese", nativeLabel: "日本語" },
+];
+
+let activeLanguage: AppLanguage = "zh-CN";
+
+const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>> = {
+  en: {
+    "总览": "Overview",
+    "网关概览": "Gateway Overview",
+    "模型演练场": "Model Playground",
+    "接口文档": "API Documentation",
+    "AI 接入": "AI Access",
+    "Provider 渠道": "Provider Channels",
+    "模型目录": "Model Catalog",
+    "路由策略": "Routing Policies",
+    "企业治理": "Enterprise Governance",
+    "项目空间": "Projects",
+    "团队分组": "Teams",
+    "用户管理": "Users",
+    "审批记录": "Approval Records",
+    "成本审计": "Cost Audit",
+    "用量统计": "Usage Analytics",
+    "请求日志": "Request Logs",
+    "成本账单": "Cost Billing",
+    "成本中心": "Cost Centers",
+    "导出报表": "Report Export",
+    "健康与告警": "Health and Alerts",
+    "健康检测": "Health Checks",
+    "告警规则": "Alert Rules",
+    "告警事件": "Alert Events",
+    "通知渠道": "Notification Channels",
+    "通知记录": "Notification Records",
+    "安全运维": "Security Ops",
+    "安全策略": "Security Policies",
+    "代理出口": "Proxy Egress",
+    "数据备份": "Data Backups",
+    "公告通知": "Announcements",
+    "系统设置": "System Settings",
+    "新增系统设置": "Create System Setting",
+    "网关地址、审计保留、企业集成和默认策略": "Gateway address, audit retention, enterprise integration, and default policies",
+    "统一查看 TokenHub 的请求、成本、Provider 和治理状态。": "Review TokenHub requests, cost, Providers, and governance status in one place.",
+    "选择标准模型，按当前路由策略发起测试对话，验证 Provider、路由和返回内容。": "Test a standard model through the current routing policy and verify Provider, route, and response behavior.",
+    "面向业务开发者的模型 API 调用说明、认证方式、示例代码和错误排查。": "Model API usage, authentication, examples, and troubleshooting for application developers.",
+    "按模型、项目和日期查看请求量、Token 和成本归因。": "View requests, tokens, and cost attribution by model, project, and date.",
+    "按 Provider 和项目归集估算成本，辅助成本分摊。": "Summarize estimated cost by Provider and project for cost allocation.",
+    "查看最近请求日志、状态码、模型路由和延迟。": "Inspect recent request logs, status codes, model routes, and latency.",
+    "查看运行时触发的额度、成本和 Provider 健康告警。": "Review quota, cost, and Provider health alerts triggered at runtime.",
+    "查看告警 Webhook 发送结果、目标和失败原因。": "Review alert delivery results, targets, and failure reasons.",
+    "处理 Key 发放、额度提升和模型开通等治理审批。": "Handle governance approvals such as key issuance, quota increases, and model access.",
+    "登录控制台": "Sign in to Console",
+    "企业 AI 访问与成本治理平台": "Enterprise AI Access and Cost Governance",
+    "账号 / 邮箱": "Account / Email",
+    "密码": "Password",
+    "登录中": "Signing in",
+    "TokenHub 控制台": "TokenHub Console",
+    "展开菜单": "Expand menu",
+    "折叠菜单": "Collapse menu",
+    "退出登录": "Sign out",
+    "界面语言": "Interface Language",
+    "选择控制台显示语言，偏好会保存在当前浏览器。": "Choose the console display language. The preference is saved in this browser.",
+    "当前语言": "Current language",
+    "平台管理员": "Platform Admin",
+    "默认项目空间": "Default Project Space",
+    "平台工程团队": "Platform Engineering Team",
+    "负责内部 AI Gateway 接入与平台治理": "Owns internal AI Gateway onboarding and platform governance.",
+    "AI 平台成本中心": "AI Platform Cost Center",
+    "平台工程与共享 AI 基础设施费用归属": "Cost attribution for platform engineering and shared AI infrastructure.",
+    "网关基础设置": "Gateway Base Settings",
+    "模型 API 对外地址、请求超时和审计保留周期": "Public model API address, request timeout, and audit retention period.",
+    "OpenAI Compatible Gateway 默认配置": "Default OpenAI-compatible gateway configuration.",
+    "产品流程": "Product Flow",
+    "当前状态": "Current Status",
+    "接入 Provider": "Connect Provider",
+    "配置上游服务商、Base URL、API Key，并映射到标准模型目录。": "Configure upstream Providers, Base URLs, API keys, and map them to the standard model catalog.",
+    "维护模型目录": "Maintain Model Catalog",
+    "定义内部对外模型名、上下文窗口和计价口径。": "Define public internal model names, context windows, and pricing units.",
+    "建立路由策略": "Create Routing Policies",
+    "把对外模型映射到 Provider 的上游模型，并配置优先级与权重。": "Map public models to upstream Provider models and configure priority and weight.",
+    "发放 API Key": "Issue API Key",
+    "创建和维护当前权限范围内的内部调用凭证。": "Create and maintain internal calling credentials within the current permission scope.",
+    "管理团队": "Manage Teams",
+    "维护团队资料、负责人和费用归属。": "Maintain team profiles, owners, and cost attribution.",
+    "管理成员": "Manage Members",
+    "维护本团队成员账号和状态。": "Maintain team member accounts and status.",
+    "查看用量": "View Usage",
+    "查看当前权限范围内的请求量、Token 和成本。": "View requests, tokens, and cost within the current permission scope.",
+    "查看账单": "View Billing",
+    "查看当前权限范围内的成本归因。": "View cost attribution within the current permission scope.",
+    "日志与治理": "Logs and Governance",
+    "查看请求日志、后台操作、告警规则和安全策略。": "Review request logs, admin operations, alert rules, and security policies.",
+    "个可选聊天模型": "callable chat models",
+    "条启用路由": "active routes",
+    "条启用公告": "active announcements",
+    "管理公告": "Manage Announcements",
+    "暂无公告说明": "No announcement description",
+    "数量": "Count",
+    "企业内部应用治理单元": "Internal application governance units",
+    "内部调用凭证": "Internal calling credentials",
+    "上游渠道实例，包含 Base URL 与 Key": "Upstream channel instances with Base URL and key",
+    "对外模型目录": "Public model catalog",
+    "对外模型到 Provider 的映射规则": "Mapping rules from public models to Providers",
+    "治理事件": "Governance events",
+    "当前权限范围内的用户账号": "User accounts within the current permission scope",
+    "系统设置分类": "System settings category",
+    "基础设置": "General Settings",
+    "角色配置": "Role Settings",
+    "身份源": "Identity Sources",
+    "搜索名称、ID、状态": "Search name, ID, or status",
+    "搜索模型": "Search models",
+    "搜索模型、能力、参数": "Search models, capabilities, parameters",
+    "新增": "Create",
+    "新增模型": "Create Model",
+    "新增 Provider": "Create Provider",
+    "配置": "Configure",
+    "配置路由": "Configure Routes",
+    "编辑": "Edit",
+    "删除": "Delete",
+    "保存": "Save",
+    "取消": "Cancel",
+    "关闭": "Close",
+    "操作": "Actions",
+    "暂无数据": "No data",
+    "请选择": "Select",
+    "开启": "On",
+    "关闭开关": "Off",
+    "启用": "Enabled",
+    "停用": "Disabled",
+    "禁用": "Disable",
+    "重新加载": "Reload",
+    "全选": "Select all",
+    "清空": "Clear",
+    "请选择至少一个统一模型": "Select at least one unified model",
+    "确认删除": "Confirm Delete",
+    "操作已完成": "Operation completed",
+    "操作失败": "Operation failed",
+    "保存失败": "Save failed",
+    "删除失败": "Delete failed",
+    "导出失败": "Export failed",
+    "连接失败": "Connection failed",
+    "登录失败": "Login failed",
+    "数据加载中，请稍后再操作。": "Data is loading. Please try again later.",
+    "请先创建项目，再在项目下发放 API Key。": "Create a project before issuing an API key.",
+    "请先新增 Provider 渠道，再配置路由策略。": "Create a Provider channel before configuring routing policies.",
+    "请先维护模型目录，再新增路由策略。": "Maintain the model catalog before creating routing policies.",
+    "新 Key 仅展示一次：": "New key is shown only once: ",
+    "第": "Items",
+    "条，共": "of",
+    "每页": "Per page",
+    "第一页": "First page",
+    "上一页": "Previous page",
+    "下一页": "Next page",
+    "最后一页": "Last page",
+    "名称": "Name",
+    "说明": "Description",
+    "状态": "Status",
+    "更新时间": "Updated At",
+    "类型": "Type",
+    "协议": "Protocol",
+    "端口": "Port",
+    "优先级": "Priority",
+    "权重": "Weight",
+    "模型": "Model",
+    "模型名": "Model",
+    "项目": "Project",
+    "团队": "Team",
+    "成员": "Member",
+    "用户": "User",
+    "邮箱": "Email",
+    "用户名": "Username",
+    "角色": "Role",
+    "最近登录": "Last Login",
+    "负责人": "Owner",
+    "请求": "Requests",
+    "总请求": "Total Requests",
+    "总 Token": "Total Tokens",
+    "总成本": "Total Cost",
+    "模型调用 Token": "Model call tokens",
+    "等待调用数据": "Waiting for usage data",
+    "输入 Token": "Input Tokens",
+    "输出 Token": "Output Tokens",
+    "错误请求": "Error Requests",
+    "成本": "Cost",
+    "估算成本": "Estimated Cost",
+    "时间": "Time",
+    "延迟": "Latency",
+    "最终 Provider": "Final Provider",
+    "Provider 资源": "Provider Resource",
+    "上游模型": "Upstream Model",
+    "客户端 IP": "Client IP",
+    "输入": "Input",
+    "输出": "Output",
+    "总量": "Total",
+    "上下文": "Context",
+    "条线路": "routes",
+    "未配置线路": "No routes configured",
+    "官方资源": "Official resource",
+    "能力": "Capability",
+    "最近路由": "Last Route",
+    "待请求": "Not requested",
+    "请求与响应": "Request and Response",
+    "已记录快照": "Snapshot recorded",
+    "未记录": "Not recorded",
+    "动作": "Action",
+    "操作人": "Actor",
+    "对象": "Object",
+    "对象 ID": "Object ID",
+    "来源 IP": "Source IP",
+    "成功": "Success",
+    "失败": "Failed",
+    "成功率": "Success Rate",
+    "失败请求": "Failed Requests",
+    "平均延迟": "Avg Latency",
+    "请求列表": "Request List",
+    "请求详情": "Request Details",
+    "大模型请求历史": "Model Request History",
+    "后台操作审计": "Admin Operation Audit",
+    "日志类型": "Log Type",
+    "请求状态筛选": "Request Status Filter",
+    "搜索请求历史": "Search request history",
+    "搜索请求 ID、模型、Provider、状态码": "Search request ID, model, Provider, or status code",
+    "全部": "All",
+    "所有模型": "All Models",
+    "精选": "Featured",
+    "文本": "Text",
+    "图像": "Image",
+    "视频": "Video",
+    "音频": "Audio",
+    "嵌入": "Embedding",
+    "重排序": "Rerank",
+    "三方资源": "Third-party",
+    "模型大类": "Model Categories",
+    "模型能力筛选": "Model Capability Filter",
+    "通知渠道类型": "Notification Channel Type",
+    "自动路由": "Auto Routing",
+    "搜索模型名称或 ID": "Search model name or ID",
+    "个模型": "models",
+    "个匹配模型": "matching models",
+    "没有匹配的模型": "No matching models",
+    "模型路由器": "Model Router",
+    "模型路由规则": "Model Routing Rules",
+    "参考模型路由器思路，按平衡、质量优先或成本优先模式选择候选 Provider 线路，并在失败时自动回退。": "Choose candidate Provider routes by balanced, quality-first, or cost-first strategy, and automatically fail over in order.",
+    "平衡模式综合权重、质量和成本；质量优先会先选高质量线路；成本优先会先选低成本线路。调用失败时会按候选顺序自动回退。": "Balanced mode combines weight, quality, and cost. Quality-first prefers higher-quality routes, cost-first prefers lower-cost routes, and failures fall back in candidate order.",
+    "条启用线路": "active routes",
+    "个已配置路由": "configured routes",
+    "统一模型": "Unified Model",
+    "已配置": "Configured",
+    "全部模型": "All Models",
+    "路由显示范围": "Route Display Scope",
+    "搜索模型或 Provider": "Search model or Provider",
+    "新增路由": "Create Route",
+    "未配置": "Not configured",
+    "按上到下顺序调用": "Called from top to bottom",
+    "该统一模型还没有 Provider 线路": "This unified model has no Provider route yet",
+    "拖动调整调用顺序": "Drag to adjust call order",
+    "未配置 Base URL": "Base URL not configured",
+    "没有匹配的模型路由": "No matching model routes",
+    "主": "P",
+    "路由": "Routes",
+    "自定义": "Custom",
+    "对外模型列表": "Public Model List",
+    "维护内部应用调用的对外模型名，并查看每个模型可用的 Provider 线路。": "Maintain public model names for internal applications and view available Provider routes per model.",
+    "Provider 列表": "Provider List",
+    "Provider 是一个可调用的上游渠道实例，包含服务商类型、Base URL、API Key、健康状态和标准模型路由。": "A Provider is a callable upstream channel instance with provider type, Base URL, API key, health status, and standard model routes.",
+    "路由线路": "Routes",
+    "系统管理员": "System Admin",
+    "安全审计": "Security Auditor",
+    "团队 Leader": "Team Leader",
+    "普通用户": "Regular User",
+    "全局": "Global",
+    "本人": "Self",
+    "可分配": "Assignable",
+    "是": "Yes",
+    "否": "No",
+    "角色标识": "Role Key",
+    "显示名称": "Display Name",
+    "数据范围": "Data Scope",
+    "已吊销": "Revoked",
+    "草稿": "Draft",
+    "已归档": "Archived",
+    "待处理": "Pending",
+    "已批准": "Approved",
+    "已驳回": "Rejected",
+    "已确认": "Confirmed",
+    "健康": "Healthy",
+    "正常": "OK",
+    "告警": "Warning",
+    "降级": "Degraded",
+    "异常": "Error",
+    "不可用": "Down",
+    "已过期": "Expired",
+    "未知": "Unknown",
+    "直连": "Direct",
+    "静默": "Silent",
+    "弹窗": "Popup",
+    "手动": "Manual",
+    "每日": "Daily",
+    "每周": "Weekly",
+    "每月": "Monthly",
+    "超额拦截": "Block when exceeded",
+    "仅告警": "Warn only",
+    "飞书": "Feishu",
+    "钉钉": "DingTalk",
+    "企业微信": "WeCom",
+    "邮件": "Email",
+    "操作审计": "Operation Audit",
+    "Key 发放": "Key Issuance",
+    "预算变更": "Budget Change",
+    "模型开通": "Model Access",
+    "额度提升": "Quota Increase",
+    "账单确认": "Billing Confirmation",
+    "账单驳回": "Billing Rejection",
+    "平衡": "Balanced",
+    "质量优先": "Quality First",
+    "成本优先": "Cost First",
+    "优先级 + 权重": "Priority + Weight",
+    "仅优先级": "Priority Only",
+    "文本对话": "Chat",
+    "向量嵌入": "Embedding",
+    "模拟渠道": "Mock Provider",
+    "OpenAI 官方": "OpenAI Official",
+    "OpenAI 兼容": "OpenAI Compatible",
+    "本地模型": "Local Model",
+    "Provider 健康": "Provider Health",
+    "资源实例健康": "Resource Health",
+    "请求额度": "Request Quota",
+    "Token 额度": "Token Quota",
+    "成本额度": "Cost Quota",
+    "错误率": "Error Rate",
+    "日成本额度": "Daily Cost Quota",
+    "日 Token 额度": "Daily Token Quota",
+    "P95 延迟": "P95 Latency",
+    "测试": "Test",
+    "健康变更": "Health Change",
+    "确认": "Confirm",
+    "驳回": "Reject",
+    "导出": "Export",
+  },
+  ja: {
+    "总览": "概要",
+    "网关概览": "ゲートウェイ概要",
+    "模型演练场": "モデルプレイグラウンド",
+    "接口文档": "API ドキュメント",
+    "AI 接入": "AI 接続",
+    "Provider 渠道": "Provider チャネル",
+    "模型目录": "モデルカタログ",
+    "路由策略": "ルーティングポリシー",
+    "企业治理": "企業ガバナンス",
+    "项目空间": "プロジェクト",
+    "团队分组": "チーム",
+    "用户管理": "ユーザー管理",
+    "审批记录": "承認記録",
+    "成本审计": "コスト監査",
+    "用量统计": "利用統計",
+    "请求日志": "リクエストログ",
+    "成本账单": "コスト請求",
+    "成本中心": "コストセンター",
+    "导出报表": "レポート出力",
+    "健康与告警": "ヘルスとアラート",
+    "健康检测": "ヘルスチェック",
+    "告警规则": "アラートルール",
+    "告警事件": "アラートイベント",
+    "通知渠道": "通知チャネル",
+    "通知记录": "通知記録",
+    "安全运维": "セキュリティ運用",
+    "安全策略": "セキュリティポリシー",
+    "代理出口": "プロキシ出口",
+    "数据备份": "データバックアップ",
+    "公告通知": "お知らせ",
+    "系统设置": "システム設定",
+    "新增系统设置": "システム設定を作成",
+    "网关地址、审计保留、企业集成和默认策略": "ゲートウェイアドレス、監査保持、企業連携、デフォルトポリシー",
+    "统一查看 TokenHub 的请求、成本、Provider 和治理状态。": "TokenHub のリクエスト、コスト、Provider、ガバナンス状態をまとめて確認します。",
+    "选择标准模型，按当前路由策略发起测试对话，验证 Provider、路由和返回内容。": "標準モデルを選択し、現在のルーティングでテスト会話を実行します。",
+    "面向业务开发者的模型 API 调用说明、认证方式、示例代码和错误排查。": "開発者向けのモデル API、認証、サンプル、トラブルシュートです。",
+    "按模型、项目和日期查看请求量、Token 和成本归因。": "モデル、プロジェクト、日付別にリクエスト、Token、コストを確認します。",
+    "按 Provider 和项目归集估算成本，辅助成本分摊。": "Provider とプロジェクト別に推定コストを集計します。",
+    "查看最近请求日志、状态码、模型路由和延迟。": "最近のリクエストログ、ステータス、モデルルート、レイテンシを確認します。",
+    "查看运行时触发的额度、成本和 Provider 健康告警。": "実行時に発生したクォータ、コスト、Provider ヘルスのアラートを確認します。",
+    "查看告警 Webhook 发送结果、目标和失败原因。": "アラート通知の送信結果、宛先、失敗理由を確認します。",
+    "处理 Key 发放、额度提升和模型开通等治理审批。": "Key 発行、クォータ増額、モデル開通などの承認を処理します。",
+    "登录控制台": "コンソールにログイン",
+    "企业 AI 访问与成本治理平台": "企業向け AI アクセス・コストガバナンス",
+    "账号 / 邮箱": "アカウント / メール",
+    "密码": "パスワード",
+    "登录中": "ログイン中",
+    "TokenHub 控制台": "TokenHub コンソール",
+    "展开菜单": "メニューを展開",
+    "折叠菜单": "メニューを折りたたむ",
+    "退出登录": "ログアウト",
+    "界面语言": "表示言語",
+    "选择控制台显示语言，偏好会保存在当前浏览器。": "コンソールの表示言語を選択します。設定はこのブラウザに保存されます。",
+    "当前语言": "現在の言語",
+    "平台管理员": "プラットフォーム管理者",
+    "默认项目空间": "デフォルトプロジェクトスペース",
+    "平台工程团队": "プラットフォームエンジニアリングチーム",
+    "负责内部 AI Gateway 接入与平台治理": "内部 AI Gateway のオンボーディングとプラットフォームガバナンスを担当します。",
+    "AI 平台成本中心": "AI プラットフォームコストセンター",
+    "平台工程与共享 AI 基础设施费用归属": "プラットフォームエンジニアリングと共有 AI インフラのコスト帰属です。",
+    "网关基础设置": "ゲートウェイ基本設定",
+    "模型 API 对外地址、请求超时和审计保留周期": "公開モデル API アドレス、リクエストタイムアウト、監査保持期間です。",
+    "OpenAI Compatible Gateway 默认配置": "OpenAI 互換ゲートウェイのデフォルト設定です。",
+    "产品流程": "プロダクトフロー",
+    "当前状态": "現在の状態",
+    "接入 Provider": "Provider 接続",
+    "配置上游服务商、Base URL、API Key，并映射到标准模型目录。": "上流 Provider、Base URL、API Key を設定し、標準モデルカタログへマッピングします。",
+    "维护模型目录": "モデルカタログ管理",
+    "定义内部对外模型名、上下文窗口和计价口径。": "社内向け公開モデル名、コンテキスト長、課金単位を定義します。",
+    "建立路由策略": "ルーティングポリシー作成",
+    "把对外模型映射到 Provider 的上游模型，并配置优先级与权重。": "公開モデルを Provider の上流モデルへマッピングし、優先度と重みを設定します。",
+    "发放 API Key": "API Key 発行",
+    "创建和维护当前权限范围内的内部调用凭证。": "現在の権限範囲内で内部呼び出し用の認証情報を作成・管理します。",
+    "管理团队": "チーム管理",
+    "维护团队资料、负责人和费用归属。": "チーム情報、責任者、コスト帰属を管理します。",
+    "管理成员": "メンバー管理",
+    "维护本团队成员账号和状态。": "チームメンバーのアカウントと状態を管理します。",
+    "查看用量": "利用量確認",
+    "查看当前权限范围内的请求量、Token 和成本。": "現在の権限範囲内のリクエスト、Token、コストを確認します。",
+    "查看账单": "請求確認",
+    "查看当前权限范围内的成本归因。": "現在の権限範囲内のコスト帰属を確認します。",
+    "日志与治理": "ログとガバナンス",
+    "查看请求日志、后台操作、告警规则和安全策略。": "リクエストログ、管理操作、アラートルール、セキュリティポリシーを確認します。",
+    "个可选聊天模型": "件の利用可能なチャットモデル",
+    "条启用路由": "件の有効ルート",
+    "条启用公告": "件の有効なお知らせ",
+    "管理公告": "お知らせ管理",
+    "暂无公告说明": "お知らせ説明なし",
+    "数量": "数",
+    "企业内部应用治理单元": "社内アプリケーションのガバナンス単位",
+    "内部调用凭证": "内部呼び出し用認証情報",
+    "上游渠道实例，包含 Base URL 与 Key": "Base URL と Key を含む上流チャネルインスタンス",
+    "对外模型目录": "公開モデルカタログ",
+    "对外模型到 Provider 的映射规则": "公開モデルから Provider へのマッピングルール",
+    "治理事件": "ガバナンスイベント",
+    "当前权限范围内的用户账号": "現在の権限範囲内のユーザーアカウント",
+    "系统设置分类": "システム設定カテゴリ",
+    "基础设置": "基本設定",
+    "角色配置": "ロール設定",
+    "身份源": "ID ソース",
+    "搜索名称、ID、状态": "名前、ID、状態を検索",
+    "搜索模型": "モデルを検索",
+    "搜索模型、能力、参数": "モデル、機能、パラメータを検索",
+    "新增": "作成",
+    "新增模型": "モデル作成",
+    "新增 Provider": "Provider 作成",
+    "配置": "設定",
+    "配置路由": "ルート設定",
+    "编辑": "編集",
+    "删除": "削除",
+    "保存": "保存",
+    "取消": "キャンセル",
+    "关闭": "閉じる",
+    "操作": "操作",
+    "暂无数据": "データがありません",
+    "请选择": "選択してください",
+    "开启": "オン",
+    "关闭开关": "オフ",
+    "启用": "有効",
+    "停用": "無効",
+    "禁用": "無効化",
+    "重新加载": "再読み込み",
+    "全选": "すべて選択",
+    "清空": "クリア",
+    "请选择至少一个统一模型": "少なくとも 1 つの統一モデルを選択してください",
+    "确认删除": "削除の確認",
+    "操作已完成": "操作が完了しました",
+    "操作失败": "操作に失敗しました",
+    "保存失败": "保存に失敗しました",
+    "删除失败": "削除に失敗しました",
+    "导出失败": "エクスポートに失敗しました",
+    "连接失败": "接続に失敗しました",
+    "登录失败": "ログインに失敗しました",
+    "数据加载中，请稍后再操作。": "データ読み込み中です。しばらくしてから操作してください。",
+    "请先创建项目，再在项目下发放 API Key。": "先にプロジェクトを作成してから API Key を発行してください。",
+    "请先新增 Provider 渠道，再配置路由策略。": "先に Provider チャネルを作成してからルートを設定してください。",
+    "请先维护模型目录，再新增路由策略。": "先にモデルカタログを整備してからルートを作成してください。",
+    "新 Key 仅展示一次：": "新しい Key は一度だけ表示されます: ",
+    "第": "項目",
+    "条，共": "/",
+    "每页": "件/ページ",
+    "第一页": "最初のページ",
+    "上一页": "前のページ",
+    "下一页": "次のページ",
+    "最后一页": "最後のページ",
+    "名称": "名前",
+    "说明": "説明",
+    "状态": "状態",
+    "更新时间": "更新日時",
+    "类型": "タイプ",
+    "协议": "プロトコル",
+    "端口": "ポート",
+    "优先级": "優先度",
+    "权重": "重み",
+    "模型": "モデル",
+    "模型名": "モデル",
+    "项目": "プロジェクト",
+    "团队": "チーム",
+    "成员": "メンバー",
+    "用户": "ユーザー",
+    "邮箱": "メール",
+    "用户名": "ユーザー名",
+    "角色": "ロール",
+    "最近登录": "最終ログイン",
+    "负责人": "責任者",
+    "请求": "リクエスト",
+    "总请求": "総リクエスト",
+    "总 Token": "総 Token",
+    "总成本": "総コスト",
+    "模型调用 Token": "モデル呼び出し Token",
+    "等待调用数据": "利用データ待ち",
+    "输入 Token": "入力 Token",
+    "输出 Token": "出力 Token",
+    "错误请求": "エラーリクエスト",
+    "成本": "コスト",
+    "估算成本": "推定コスト",
+    "时间": "時間",
+    "延迟": "レイテンシ",
+    "最终 Provider": "最終 Provider",
+    "Provider 资源": "Provider リソース",
+    "上游模型": "上流モデル",
+    "客户端 IP": "クライアント IP",
+    "输入": "入力",
+    "输出": "出力",
+    "总量": "合計",
+    "上下文": "コンテキスト",
+    "条线路": "件のルート",
+    "未配置线路": "ルート未設定",
+    "官方资源": "公式リソース",
+    "能力": "機能",
+    "最近路由": "最近のルート",
+    "待请求": "未リクエスト",
+    "请求与响应": "リクエストとレスポンス",
+    "已记录快照": "スナップショット記録済み",
+    "未记录": "未記録",
+    "动作": "アクション",
+    "操作人": "実行者",
+    "对象": "対象",
+    "对象 ID": "対象 ID",
+    "来源 IP": "送信元 IP",
+    "成功": "成功",
+    "失败": "失敗",
+    "成功率": "成功率",
+    "失败请求": "失敗リクエスト",
+    "平均延迟": "平均レイテンシ",
+    "请求列表": "リクエスト一覧",
+    "请求详情": "リクエスト詳細",
+    "大模型请求历史": "モデルリクエスト履歴",
+    "后台操作审计": "管理操作監査",
+    "日志类型": "ログ種別",
+    "请求状态筛选": "リクエスト状態フィルタ",
+    "搜索请求历史": "リクエスト履歴を検索",
+    "搜索请求 ID、模型、Provider、状态码": "リクエスト ID、モデル、Provider、状態コードを検索",
+    "全部": "すべて",
+    "所有模型": "すべてのモデル",
+    "精选": "注目",
+    "文本": "テキスト",
+    "图像": "画像",
+    "视频": "動画",
+    "音频": "音声",
+    "嵌入": "埋め込み",
+    "重排序": "リランキング",
+    "三方资源": "外部リソース",
+    "模型大类": "モデルカテゴリ",
+    "模型能力筛选": "モデル機能フィルタ",
+    "通知渠道类型": "通知チャネル種別",
+    "自动路由": "自動ルーティング",
+    "搜索模型名称或 ID": "モデル名または ID を検索",
+    "个模型": "モデル",
+    "个匹配模型": "件の一致モデル",
+    "没有匹配的模型": "一致するモデルがありません",
+    "模型路由器": "モデルルーター",
+    "模型路由规则": "モデルルーティングルール",
+    "参考模型路由器思路，按平衡、质量优先或成本优先模式选择候选 Provider 线路，并在失败时自动回退。": "バランス、品質優先、コスト優先の戦略で Provider ルート候補を選択し、失敗時は順番に自動フォールバックします。",
+    "平衡模式综合权重、质量和成本；质量优先会先选高质量线路；成本优先会先选低成本线路。调用失败时会按候选顺序自动回退。": "バランスモードは重み、品質、コストを統合します。品質優先は高品質ルート、コスト優先は低コストルートを優先し、失敗時は候補順にフォールバックします。",
+    "条启用线路": "件の有効ルート",
+    "个已配置路由": "件の設定済みルート",
+    "统一模型": "統一モデル",
+    "已配置": "設定済み",
+    "全部模型": "すべてのモデル",
+    "路由显示范围": "ルート表示範囲",
+    "搜索模型或 Provider": "モデルまたは Provider を検索",
+    "新增路由": "ルートを作成",
+    "未配置": "未設定",
+    "按上到下顺序调用": "上から順に呼び出します",
+    "该统一模型还没有 Provider 线路": "この統一モデルには Provider ルートがありません",
+    "拖动调整调用顺序": "ドラッグして呼び出し順を調整",
+    "未配置 Base URL": "Base URL 未設定",
+    "没有匹配的模型路由": "一致するモデルルートがありません",
+    "主": "主",
+    "路由": "ルート",
+    "自定义": "カスタム",
+    "对外模型列表": "公開モデル一覧",
+    "维护内部应用调用的对外模型名，并查看每个模型可用的 Provider 线路。": "社内アプリケーションが呼び出す公開モデル名を管理し、モデルごとの利用可能な Provider ルートを確認します。",
+    "Provider 列表": "Provider 一覧",
+    "Provider 是一个可调用的上游渠道实例，包含服务商类型、Base URL、API Key、健康状态和标准模型路由。": "Provider は呼び出し可能な上流チャネルインスタンスで、Provider 種別、Base URL、API Key、ヘルス状態、標準モデルルートを含みます。",
+    "路由线路": "ルート",
+    "系统管理员": "システム管理者",
+    "安全审计": "セキュリティ監査",
+    "团队 Leader": "チームリーダー",
+    "普通用户": "一般ユーザー",
+    "全局": "グローバル",
+    "本人": "本人",
+    "可分配": "割り当て可",
+    "是": "はい",
+    "否": "いいえ",
+    "角色标识": "ロールキー",
+    "显示名称": "表示名",
+    "数据范围": "データ範囲",
+    "已吊销": "失効済み",
+    "草稿": "下書き",
+    "已归档": "アーカイブ済み",
+    "待处理": "保留中",
+    "已批准": "承認済み",
+    "已驳回": "却下済み",
+    "已确认": "確認済み",
+    "健康": "正常",
+    "正常": "正常",
+    "告警": "警告",
+    "降级": "低下",
+    "异常": "異常",
+    "不可用": "利用不可",
+    "已过期": "期限切れ",
+    "未知": "不明",
+    "直连": "直接接続",
+    "静默": "サイレント",
+    "弹窗": "ポップアップ",
+    "手动": "手動",
+    "每日": "毎日",
+    "每周": "毎週",
+    "每月": "毎月",
+    "超额拦截": "超過時ブロック",
+    "仅告警": "警告のみ",
+    "飞书": "Feishu",
+    "钉钉": "DingTalk",
+    "企业微信": "WeCom",
+    "邮件": "メール",
+    "操作审计": "操作監査",
+    "Key 发放": "Key 発行",
+    "预算变更": "予算変更",
+    "模型开通": "モデル開通",
+    "额度提升": "クォータ増額",
+    "账单确认": "請求確認",
+    "账单驳回": "請求却下",
+    "平衡": "バランス",
+    "质量优先": "品質優先",
+    "成本优先": "コスト優先",
+    "优先级 + 权重": "優先度 + 重み",
+    "仅优先级": "優先度のみ",
+    "文本对话": "チャット",
+    "向量嵌入": "埋め込み",
+    "模拟渠道": "Mock Provider",
+    "OpenAI 官方": "OpenAI 公式",
+    "OpenAI 兼容": "OpenAI 互換",
+    "本地模型": "ローカルモデル",
+    "Provider 健康": "Provider ヘルス",
+    "资源实例健康": "リソースヘルス",
+    "请求额度": "リクエストクォータ",
+    "Token 额度": "Token クォータ",
+    "成本额度": "コストクォータ",
+    "错误率": "エラー率",
+    "日成本额度": "日次コストクォータ",
+    "日 Token 额度": "日次 Token クォータ",
+    "P95 延迟": "P95 レイテンシ",
+    "测试": "テスト",
+    "健康变更": "ヘルス変更",
+    "确认": "確認",
+    "驳回": "却下",
+    "导出": "エクスポート",
+  },
+};
+
+function readSavedLanguage(): AppLanguage {
+  if (typeof window === "undefined") return "zh-CN";
+  const saved = window.localStorage.getItem(languageStorageKey);
+  return saved === "en" || saved === "ja" || saved === "zh-CN" ? saved : "zh-CN";
+}
+
+function setActiveLanguage(language: AppLanguage) {
+  activeLanguage = language;
+}
+
+function tx(value: string | undefined | null) {
+  if (!value) return "";
+  if (activeLanguage === "zh-CN") return value;
+  return translations[activeLanguage][value] ?? value;
+}
+
+function displayText(value: string | undefined | null) {
+  return tx(value);
+}
+
+function selectedModelsText(count: number) {
+  if (activeLanguage === "en") return `${count} models selected`;
+  if (activeLanguage === "ja") return `${count} 件のモデルを選択済み`;
+  return `已选择 ${count} 个模型`;
+}
 
 const navGroups: Array<{
   title: string;
@@ -963,6 +1665,7 @@ function mergeLoadedData(current: AppData, loaded: LoadedData): AppData {
 }
 
 export default function AdminHome() {
+  const [language, setLanguage] = useState<AppLanguage>(() => readSavedLanguage());
   const [baseURL, setBaseURL] = useState(defaultBaseURL);
   const [adminToken, setAdminToken] = useState("");
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
@@ -990,6 +1693,12 @@ export default function AdminHome() {
   const api = useMemo(() => ({ baseURL, adminToken }), [baseURL, adminToken]);
   const activeConfig = resourceConfigs[activeView];
   const activeMeta = activeConfig ?? standaloneViewMeta[activeView] ?? standaloneViewMeta.overview!;
+  setActiveLanguage(language);
+
+  function changeLanguage(nextLanguage: AppLanguage) {
+    setLanguage(nextLanguage);
+  }
+
   function selectView(view: ViewKey, options: { replace?: boolean } = {}) {
     if (view !== activeView) {
       setNotice("");
@@ -1017,6 +1726,14 @@ export default function AdminHome() {
     }
     setBootstrapped(true);
   }, []);
+
+  useEffect(() => {
+    setActiveLanguage(language);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(languageStorageKey, language);
+      document.documentElement.lang = language === "zh-CN" ? "zh-CN" : language;
+    }
+  }, [language]);
 
   useEffect(() => {
     if (!bootstrapped || !adminToken || !currentUser) return;
@@ -1366,6 +2083,8 @@ export default function AdminHome() {
       <LoginView
         loading={loading}
         error={error}
+        language={language}
+        onLanguageChange={changeLanguage}
         onLogin={(identity, password) => void login(identity, password)}
       />
     );
@@ -1394,8 +2113,8 @@ export default function AdminHome() {
             <header className="page-header">
               <div>
                 <p className="eyebrow">Enterprise AI Gateway</p>
-                <h1>{activeMeta.title}</h1>
-                <p className="page-desc">{activeMeta.description}</p>
+                <h1>{tx(activeMeta.title)}</h1>
+                <p className="page-desc">{tx(activeMeta.description)}</p>
               </div>
             </header>
           )}
@@ -1421,7 +2140,9 @@ export default function AdminHome() {
             <SettingsView
               data={data}
               activeTab={settingsTab}
+              language={language}
               onTabChange={setSettingsTab}
+              onLanguageChange={changeLanguage}
               onCreate={(config) => setModal({ config })}
               onEdit={(config, item) => setModal({ config, item })}
               onDelete={(config, item) => setConfirmDelete({ config, item })}
@@ -1658,10 +2379,14 @@ export default function AdminHome() {
 function LoginView({
   loading,
   error,
+  language,
+  onLanguageChange,
   onLogin,
 }: {
   loading: boolean;
   error: string;
+  language: AppLanguage;
+  onLanguageChange: (language: AppLanguage) => void;
   onLogin: (identity: string, password: string) => void;
 }) {
   const [identity, setIdentity] = useState("");
@@ -1684,20 +2409,25 @@ function LoginView({
         </div>
 
         <div className="login-title">
-          <h1>登录控制台</h1>
-          <p>企业 AI 访问与成本治理平台</p>
+          <h1>{tx("登录控制台")}</h1>
+          <p>{tx("企业 AI 访问与成本治理平台")}</p>
         </div>
+        <LanguageSwitcher
+          className="login-language-switcher"
+          language={language}
+          onChange={onLanguageChange}
+        />
         <label className="field">
-          <span>账号 / 邮箱</span>
+          <span>{tx("账号 / 邮箱")}</span>
           <input value={identity} onChange={(event) => setIdentity(event.target.value)} required />
         </label>
         <label className="field">
-          <span>密码</span>
+          <span>{tx("密码")}</span>
           <input value={password} type="password" onChange={(event) => setPassword(event.target.value)} required />
         </label>
         {error ? <div className="login-error">{error}</div> : null}
         <button className="button login-submit" disabled={loading} type="submit">
-          {loading ? "登录中" : "登录控制台"}
+          {loading ? tx("登录中") : tx("登录控制台")}
         </button>
       </form>
     </main>
@@ -1732,13 +2462,13 @@ function Sidebar({
         <img src="/brand/tokenhub-logo.png" alt="TokenHub" className="brand-logo" />
         <span className="brand-name">TokenHub</span>
         <span className="version">v0.2.0</span>
-        <button
-          className="sidebar-toggle"
-          aria-label={collapsed ? "展开菜单" : "折叠菜单"}
-          onClick={onToggleCollapse}
-          title={collapsed ? "展开菜单" : "折叠菜单"}
-          type="button"
-        >
+          <button
+            className="sidebar-toggle"
+            aria-label={collapsed ? tx("展开菜单") : tx("折叠菜单")}
+            onClick={onToggleCollapse}
+            title={collapsed ? tx("展开菜单") : tx("折叠菜单")}
+            type="button"
+          >
           {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
         </button>
       </div>
@@ -1753,7 +2483,7 @@ function Sidebar({
                 onClick={() => onToggleGroup(group.title)}
                 type="button"
               >
-                <span>{group.title}</span>
+                <span>{tx(group.title)}</span>
                 <ChevronDown className="nav-chevron" size={14} />
               </button>
               {groupOpen ? (
@@ -1769,16 +2499,16 @@ function Sidebar({
                               className={activeView === child.view ? "nav-item active" : "nav-item"}
                               key={child.view}
                               onClick={() => onSelect(child.view)}
-                              title={child.label}
+                              title={tx(child.label)}
                               type="button"
                             >
                               <ChildIcon size={17} />
-                              <span>{child.label}</span>
+                              <span>{tx(child.label)}</span>
                             </button>
                           );
                         });
                       }
-                      const childOpen = openGroups[`nav:${item.label}`] !== false || isNavItemActive(item, activeView);
+	                      const childOpen = openGroups[`nav:${item.label}`] !== false || isNavItemActive(item, activeView);
                       return (
                         <div className={childOpen ? "nav-branch" : "nav-branch closed"} key={item.label}>
                           <button
@@ -1788,7 +2518,7 @@ function Sidebar({
                             type="button"
                           >
                             <Icon size={17} />
-                            <span>{item.label}</span>
+	                            <span>{tx(item.label)}</span>
                             <ChevronDown className="nav-chevron" size={14} />
                           </button>
                           {childOpen ? (
@@ -1803,7 +2533,7 @@ function Sidebar({
                                     type="button"
                                   >
                                     <ChildIcon size={16} />
-                                    <span>{child.label}</span>
+	                                    <span>{tx(child.label)}</span>
                                   </button>
                                 );
                               })}
@@ -1817,11 +2547,11 @@ function Sidebar({
                         className={activeView === item.view ? "nav-item active" : "nav-item"}
                         key={item.view}
                         onClick={() => onSelect(item.view)}
-                        title={collapsed ? item.label : undefined}
+	                        title={collapsed ? tx(item.label) : undefined}
                         type="button"
                       >
                         <Icon size={17} />
-                        <span>{item.label}</span>
+	                        <span>{tx(item.label)}</span>
                       </button>
                     );
                   })}
@@ -1834,10 +2564,10 @@ function Sidebar({
       <div className="sidebar-account">
         <div className="account-avatar">{userInitial(user)}</div>
         <div className="account-meta">
-          <strong>{user.name || user.username}</strong>
+          <strong>{displayText(user.name) || user.username}</strong>
           <span>{roleLabel(user.role)}</span>
         </div>
-        <button className="account-logout" onClick={onLogout} type="button" title="退出登录">
+        <button className="account-logout" onClick={onLogout} type="button" title={tx("退出登录")}>
           <LogOut size={15} />
         </button>
       </div>
@@ -1849,7 +2579,7 @@ function TopNav() {
   return (
     <header className="topbar">
       <div className="top-context">
-        <strong>TokenHub 控制台</strong>
+        <strong>{tx("TokenHub 控制台")}</strong>
         <small>Enterprise AI Gateway</small>
       </div>
     </header>
@@ -1909,10 +2639,10 @@ function OverviewView({
           const Icon = card.icon;
           return (
             <article className="metric compact-metric" key={card.label}>
-              <div className="metric-label">
-                <Icon size={17} />
-                {card.label}
-              </div>
+	              <div className="metric-label">
+	                <Icon size={17} />
+	                {tx(card.label)}
+	              </div>
               <div className="metric-value">{card.value}</div>
             </article>
           );
@@ -1924,12 +2654,12 @@ function OverviewView({
           <div className="overview-announcements-head">
             <div>
               <Bell size={17} />
-              <strong>公告通知</strong>
-              <span>{announcements.length} 条启用公告</span>
+              <strong>{tx("公告通知")}</strong>
+              <span>{announcements.length} {tx("条启用公告")}</span>
             </div>
             {can("announcements") ? (
               <button className="secondary-button compact" onClick={() => onSelect("announcements")} type="button">
-                管理公告
+                {tx("管理公告")}
               </button>
             ) : null}
           </div>
@@ -1937,8 +2667,8 @@ function OverviewView({
             {announcements.slice(0, 3).map((item) => (
               <article className={`overview-announcement ${announcementMode(item)}`} key={item.id}>
                 <div>
-                  <strong>{item.name}</strong>
-                  <p>{item.description || "暂无公告说明"}</p>
+                  <strong>{displayText(item.name)}</strong>
+                  <p>{displayText(item.description || "暂无公告说明")}</p>
                 </div>
                 <span>{announcementModeLabel(item)}</span>
               </article>
@@ -1955,8 +2685,8 @@ function OverviewView({
                 <Sparkles size={17} />
               </span>
               <span>
-                <strong>模型演练场</strong>
-                <small>{chatModels.length} 个可选聊天模型 · {activeRoutes} 条启用路由</small>
+                <strong>{tx("模型演练场")}</strong>
+                <small>{chatModels.length} {tx("个可选聊天模型")} · {activeRoutes} {tx("条启用路由")}</small>
               </span>
             </button>
           ) : null}
@@ -1965,8 +2695,8 @@ function OverviewView({
               <button className="flow-row" key={title} onClick={() => onSelect(view)} type="button">
                 <span className="step-no">{index + 1}</span>
                 <span>
-                  <strong>{title}</strong>
-                  <small>{desc}</small>
+                  <strong>{tx(title)}</strong>
+                  <small>{tx(desc)}</small>
                 </span>
               </button>
             ))}
@@ -2171,7 +2901,7 @@ function GatewayCopyCard({ label, value }: { label: string; value: string }) {
   }
   return (
     <article className="gateway-copy-card">
-      <span>{label}</span>
+      <span>{tx(label)}</span>
       <strong>{value}</strong>
       <button className="icon-button subtle" onClick={() => void copyValue()} type="button" title="复制">
         {copied ? <Check size={15} /> : <Copy size={15} />}
@@ -2747,7 +3477,7 @@ function RequestDetailPanel({
 function DetailField({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="detail-field">
-      <span>{label}</span>
+      <span>{tx(label)}</span>
       <strong>{value}</strong>
     </div>
   );
@@ -2756,7 +3486,7 @@ function DetailField({ label, value }: { label: string; value: React.ReactNode }
 function UsageStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="usage-stat">
-      <span>{label}</span>
+      <span>{tx(label)}</span>
       <strong>{value}</strong>
     </div>
   );
@@ -2766,8 +3496,8 @@ function RequestPayloadSection({ payload }: { payload: RequestPayloadLog | null 
   return (
     <div className="request-subsection">
       <div className="request-subsection-title">
-        <span>请求与响应</span>
-        <strong>{payload ? "已记录快照" : "未记录"}</strong>
+        <span>{tx("请求与响应")}</span>
+        <strong>{payload ? tx("已记录快照") : tx("未记录")}</strong>
       </div>
       {!payload ? (
         <div className="compact-empty">这条历史记录没有保存 request / response 快照</div>
@@ -2816,7 +3546,7 @@ function RequestMetric({
     <article className="metric compact-metric">
       <div className="metric-label">
         <Icon size={17} />
-        {label}
+        {tx(label)}
       </div>
       <div className="metric-value">{value}</div>
     </article>
@@ -2907,23 +3637,23 @@ function CrudView<T>({
       <div className="table-toolbar">
         <div className="search-box">
           <Search size={16} />
-          <input value={query} onChange={(event) => onQuery(event.target.value)} placeholder="搜索名称、ID、状态" />
+          <input value={query} onChange={(event) => onQuery(event.target.value)} placeholder={tx("搜索名称、ID、状态")} />
         </div>
         <div className="table-toolbar-actions">
           {config.create ? (
             <button className="button" onClick={onCreate} type="button">
               <Plus size={17} />
-              {config.view === "notification-channels" ? `配置 ${notificationChannelLabel(categoryFilter)}` : config.createLabel ?? "新增"}
+              {config.view === "notification-channels" ? `${tx("配置")} ${notificationChannelLabel(categoryFilter)}` : tx(config.createLabel ?? "新增")}
             </button>
           ) : null}
           {(config.toolbarActions ?? []).map((action) => (
-            <button className="secondary-button" key={action.label} onClick={() => onToolbarAction(action)} title={action.title} type="button">
-              {action.label}
+            <button className="secondary-button" key={action.label} onClick={() => onToolbarAction(action)} title={tx(action.title ?? action.label)} type="button">
+              {tx(action.label)}
             </button>
           ))}
         </div>
       </div>
-      {issuedKey ? <div className="secret">新 Key 仅展示一次：{issuedKey}</div> : null}
+      {issuedKey ? <div className="secret">{tx("新 Key 仅展示一次：")}{issuedKey}</div> : null}
       <div className={detailPanelOpen ? "resource-detail-layout with-panel" : "resource-detail-layout"}>
         <div className="resource-table-pane">
           <EntityTable
@@ -3260,7 +3990,7 @@ function NotificationChannelTabs({
 }) {
   const tabs = notificationChannelTabs(data);
   return (
-    <div className="category-tabs" role="tablist" aria-label="通知渠道类型">
+    <div className="category-tabs" role="tablist" aria-label={tx("通知渠道类型")}>
       {tabs.map((tab) => (
         <button
           aria-selected={active === tab.key}
@@ -3308,8 +4038,8 @@ function ModelCatalogView({
       <div className="model-catalog">
         <aside className="model-catalog-sidebar">
           <div className="model-catalog-sidebar-head">
-            <strong>模型大类</strong>
-            <span>{data.models.length} 个模型</span>
+            <strong>{tx("模型大类")}</strong>
+            <span>{data.models.length} {tx("个模型")}</span>
           </div>
           <div className="model-provider-list">
             {categories.map((item) => (
@@ -3320,7 +4050,7 @@ function ModelCatalogView({
                 type="button"
               >
                 <span className="model-provider-icon">{modelCategoryInitial(item.key, item.label)}</span>
-                <strong>{item.label}</strong>
+                <strong>{tx(item.label)}</strong>
                 <em>{item.count}</em>
               </button>
             ))}
@@ -3329,7 +4059,7 @@ function ModelCatalogView({
 
         <section className="model-catalog-main">
           <div className="model-filterbar">
-            <div className="model-capability-tabs" role="tablist" aria-label="模型能力筛选">
+            <div className="model-capability-tabs" role="tablist" aria-label={tx("模型能力筛选")}>
               {capabilities.map((item) => (
                 <button
                   aria-selected={capability === item.key}
@@ -3337,12 +4067,12 @@ function ModelCatalogView({
                   key={item.key}
                   onClick={() => setCapability(item.key)}
                   role="tab"
-                  type="button"
-                >
-                  <item.icon size={14} />
-                  <span>{item.label}</span>
-                  <em>{item.count}</em>
-                </button>
+                type="button"
+              >
+                <item.icon size={14} />
+                <span>{tx(item.label)}</span>
+                <em>{item.count}</em>
+              </button>
               ))}
             </div>
             <div className="model-catalog-actions">
@@ -3351,24 +4081,24 @@ function ModelCatalogView({
                 <input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="搜索模型名称或 ID"
+                  placeholder={tx("搜索模型名称或 ID")}
                 />
               </div>
               <button className="button" onClick={onCreate} type="button">
                 <Plus size={17} />
-                {config.createLabel ?? "新增模型"}
+                {tx(config.createLabel ?? "新增模型")}
               </button>
             </div>
           </div>
 
           <div className="model-catalog-summary">
-            <span>{modelCatalogFilterLabel(categories, category)}</span>
+            <span>{tx(modelCatalogFilterLabel(categories, category))}</span>
             <strong>{filtered.length}</strong>
-            <em>个匹配模型</em>
+            <em>{tx("个匹配模型")}</em>
           </div>
 
           {filtered.length === 0 ? (
-            <div className="empty model-catalog-empty">没有匹配的模型</div>
+            <div className="empty model-catalog-empty">{tx("没有匹配的模型")}</div>
           ) : (
             <div className="model-card-grid">
               {filtered.map((model) => (
@@ -3425,8 +4155,8 @@ function RouteStrategyView({
       <div className="route-matrix">
         <aside className="model-catalog-sidebar">
           <div className="model-catalog-sidebar-head">
-            <strong>统一模型</strong>
-            <span>{configuredCount} 个已配置路由</span>
+            <strong>{tx("统一模型")}</strong>
+            <span>{configuredCount} {tx("个已配置路由")}</span>
           </div>
           <div className="model-provider-list">
             {categories.map((item) => (
@@ -3437,7 +4167,7 @@ function RouteStrategyView({
                 type="button"
               >
                 <span className="model-provider-icon">{modelCategoryInitial(item.key, item.label)}</span>
-                <strong>{item.label}</strong>
+                <strong>{tx(item.label)}</strong>
                 <em>{item.count}</em>
               </button>
             ))}
@@ -3446,7 +4176,7 @@ function RouteStrategyView({
 
         <section className="model-catalog-main">
           <div className="model-filterbar">
-            <div className="model-capability-tabs" role="tablist" aria-label="路由显示范围">
+            <div className="model-capability-tabs" role="tablist" aria-label={tx("路由显示范围")}>
               <button
                 aria-selected={scope === "configured"}
                 className={scope === "configured" ? "model-capability-tab active" : "model-capability-tab"}
@@ -3455,7 +4185,7 @@ function RouteStrategyView({
                 type="button"
               >
                 <Gauge size={14} />
-                <span>已配置</span>
+                <span>{tx("已配置")}</span>
                 <em>{configuredCount}</em>
               </button>
               <button
@@ -3466,30 +4196,30 @@ function RouteStrategyView({
                 type="button"
               >
                 <Boxes size={14} />
-                <span>全部模型</span>
+                <span>{tx("全部模型")}</span>
                 <em>{data.models.length}</em>
               </button>
             </div>
             <div className="model-catalog-actions">
               <div className="search-box model-search">
                 <Search size={16} />
-                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索模型或 Provider" />
+                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tx("搜索模型或 Provider")} />
               </div>
               <button className="button" onClick={onCreate} type="button">
                 <Plus size={17} />
-                {config.createLabel ?? "新增路由"}
+                {tx(config.createLabel ?? "新增路由")}
               </button>
             </div>
           </div>
 
           <div className="model-catalog-summary">
-            <span>{modelCatalogFilterLabel(categories, category)}</span>
+            <span>{tx(modelCatalogFilterLabel(categories, category))}</span>
             <strong>{filtered.length}</strong>
-            <em>个模型 · {activeRouteCount}/{data.routes.length} 条启用线路</em>
+            <em>{tx("个模型")} · {activeRouteCount}/{data.routes.length} {tx("条启用线路")}</em>
           </div>
 
           {filtered.length === 0 ? (
-            <div className="empty model-catalog-empty">没有匹配的模型路由</div>
+            <div className="empty model-catalog-empty">{tx("没有匹配的模型路由")}</div>
           ) : (
             <div className="route-model-list">
               {filtered.map((model) => (
@@ -3557,13 +4287,13 @@ function RouteModelCard({
           <h2>{model.name}</h2>
         </div>
         <div className="route-model-stats">
-          <StatusPill status={routes.length > 0 ? "active" : "disabled"} label={routes.length > 0 ? `${activeRoutes.length}/${routes.length} 启用` : "未配置"} />
-          <span>按上到下顺序调用</span>
+          <StatusPill status={routes.length > 0 ? "active" : "disabled"} label={routes.length > 0 ? `${activeRoutes.length}/${routes.length} ${tx("启用")}` : tx("未配置")} />
+          <span>{tx("按上到下顺序调用")}</span>
         </div>
       </div>
 
       {routes.length === 0 ? (
-        <div className="empty route-empty">该统一模型还没有 Provider 线路</div>
+        <div className="empty route-empty">{tx("该统一模型还没有 Provider 线路")}</div>
       ) : (
         <div className="route-order-list">
           {routes.map((route, index) => (
@@ -3628,13 +4358,13 @@ function RouteProviderRow({
         onDrop();
       }}
     >
-      <button className="route-drag-handle" disabled={loading} title="拖动调整调用顺序" type="button">
+      <button className="route-drag-handle" disabled={loading} title={tx("拖动调整调用顺序")} type="button">
         <GripVertical size={15} />
       </button>
-      <div className="route-order-badge">{index === 0 ? "主" : index + 1}</div>
+      <div className="route-order-badge">{index === 0 ? tx("主") : index + 1}</div>
       <div className="route-provider-main">
         <strong>{provider?.name || route.provider_id}</strong>
-        <span>{providerTypeLabel(provider?.type)} · {provider?.base_url || "未配置 Base URL"}</span>
+        <span>{providerTypeLabel(provider?.type)} · {provider?.base_url || tx("未配置 Base URL")}</span>
       </div>
       <div className="route-upstream-model">
         <strong>{route.provider_model}</strong>
@@ -3642,8 +4372,8 @@ function RouteProviderRow({
       </div>
       <StatusPill status={route.status} />
       <div className="route-row-actions">
-        <button className="text-button" onClick={onEdit} type="button">编辑</button>
-        <button className="danger-button" onClick={onDelete} title="删除" type="button">
+        <button className="text-button" onClick={onEdit} type="button">{tx("编辑")}</button>
+        <button className="danger-button" onClick={onDelete} title={tx("删除")} type="button">
           <Trash2 size={15} />
         </button>
       </div>
@@ -3685,8 +4415,8 @@ function ModelCatalogCard({
 
       <div className="model-card-tags">
         <span>{modelCapabilityLabel(model)}</span>
-        <span>{routeCount > 0 ? `${routeCount} 条线路` : "未配置线路"}</span>
-        {hasThirdPartyRoute(model, data) ? <span className="third">三方资源</span> : <span className="official">官方资源</span>}
+        <span>{routeCount > 0 ? `${routeCount} ${tx("条线路")}` : tx("未配置线路")}</span>
+        {hasThirdPartyRoute(model, data) ? <span className="third">{tx("三方资源")}</span> : <span className="official">{tx("官方资源")}</span>}
       </div>
 
       <div className="model-card-pricing">
@@ -3703,11 +4433,11 @@ function ModelCatalogCard({
       <div className="model-card-actions">
         {actions.map((action) => (
           <button className="text-button" key={action.label} onClick={() => onAction(action, model)} type="button">
-            {action.label}
+            {tx(action.label)}
           </button>
         ))}
-        <button className="text-button" onClick={() => onEdit(model)} type="button">编辑</button>
-        <button className="danger-button" onClick={() => onDelete(model)} title="删除" type="button">
+        <button className="text-button" onClick={() => onEdit(model)} type="button">{tx("编辑")}</button>
+        <button className="danger-button" onClick={() => onDelete(model)} title={tx("删除")} type="button">
           <Trash2 size={15} />
         </button>
       </div>
@@ -3719,7 +4449,7 @@ function ModelMetric({ label, value, muted }: { label: string; value: string; mu
   return (
     <div className={muted ? "model-metric muted" : "model-metric"}>
       <strong>{value}</strong>
-      <span>{label}</span>
+      <span>{tx(label)}</span>
     </div>
   );
 }
@@ -3727,7 +4457,9 @@ function ModelMetric({ label, value, muted }: { label: string; value: string; mu
 function SettingsView({
   data,
   activeTab,
+  language,
   onTabChange,
+  onLanguageChange,
   onCreate,
   onEdit,
   onDelete,
@@ -3736,7 +4468,9 @@ function SettingsView({
 }: {
   data: AppData;
   activeTab: SettingsTabKey;
+  language: AppLanguage;
   onTabChange: (tab: SettingsTabKey) => void;
+  onLanguageChange: (language: AppLanguage) => void;
   onCreate: (config: ResourceConfig<AdminResource>) => void;
   onEdit: (config: ResourceConfig<AdminResource>, item: AdminResource) => void;
   onDelete: (config: ResourceConfig<AdminResource>, item: AdminResource) => void;
@@ -3757,7 +4491,8 @@ function SettingsView({
 
   return (
     <div className="settings-view">
-      <div className="settings-tabs" role="tablist" aria-label="系统设置分类">
+      <LanguagePreferenceCard language={language} onChange={onLanguageChange} />
+      <div className="settings-tabs" role="tablist" aria-label={tx("系统设置分类")}>
         {configs.map((config) => (
           <button
             aria-selected={activeConfig.view === config.view}
@@ -3792,6 +4527,59 @@ function SettingsView({
   );
 }
 
+function LanguagePreferenceCard({
+  language,
+  onChange,
+}: {
+  language: AppLanguage;
+  onChange: (language: AppLanguage) => void;
+}) {
+  const current = languageOptions.find((option) => option.value === language) ?? languageOptions[0];
+  return (
+    <section className="language-card">
+      <div>
+        <strong>{tx("界面语言")}</strong>
+        <span>{tx("选择控制台显示语言，偏好会保存在当前浏览器。")}</span>
+      </div>
+      <div className="language-card-control">
+        <small>{tx("当前语言")}: {languageOptionLabel(current, language)}</small>
+        <LanguageSwitcher language={language} onChange={onChange} />
+      </div>
+    </section>
+  );
+}
+
+function LanguageSwitcher({
+  language,
+  onChange,
+  className,
+}: {
+  language: AppLanguage;
+  onChange: (language: AppLanguage) => void;
+  className?: string;
+}) {
+  return (
+    <div className={className ? `language-switcher ${className}` : "language-switcher"} role="radiogroup" aria-label={tx("界面语言")}>
+      {languageOptions.map((option) => (
+        <button
+          aria-checked={language === option.value}
+          className={language === option.value ? "active" : ""}
+          key={option.value}
+          onClick={() => onChange(option.value)}
+          role="radio"
+          type="button"
+        >
+          <span>{languageOptionLabel(option, language)}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function languageOptionLabel(option: { label: string; nativeLabel: string }, language: AppLanguage) {
+  return language === "en" ? option.label : option.nativeLabel;
+}
+
 function APIKeyFlowHint({ data }: { data: AppData }) {
   return (
     <div className="workflow-hint">
@@ -3812,12 +4600,12 @@ function RouteStrategyHint({ data }: { data: AppData }) {
   return (
     <div className="workflow-hint">
       <div>
-        <strong>模型路由器</strong>
-        <span>平衡模式综合权重、质量和成本；质量优先会先选高质量线路；成本优先会先选低成本线路。调用失败时会按候选顺序自动回退。</span>
+        <strong>{tx("模型路由器")}</strong>
+        <span>{tx("平衡模式综合权重、质量和成本；质量优先会先选高质量线路；成本优先会先选低成本线路。调用失败时会按候选顺序自动回退。")}</span>
       </div>
       <div className="workflow-hint-stats">
-        <span>{activeRoutes} 条启用线路</span>
-        <span>{data.providers.filter((provider) => provider.status === "active").length} 个 Provider</span>
+        <span>{activeRoutes} {tx("条启用线路")}</span>
+        <span>{data.providers.filter((provider) => provider.status === "active").length} Provider</span>
       </div>
     </div>
   );
@@ -3843,7 +4631,7 @@ function EntityTable<T>({
   selectedRowID?: string;
 }) {
   if (items.length === 0) {
-    return <div className="empty">暂无数据</div>;
+    return <div className="empty">{tx("暂无数据")}</div>;
   }
   return (
     <div className="table-wrap">
@@ -3851,9 +4639,9 @@ function EntityTable<T>({
         <thead>
           <tr>
             {config.columns.map((column) => (
-              <th key={column.key}>{column.label}</th>
+              <th key={column.key}>{tx(column.label)}</th>
             ))}
-            <th>操作</th>
+            <th>{tx("操作")}</th>
           </tr>
         </thead>
         <tbody>
@@ -3873,7 +4661,7 @@ function EntityTable<T>({
                   ) : column.render ? (
                     column.render(item, data)
                   ) : (
-                    readPath(item, column.key)
+                    displayCellValue(readPath(item, column.key))
                   )}
                 </td>
               ))}
@@ -3886,19 +4674,19 @@ function EntityTable<T>({
                         className="text-button"
                         key={action.label}
                         onClick={() => onAction(action, item)}
-                        title={action.title ?? action.label}
+                        title={tx(action.title ?? action.label)}
                         type="button"
                       >
-                        {action.label}
+                        {tx(action.label)}
                       </button>
                     ))}
                   {config.update ? (
                     <button className="text-button" onClick={() => onEdit(item)} type="button">
-                      编辑
+                      {tx("编辑")}
                     </button>
                   ) : null}
                   {config.remove ? (
-                    <button className="danger-button" onClick={() => onDelete(item)} type="button" title="删除">
+                    <button className="danger-button" onClick={() => onDelete(item)} type="button" title={tx("删除")}>
                       <Trash2 size={15} />
                     </button>
                   ) : null}
@@ -3910,6 +4698,11 @@ function EntityTable<T>({
       </table>
     </div>
   );
+}
+
+function displayCellValue(value: unknown) {
+  if (typeof value === "string") return displayText(value);
+  return value as React.ReactNode;
 }
 
 type PaginationState = {
@@ -3968,11 +4761,15 @@ function PaginationControls({
   return (
     <div className="pagination">
       <div className="pagination-summary">
-        第 {pagination.startIndex + 1}-{pagination.endIndex} 条，共 {totalItems} 条
+        {activeLanguage === "zh-CN"
+          ? `第 ${pagination.startIndex + 1}-${pagination.endIndex} 条，共 ${totalItems} 条`
+          : activeLanguage === "ja"
+            ? `${pagination.startIndex + 1}-${pagination.endIndex} / ${totalItems} 件`
+            : `${pagination.startIndex + 1}-${pagination.endIndex} of ${totalItems}`}
       </div>
       <div className="pagination-controls">
         <label className="page-size">
-          <span>每页</span>
+          <span>{tx("每页")}</span>
           <select
             value={pagination.pageSize}
             onChange={(event) => pagination.setPageSize(Number(event.target.value))}
@@ -3985,7 +4782,7 @@ function PaginationControls({
         <div className="page-buttons">
           <button
             type="button"
-            title="第一页"
+            title={tx("第一页")}
             onClick={() => pagination.setPage(1)}
             disabled={pagination.page <= 1}
           >
@@ -3993,7 +4790,7 @@ function PaginationControls({
           </button>
           <button
             type="button"
-            title="上一页"
+            title={tx("上一页")}
             onClick={() => pagination.setPage(pagination.page - 1)}
             disabled={pagination.page <= 1}
           >
@@ -4002,7 +4799,7 @@ function PaginationControls({
           <span>{pagination.page} / {pagination.pageCount}</span>
           <button
             type="button"
-            title="下一页"
+            title={tx("下一页")}
             onClick={() => pagination.setPage(pagination.page + 1)}
             disabled={pagination.page >= pagination.pageCount}
           >
@@ -4010,7 +4807,7 @@ function PaginationControls({
           </button>
           <button
             type="button"
-            title="最后一页"
+            title={tx("最后一页")}
             onClick={() => pagination.setPage(pagination.pageCount)}
             disabled={pagination.page >= pagination.pageCount}
           >
@@ -4051,10 +4848,10 @@ function EditModal<T>({
       <form className="modal" onSubmit={submit}>
         <div className="modal-header">
           <div>
-            <p className="eyebrow">{state.item ? "编辑" : "新增"}</p>
-            <h2>{state.config.title}</h2>
+            <p className="eyebrow">{state.item ? tx("编辑") : tx("新增")}</p>
+            <h2>{tx(state.config.title)}</h2>
           </div>
-          <button className="icon-button" onClick={onClose} type="button" title="关闭">×</button>
+          <button className="icon-button" onClick={onClose} type="button" title={tx("关闭")}>×</button>
         </div>
         <div className="modal-body">
           {state.config.fields.filter((field) => field.visible?.(values) ?? true).map((field) => (
@@ -4069,8 +4866,8 @@ function EditModal<T>({
           ))}
         </div>
         <div className="modal-actions">
-          <button className="secondary-button" onClick={onClose} type="button">取消</button>
-          <button className="button" disabled={loading} type="submit">保存</button>
+          <button className="secondary-button" onClick={onClose} type="button">{tx("取消")}</button>
+          <button className="button" disabled={loading} type="submit">{tx("保存")}</button>
         </div>
       </form>
     </div>
@@ -4825,7 +5622,7 @@ function ProviderUpsertModal({
                 <strong>自动路由</strong>
                 <span>{mode === "edit" ? "开启后会为下方勾选模型补齐缺失线路，不覆盖已有策略。" : "保存渠道时会自动创建下方勾选模型的默认路由。"}</span>
               </div>
-              <div className="boolean-toggle provider-route-toggle" role="radiogroup" aria-label="自动路由">
+              <div className="boolean-toggle provider-route-toggle" role="radiogroup" aria-label={tx("自动路由")}>
                 <button
                   aria-checked={autoRouteEnabled}
                   className={autoRouteEnabled ? "active" : ""}
@@ -4922,11 +5719,11 @@ function ConfirmDialog({
   return (
     <div className="modal-backdrop" role="presentation">
       <div className="confirm-modal" role="dialog" aria-modal="true">
-        <h2>{title}</h2>
-        <p>{message}</p>
+        <h2>{tx(title)}</h2>
+        <p>{tx(message)}</p>
         <div className="modal-actions">
-          <button className="secondary-button" onClick={onCancel} type="button">取消</button>
-          <button className="danger-confirm" onClick={onConfirm} disabled={loading} type="button">删除</button>
+          <button className="secondary-button" onClick={onCancel} type="button">{tx("取消")}</button>
+          <button className="danger-confirm" onClick={onConfirm} disabled={loading} type="button">{tx("删除")}</button>
         </div>
       </div>
     </div>
@@ -4962,12 +5759,12 @@ function FieldInput({
     const updateSelected = (next: Set<string>) => onChange(Array.from(next).join(", "));
     return (
       <div className="field multi-select-field">
-        <span>{field.label}</span>
+        <span>{tx(field.label)}</span>
         <div className="multi-select-tools">
           <input
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
-            placeholder="搜索模型"
+            placeholder={tx("搜索模型")}
             type="search"
           />
           <button
@@ -4975,15 +5772,15 @@ function FieldInput({
             onClick={() => updateSelected(new Set([...selected, ...filteredOptions.map((option) => option.value)]))}
             type="button"
           >
-            全选
+            {tx("全选")}
           </button>
           <button className="secondary-button" onClick={() => onChange("")} type="button">
-            清空
+            {tx("清空")}
           </button>
         </div>
         <div className="multi-select-list">
           {filteredOptions.length === 0 ? (
-            <div className="empty">没有匹配的模型</div>
+            <div className="empty">{tx("没有匹配的模型")}</div>
           ) : filteredOptions.map((option) => (
             <label className="multi-select-option" key={option.value}>
               <input
@@ -4999,35 +5796,35 @@ function FieldInput({
                 }}
                 type="checkbox"
               />
-              <span>{option.label}</span>
+              <span>{tx(option.label)}</span>
             </label>
           ))}
         </div>
-        <small>{selectedCount > 0 ? `已选择 ${selectedCount} 个模型` : "请选择至少一个统一模型"}</small>
-        {field.help ? <small>{field.help}</small> : null}
+        <small>{selectedCount > 0 ? selectedModelsText(selectedCount) : tx("请选择至少一个统一模型")}</small>
+        {field.help ? <small>{tx(field.help)}</small> : null}
       </div>
     );
   }
   if (field.type === "select" || field.type === "multi-select") {
     return (
       <label className="field">
-        <span>{field.label}</span>
+        <span>{tx(field.label)}</span>
         <select value={value} onChange={(event) => onChange(event.target.value)} required={field.required} disabled={readOnly}>
-          <option value="">请选择</option>
+          <option value="">{tx("请选择")}</option>
           {options.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
+            <option key={option.value} value={option.value}>{tx(option.label)}</option>
           ))}
         </select>
-        {field.help ? <small>{field.help}</small> : null}
+        {field.help ? <small>{tx(field.help)}</small> : null}
       </label>
     );
   }
   if (field.type === "textarea") {
     return (
       <label className="field">
-        <span>{field.label}</span>
-        <textarea value={value} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} required={field.required} readOnly={readOnly} />
-        {field.help ? <small>{field.help}</small> : null}
+        <span>{tx(field.label)}</span>
+        <textarea value={value} onChange={(event) => onChange(event.target.value)} placeholder={tx(field.placeholder)} required={field.required} readOnly={readOnly} />
+        {field.help ? <small>{tx(field.help)}</small> : null}
       </label>
     );
   }
@@ -5035,8 +5832,8 @@ function FieldInput({
     const checked = value === "true";
     return (
       <label className="field">
-        <span>{field.label}</span>
-        <div className="boolean-toggle" role="radiogroup" aria-label={field.label}>
+        <span>{tx(field.label)}</span>
+        <div className="boolean-toggle" role="radiogroup" aria-label={tx(field.label)}>
           <button
             aria-checked={checked}
             className={checked ? "active" : ""}
@@ -5045,7 +5842,7 @@ function FieldInput({
             role="radio"
             type="button"
           >
-            开启
+            {tx("开启")}
           </button>
           <button
             aria-checked={!checked}
@@ -5055,25 +5852,25 @@ function FieldInput({
             role="radio"
             type="button"
           >
-            关闭
+            {tx("关闭开关")}
           </button>
         </div>
-        {field.help ? <small>{field.help}</small> : null}
+        {field.help ? <small>{tx(field.help)}</small> : null}
       </label>
     );
   }
   return (
     <label className="field">
-      <span>{field.label}</span>
+      <span>{tx(field.label)}</span>
       <input
         value={value}
         type={field.type === "number" ? "number" : field.type === "password" ? "password" : "text"}
         onChange={(event) => onChange(event.target.value)}
-        placeholder={field.placeholder}
+        placeholder={tx(field.placeholder)}
         required={field.required}
         readOnly={readOnly}
       />
-      {field.help ? <small>{field.help}</small> : null}
+      {field.help ? <small>{tx(field.help)}</small> : null}
     </label>
   );
 }
@@ -5088,7 +5885,7 @@ function DataSection({
   return (
     <section className="section">
       <div className="section-header">
-        <h2>{title}</h2>
+        <h2>{tx(title)}</h2>
       </div>
       <div className="section-body">{children}</div>
     </section>
@@ -5104,7 +5901,7 @@ function SimpleTable({
   rows: React.ReactNode[][];
   paginationKey?: string;
 }) {
-  if (rows.length === 0) return <div className="empty">暂无数据</div>;
+  if (rows.length === 0) return <div className="empty">{tx("暂无数据")}</div>;
   if (paginationKey) {
     return <PaginatedSimpleTable columns={columns} rows={rows} paginationKey={paginationKey} />;
   }
@@ -5112,11 +5909,11 @@ function SimpleTable({
     <div className="table-wrap">
       <table>
         <thead>
-          <tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr>
+          <tr>{columns.map((column) => <th key={column}>{tx(column)}</th>)}</tr>
         </thead>
         <tbody>
           {rows.map((row, index) => (
-            <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>
+            <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{typeof cell === "string" ? tx(cell) : cell}</td>)}</tr>
           ))}
         </tbody>
       </table>
@@ -5143,7 +5940,7 @@ function PaginatedSimpleTable({
       <div className="table-wrap">
         <table>
           <thead>
-            <tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr>
+            <tr>{columns.map((column) => <th key={column}>{tx(column)}</th>)}</tr>
           </thead>
           <tbody>
             {visibleRows.map((row, index) => (
@@ -5172,7 +5969,7 @@ function UsageBarChart({ data }: { data: UsagePoint[] }) {
     <div className="chart-wrap">
       <div className="legend">
         <span className="legend-dot" />
-        <span>{points.some((point) => point.total_tokens > 0) ? "模型调用 Token" : "等待调用数据"}</span>
+        <span>{points.some((point) => point.total_tokens > 0) ? tx("模型调用 Token") : tx("等待调用数据")}</span>
       </div>
       <svg className="chart" viewBox={`0 0 ${width} ${height}`} role="img">
         {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
@@ -5214,7 +6011,7 @@ function StatusPill({ status, label }: { status: string; label?: string }) {
         : normalized === "error" || normalized === "down" || normalized === "disabled" || normalized === "rejected" || normalized === "failed" || normalized === "revoked" || normalized === "expired"
           ? "error"
           : "";
-  return <span className={`pill ${kind}`}>{label ?? enumValueLabel(status)}</span>;
+  return <span className={`pill ${kind}`}>{label ? tx(label) : enumValueLabel(status)}</span>;
 }
 
 function ModelNameCell({ model }: { model: Model }) {
@@ -5229,7 +6026,7 @@ function ModelNameCell({ model }: { model: Model }) {
 function ModelRouteProviders({ model, data }: { model: Model; data: AppData }) {
   const routes = modelRoutesFor(model, data);
   if (routes.length === 0) {
-    return <span className="muted-inline">未配置线路</span>;
+    return <span className="muted-inline">{tx("未配置线路")}</span>;
   }
   return (
     <div className="route-provider-list">
@@ -7197,7 +7994,7 @@ function notificationChannelLabel(type: string) {
     slack: "Slack",
     email: "邮件",
   };
-  return labels[normalizeNotificationChannelType(type)] ?? type;
+  return tx(labels[normalizeNotificationChannelType(type)] ?? type);
 }
 
 function notificationChannelDescription(type: string) {
@@ -7262,7 +8059,7 @@ function modelCatalogCategories(data: AppData) {
     if (!ordered.includes(category)) ordered.push(category);
   }
   return [
-    { key: "all", label: "全部", count: data.models.length },
+    { key: "all", label: modelCategoryLabel("all"), count: data.models.length },
     ...ordered.map((key) => ({ key, label: modelCategoryLabel(key), count: counts.get(key) ?? 0 })),
   ];
 }
@@ -7339,7 +8136,7 @@ function modelCapabilityLabel(model: Model) {
     embedding: "嵌入",
     rerank: "重排序",
   };
-  return modelCapabilityKeys(model).map((key) => labels[key] ?? key).slice(0, 3).join(" / ");
+  return modelCapabilityKeys(model).map((key) => tx(labels[key] ?? key)).slice(0, 3).join(" / ");
 }
 
 function isFeaturedModel(model: Model) {
@@ -7422,7 +8219,7 @@ function standardModelCategory(category: string) {
 }
 
 function modelCategoryLabel(category: string) {
-  return modelCategoryLabels[category] ?? category;
+  return tx(modelCategoryLabels[category] ?? category);
 }
 
 function inferModelCategoryText(value: string) {
@@ -7717,7 +8514,7 @@ function routeModelCategories(data: AppData) {
     .map(([key, count]) => ({ key, label: modelCategoryLabel(key), count }))
     .sort((left, right) => preferredModelCategories.indexOf(left.key) - preferredModelCategories.indexOf(right.key) || left.label.localeCompare(right.label));
   const total = items.reduce((sum, item) => sum + item.count, 0);
-  return [{ key: "all", label: "全部", count: total }, ...items];
+  return [{ key: "all", label: modelCategoryLabel("all"), count: total }, ...items];
 }
 
 function filterRouteModels(data: AppData, category: string, scope: "configured" | "all", query: string) {
@@ -7916,7 +8713,7 @@ function compactList(value: unknown) {
 
 function boolLabel(value: unknown) {
   const text = stringifyValue(value).trim().toLowerCase();
-  return text === "false" || text === "0" || text === "no" ? "否" : "是";
+  return text === "false" || text === "0" || text === "no" ? tx("否") : tx("是");
 }
 
 function settingsTabLabel(tab: SettingsTabKey) {
@@ -7925,7 +8722,7 @@ function settingsTabLabel(tab: SettingsTabKey) {
     "role-configs": "角色配置",
     "identity-providers": "身份源",
   };
-  return labels[tab];
+  return tx(labels[tab]);
 }
 
 function identityProviderTypeLabel(type: string) {
@@ -7945,7 +8742,7 @@ function dataScopeLabel(scope: string) {
     project: "项目",
     self: "本人",
   };
-  return labels[scope] ?? (scope || "-");
+  return tx(labels[scope] ?? (scope || "-"));
 }
 
 function enumOptionLabel(fieldKey: string, value: string) {
@@ -8032,7 +8829,7 @@ function enumValueLabel(value: string | undefined) {
     ocr: "OCR",
     rerank: "重排序",
   };
-  return labels[normalized] ?? roleLabel(normalized) ?? value ?? "-";
+  return tx(labels[normalized] ?? roleLabel(normalized) ?? value ?? "-");
 }
 
 function fieldValueLabel(fieldKey: string, value: unknown): string {
@@ -8084,7 +8881,7 @@ function fieldKeyLabel(key: string) {
     smtp_from: "发件人",
     email_to: "收件人",
   };
-  return labels[key] ?? key;
+  return tx(labels[key] ?? key);
 }
 
 function monitorTargetLabel(fields?: Record<string, unknown>) {
@@ -8095,7 +8892,7 @@ function monitorTargetLabel(fields?: Record<string, unknown>) {
     provider_resource: "资源实例",
     model: "模型路由",
   };
-  return labels[target] ?? (target || "-");
+  return tx(labels[target] ?? (target || "-"));
 }
 
 function alertMetricLabel(metric: string) {
@@ -8110,7 +8907,7 @@ function alertMetricLabel(metric: string) {
     error_rate: "错误率",
     latency_p95: "P95 延迟",
   };
-  return labels[metric] ?? (metric || "-");
+  return tx(labels[metric] ?? (metric || "-"));
 }
 
 function parseLooseValue(value: string) {
@@ -8133,7 +8930,7 @@ function roleLabel(role: string) {
     readonly: "普通用户",
     read_only: "普通用户",
   };
-  return labels[role] ?? role;
+  return tx(labels[role] ?? role);
 }
 
 function providerTypeLabel(type: string | undefined) {
@@ -8150,7 +8947,7 @@ function providerTypeLabel(type: string | undefined) {
     qwen: "Qwen / 通义千问",
     local: "本地模型",
   };
-  return labels[normalized] ?? type ?? "-";
+  return tx(labels[normalized] ?? type ?? "-");
 }
 
 function budgetScopeLabel(scope: string) {
@@ -8160,7 +8957,7 @@ function budgetScopeLabel(scope: string) {
     cost_center: "成本中心",
     "cost-center": "成本中心",
   };
-  return labels[scope] ?? scope;
+  return tx(labels[scope] ?? scope);
 }
 
 function budgetEnforcementLabel(value: string) {
@@ -8172,7 +8969,7 @@ function budgetEnforcementLabel(value: string) {
     off: "关闭",
     disabled: "关闭",
   };
-  return labels[value || "block"] ?? value;
+  return tx(labels[value || "block"] ?? value);
 }
 
 function reportDatasetLabel(dataset: string) {
@@ -8187,7 +8984,7 @@ function reportDatasetLabel(dataset: string) {
     "audit-events": "操作审计",
     "alert-deliveries": "通知记录",
   };
-  return labels[dataset] ?? dataset;
+  return tx(labels[dataset] ?? dataset);
 }
 
 function reportScheduleLabel(schedule: string) {
@@ -8197,7 +8994,7 @@ function reportScheduleLabel(schedule: string) {
     weekly: "每周",
     monthly: "每月",
   };
-  return labels[schedule] ?? schedule;
+  return tx(labels[schedule] ?? schedule);
 }
 
 function actionLabel(action: string) {
@@ -8211,7 +9008,7 @@ function actionLabel(action: string) {
     reject: "驳回",
     export: "导出",
   };
-  return labels[action] ?? action;
+  return tx(labels[action] ?? action);
 }
 
 function resourceTypeLabel(type: string) {
@@ -8227,7 +9024,7 @@ function resourceTypeLabel(type: string) {
     "security-policies": "安全策略",
     "alert-rules": "告警规则",
   };
-  return labels[type] ?? type;
+  return tx(labels[type] ?? type);
 }
 
 function approvalTriggerLabel(trigger: string) {
@@ -8239,7 +9036,7 @@ function approvalTriggerLabel(trigger: string) {
     invoice_confirm: "账单确认",
     invoice_reject: "账单驳回",
   };
-  return labels[trigger] ?? trigger;
+  return tx(labels[trigger] ?? trigger);
 }
 
 function approvalStatusLabel(status: string) {
@@ -8248,7 +9045,7 @@ function approvalStatusLabel(status: string) {
     approved: "已批准",
     rejected: "已驳回",
   };
-  return labels[status] ?? status;
+  return tx(labels[status] ?? status);
 }
 
 function invoiceStatusLabel(status: string) {
@@ -8259,7 +9056,7 @@ function invoiceStatusLabel(status: string) {
     active: "有效",
     disabled: "停用",
   };
-  return labels[status] ?? status;
+  return tx(labels[status] ?? status);
 }
 
 function approvalPayloadSummary(payload?: string) {
@@ -8282,7 +9079,7 @@ function approvalPayloadSummary(payload?: string) {
 }
 
 function userInitial(user: AdminUser) {
-  const source = user.name || user.username || user.email || "U";
+  const source = displayText(user.name) || user.username || user.email || "U";
   return source.trim().slice(0, 1).toUpperCase();
 }
 
@@ -8553,7 +9350,7 @@ function routeStrategyLabel(value?: string) {
     priority_weighted: "优先级 + 权重",
     priority_only: "仅优先级",
   };
-  return labels[value || "balanced"] ?? value ?? "平衡";
+  return tx(labels[value || "balanced"] ?? value ?? "平衡");
 }
 
 function formatTime(value: string) {
