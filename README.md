@@ -38,9 +38,9 @@ TokenHub focuses on enterprise-grade AI infrastructure:
 | Private Deployment | Docker, Helm, offline deployment, and intranet deployment |
 | Enterprise Integration | OIDC, LDAP, DingTalk, Feishu, WeCom, and SSO |
 
-## MVP Scope
+## Product Capabilities
 
-The first version focuses on five core capabilities:
+TokenHub currently provides five core capability areas:
 
 1. OpenAI-Compatible Gateway
    - Supports `/v1/chat/completions`
@@ -125,7 +125,7 @@ tokenhub/
 - [Product planning overview](doc/README.md)
 - [Product positioning and boundaries](doc/01-product-positioning.md)
 - [System architecture plan](doc/02-architecture.md)
-- [MVP and roadmap](doc/03-mvp-roadmap.md)
+- [Capabilities and roadmap](doc/03-capabilities-roadmap.md)
 - [API design](doc/04-api-design.md)
 - [Data model plan](doc/05-data-model.md)
 - [Admin console plan](doc/06-admin-console.md)
@@ -141,27 +141,27 @@ TokenHub is intended for enterprise-owned and properly authorized model API acce
 
 ## Current Status
 
-The repository is now in MVP implementation and includes a runnable Go backend and Next.js admin console prototype.
+The repository now includes a runnable Go backend and Next.js admin console with the main enterprise gateway, governance, observability, and administration workflows in place.
 
-Implemented capabilities include:
+Current implementation includes:
 
 - Go backend HTTP service and health check.
 - OpenAI-Compatible Gateway: `/v1/models`, `/v1/chat/completions`, `/v1/responses`, `/v1/embeddings`.
 - API key authentication, project binding, model allowlists, request quotas, and concurrency limits.
-- Mock Provider plus adapter skeletons for OpenAI-compatible, Azure OpenAI, Anthropic, and Gemini.
-- Usage statistics, cost estimation, request audit, and quota alerts.
+- Mock Provider for offline validation, plus Provider adapters for OpenAI-compatible, Azure OpenAI, Anthropic, and Gemini.
+- Usage statistics, cost estimation, request logging, and quota alerts.
 - Admin API Bearer Token authentication.
 - Daily usage trend API and admin console bar chart.
 - Admin API for projects, keys, Providers, models, routes, usage, audit logs, and alerts.
 - Provider management: upstream Base URL, API key, provider templates, standard model mappings, connection testing, and health status.
 - Health monitoring: manual checks for Providers and model routes, status write-back, and alert events on failure.
-- Cost governance: cost centers, budgets, chargebacks, internal invoices, invoice notes, bill confirmation/rejection, approval flows, and structured CSV export.
+- Cost governance: cost centers, project quota controls, member and Provider cost breakdowns, quota-increase approvals, and structured CSV export.
 - SQLite data management: manual backups, backup list, download, confirmation-based restore, and deletion.
-- Next.js admin console: an enterprise dashboard style inspired by usage analytics tools, covering overview, projects, Providers, models, routes, cost centers, budgets, chargebacks, internal invoices, approvals, audit, health monitoring, alerts, report export, data backup, project creation, Provider creation, standard model mapping, model route creation, and key issuance.
+- Next.js admin console: an enterprise dashboard style covering overview, interface documentation, projects, API keys, users, teams, Providers, models, route catalog, playground, usage analytics, request logs, cost centers, cost billing, approvals, health checks, alert rules and events, notification channels, report export, data backup, settings, project creation, Provider creation, standard model mapping, model route creation, and key issuance.
 
-The MVP currently uses GORM + SQLite as the default persistence layer. Projects, keys, Providers, models, routes, audits, usage, alerts, approvals, notifications, admin users, sessions, and backup records are all stored in SQLite. Future production work continues around SQLite-based scheduled backups, migrations, RBAC, enterprise SSO, and more complete Provider configuration management.
+TokenHub currently uses GORM + SQLite as the default persistence layer. Projects, keys, Providers, models, routes, request logs, usage, alerts, approvals, notifications, admin users, sessions, and backup records are all stored in SQLite. Ongoing hardening focuses on SQLite-based scheduled backups, migrations, RBAC, enterprise SSO, credential encryption, and more complete Provider configuration management.
 
-The current MVP intentionally keeps the product model simple: a Provider is a callable upstream channel instance. If an enterprise needs multiple upstream backups, it can create multiple Providers and configure route priorities and weights under the same external model. More granular resource pools inside a Provider are treated as advanced future extensions rather than first-version admin menu concepts.
+The current product model intentionally keeps Provider routing clear: a Provider is a callable upstream channel instance. If an enterprise needs multiple upstream backups, it can create multiple Providers and configure route priorities and weights under the same external model. More granular resource pools inside a Provider are treated as advanced extensions rather than default admin concepts.
 
 ## Local Development
 
@@ -224,3 +224,7 @@ Docker Compose:
 cd deploy/docker-compose
 docker compose up --build
 ```
+
+## License
+
+TokenHub is licensed under the [Apache License 2.0](LICENSE).

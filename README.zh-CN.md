@@ -38,9 +38,9 @@ TokenHub 的核心价值是企业级 AI 基础设施：
 | 私有化部署 | Docker、Helm、离线部署、内网部署 |
 | 企业集成 | OIDC、LDAP、钉钉、飞书、企业微信、SSO |
 
-## MVP 范围
+## 产品能力
 
-第一版聚焦 5 个核心能力：
+TokenHub 当前提供 5 类核心能力：
 
 1. OpenAI-Compatible Gateway
    - 支持 `/v1/chat/completions`
@@ -125,7 +125,7 @@ tokenhub/
 - [产品规划总览](doc/README.md)
 - [产品定位与边界](doc/01-product-positioning.md)
 - [系统架构规划](doc/02-architecture.md)
-- [MVP 与路线图](doc/03-mvp-roadmap.md)
+- [能力与路线图](doc/03-capabilities-roadmap.md)
 - [API 设计](doc/04-api-design.md)
 - [数据模型规划](doc/05-data-model.md)
 - [管理后台规划](doc/06-admin-console.md)
@@ -141,27 +141,27 @@ TokenHub 只面向企业自有、合规授权的模型 API 访问场景：
 
 ## 当前状态
 
-当前仓库已进入 MVP 实现阶段，包含一个可运行的 Go 后端与 Next.js 管理后台原型。
+当前仓库已经具备可运行的 Go 后端与 Next.js 管理后台，核心网关、治理、可观测和后台管理流程已经成型。
 
-已实现的第一批能力：
+当前已实现能力：
 
 - Go 后端 HTTP 服务与健康检查。
 - OpenAI-Compatible Gateway：`/v1/models`、`/v1/chat/completions`、`/v1/responses`、`/v1/embeddings`。
 - API Key 鉴权、项目绑定、模型白名单、请求额度、并发限制。
-- Mock Provider 与 OpenAI-Compatible、Azure OpenAI、Anthropic、Gemini Adapter 骨架。
-- 用量统计、成本估算、请求审计、额度告警。
+- Mock Provider 离线验证链路，以及 OpenAI-Compatible、Azure OpenAI、Anthropic、Gemini Provider Adapter。
+- 用量统计、成本估算、请求日志、额度告警。
 - Admin API Bearer Token 认证。
 - 日粒度用量趋势接口与后台柱状图。
 - Admin API：项目、Key、Provider、模型、路由、用量、审计、告警。
 - Provider 管理：配置上游 Base URL、API Key、服务商模板、标准模型映射、连接测试和健康状态。
 - 健康监控：Provider 和模型路由手动检测，状态回写并在失败时生成告警事件。
-- 成本治理：成本中心、预算、部门分摊、内部账单、发票备注、账单确认/驳回、审批流、结构化 CSV 导出。
+- 成本治理：成本中心、项目额度、成员与 Provider 成本明细、额度提升审批、结构化 CSV 导出。
 - SQLite 数据管理：手动备份、备份列表、下载、确认式恢复和删除。
-- Next.js 管理后台：参考用量分析类企业后台风格，包含总览、项目、Provider、模型、路由、成本中心、预算、部门分摊、内部账单、审批、审计、健康监控、告警、报表导出、数据备份、创建项目、创建 Provider、映射标准模型、创建模型路由、发放 Key。
+- Next.js 管理后台：企业后台风格，包含总览、接口文档、项目、API Key、用户、团队、Provider、模型、路由目录、模型演练场、用量统计、请求日志、成本中心、成本账单、审批记录、健康检测、告警规则与事件、通知渠道、报表导出、数据备份、系统设置、创建项目、创建 Provider、映射标准模型、创建模型路由、发放 Key。
 
-MVP 当前已使用 GORM + SQLite 做默认持久化，项目、Key、Provider、模型、路由、审计、用量、告警、审批、通知、后台用户、会话和备份记录都会落库。后续生产化继续围绕 SQLite 做定时备份、迁移、RBAC、企业 SSO 和更完整的 Provider 配置管理。
+TokenHub 当前使用 GORM + SQLite 做默认持久化，项目、Key、Provider、模型、路由、请求日志、用量、告警、审批、通知、后台用户、会话和备份记录都会落库。后续强化继续围绕 SQLite 定时备份、迁移、RBAC、企业 SSO、凭证加密和更完整的 Provider 配置管理展开。
 
-当前 MVP 的产品模型刻意保持简单：Provider 就是一个可调用上游渠道实例。一个企业需要多个上游备份时，直接创建多个 Provider，并在同一个对外模型下配置多条路由的优先级和权重。更细粒度的 Provider 内部资源池只作为后续高级扩展，不作为第一版后台主菜单。
+当前产品模型刻意保持清晰：Provider 就是一个可调用上游渠道实例。一个企业需要多个上游备份时，直接创建多个 Provider，并在同一个对外模型下配置多条路由的优先级和权重。更细粒度的 Provider 内部资源池作为高级扩展能力，不作为默认后台概念。
 
 ## 本地运行
 
@@ -224,3 +224,7 @@ Docker Compose：
 cd deploy/docker-compose
 docker compose up --build
 ```
+
+## 许可证
+
+TokenHub 采用 [Apache License 2.0](LICENSE) 协议开源。

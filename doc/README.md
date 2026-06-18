@@ -1,6 +1,6 @@
 # TokenHub 产品规划总览
 
-本文档目录用于规划 TokenHub 的产品、架构、MVP、数据模型、管理后台、安全合规和部署运维。
+本文档目录用于规划 TokenHub 的产品、架构、能力路线图、数据模型、管理后台、安全合规和部署运维。
 
 ## 产品一句话
 
@@ -12,13 +12,13 @@ TokenHub 是面向企业私有化部署的 AI API Gateway 与 Token 治理平台
 | --- | --- |
 | [01-product-positioning.md](01-product-positioning.md) | 产品定位、目标客户、核心场景、非目标、合规边界 |
 | [02-architecture.md](02-architecture.md) | Go + Next.js 总体架构、后端模块、前端模块、请求链路 |
-| [03-mvp-roadmap.md](03-mvp-roadmap.md) | MVP 范围、版本路线图、验收标准 |
+| [03-capabilities-roadmap.md](03-capabilities-roadmap.md) | 产品能力、版本路线图、验收标准 |
 | [04-api-design.md](04-api-design.md) | OpenAI-Compatible API、管理 API、错误格式、流式响应 |
 | [05-data-model.md](05-data-model.md) | 核心实体、关系、表设计方向、统计与审计数据 |
 | [06-admin-console.md](06-admin-console.md) | 管理后台信息架构、页面、关键工作流 |
 | [07-deployment-ops.md](07-deployment-ops.md) | Docker、Helm、离线部署、观测、备份、升级 |
 | [08-security-compliance.md](08-security-compliance.md) | 认证授权、密钥安全、审计、脱敏、企业集成 |
-| [09-mvp-implementation.md](09-mvp-implementation.md) | 当前 MVP 实现记录、运行方式、验证结果、已知限制 |
+| [09-implementation-status.md](09-implementation-status.md) | 当前实现记录、运行方式、验证结果、已知限制 |
 
 ## 设计原则
 
@@ -43,7 +43,7 @@ TokenHub 是面向企业私有化部署的 AI API Gateway 与 Token 治理平台
 
 ## 建议交付顺序
 
-1. 确认产品定位、MVP 与合规边界。
+1. 确认产品定位、能力范围与合规边界。
 2. 搭建 Go 后端基础工程：配置、日志、数据库迁移、健康检查。
 3. 搭建 Next.js 管理后台基础工程：登录、布局、权限壳。
 4. 实现 OpenAI-Compatible Gateway 的最小调用链。
