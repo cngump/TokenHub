@@ -972,7 +972,544 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "确认": "Confirm",
     "驳回": "Reject",
     "导出": "Export",
-  },
+    "切换主题": "Toggle theme",
+    "企业 AI 网关": "Enterprise AI Gateway",
+    "统一接入与成本治理平台": "Unified access and cost governance platform",
+    "显示密码": "Show password",
+    "隐藏密码": "Hide password",
+    "保持登录": "Keep me signed in",
+    "忘记密码？": "Forgot password?",
+    "或": "or",
+    "使用企业 SSO 登录": "Sign in with Enterprise SSO",
+    "做一个乐于助人的助手": "Be a helpful assistant",
+    "你是企业内部 AI 助手。": "You are an internal enterprise AI assistant.",
+    "用两句话介绍 TokenHub": "Introduce TokenHub in two sentences",
+    "总结今天的工单重点": "Summarize today's key tickets",
+    "TokenHub 企业知识库": "TokenHub enterprise knowledge base",
+    "请用三句话介绍 TokenHub。": "Introduce TokenHub in three sentences.",
+    "请先粘贴 CSV 内容。": "Paste CSV content first.",
+    "用户导入失败": "User import failed",
+    "搜索控制台": "Search console",
+    "搜索模型、Provider、日志...": "Search models, providers, logs...",
+    "报表时间范围": "Report time range",
+    "7 天": "7 days",
+    "30 天": "30 days",
+    "本月": "This Month",
+    "近 7 天": "Last 7 days",
+    "近 30 天": "Last 30 days",
+    "在线": "Online",
+    "全部健康 · 延迟 312ms": "All healthy · 312ms latency",
+    "API Key": "API Key",
+    "已发放": "Issued",
+    "成本与用量趋势": "Cost and Usage Trend",
+    "趋势指标": "Trend Metric",
+    "Provider 成本占比": "Provider Cost Share",
+    "暂无 Provider 成本数据": "No Provider cost data",
+    "Top 模型 · 调用量": "Top Models · Requests",
+    "暂无模型调用数据": "No model request data",
+    "OpenAI 兼容协议": "OpenAI-compatible protocol",
+    "接口基础信息": "API Basics",
+    "面向业务开发者的模型 API 调用说明。业务侧只使用 ": "Model API usage for business developers. Business apps only use ",
+    " 和项目 API Key；": " and project API Keys; ",
+    " 仅用于控制台管理。": " is only for console administration.",
+    "当前权限下还没有可展示模型，请先确认模型目录和路由策略。": "No models are available under the current permissions. Check the model catalog and routing policies.",
+    "示例模型": "Sample Model",
+    "当前配置": "Current Config",
+    "启用路由": "Active Routes",
+    "API 导航": "API Navigation",
+    "按接口类型查看详细说明": "View details by API type",
+    "开始": "Start",
+    "模型 API": "Model API",
+    "管理 API": "Admin API",
+    "参考": "Reference",
+    "快速接入": "Quick Start",
+    "用一个项目 API Key 调用 TokenHub 的 OpenAI 兼容模型接口。": "Call TokenHub's OpenAI-compatible model API with a project API Key.",
+    "鉴权方式": "Authentication",
+    "业务应用只需要调用 /v1/*，不需要也不应该访问 /api/admin/*。": "Business applications only need /v1/* and should not access /api/admin/*.",
+    "每个 API Key 都会受到项目状态、模型白名单、额度、并发和 Provider 路由策略约束。": "Every API Key is constrained by project status, model allowlist, quotas, concurrency, and Provider routing policies.",
+    "排查失败请求时，优先复制响应里的 request_id 到请求日志查看完整链路。": "When troubleshooting failures, copy the response request_id to request logs first.",
+    "查询可用模型": "List available models",
+    "发起一次对话": "Start a chat",
+    "认证与权限": "Authentication and Permissions",
+    "业务 API 使用项目下发的 API Key；控制台登录令牌不能替代业务 Key。": "Business APIs use project API Keys; console login tokens cannot replace business keys.",
+    "格式": "Format",
+    "当前 Key 数": "Current Keys",
+    "项目 API Key，格式为 Bearer thk_xxx": "Project API Key in Bearer thk_xxx format",
+    "POST 必填": "Required for POST",
+    "JSON 请求使用 application/json": "Use application/json for JSON requests",
+    "模型接口必填": "Required for model APIs",
+    "统一模型名，需在 Key 白名单和路由策略中可用": "Unified model name available in the Key allowlist and routing policy",
+    "401 通常表示 Key 缺失、格式错误、已停用或已过期。": "401 usually means the Key is missing, malformed, disabled, or expired.",
+    "403 通常表示项目状态、模型白名单或权限范围不允许当前调用。": "403 usually means project status, model allowlist, or permission scope blocks the call.",
+    "模型列表": "Model List",
+    "按当前 API Key 的权限返回可用统一模型。": "Return available unified models for the current API Key.",
+    "请求示例": "Request Example",
+    "字段": "Field",
+    "必填": "Required",
+    "统一模型名称，用于后续调用的 model 字段": "Unified model name used as the model field in later calls",
+    "OpenAI 兼容对象类型，通常为 model": "OpenAI-compatible object type, usually model",
+    "模型归属或 Provider 标识": "Model owner or Provider identifier",
+    "对话补全": "Chat Completions",
+    "兼容 OpenAI Chat Completions，用于普通对话、工具调用和流式输出。": "Compatible with OpenAI Chat Completions for chat, tool calling, and streaming.",
+    "统一模型名，例如 ": "Unified model name, for example ",
+    "system/user/assistant 消息数组": "system/user/assistant message array",
+    "采样温度，默认由上游模型决定": "Sampling temperature; defaults to the upstream model",
+    "true 时返回 SSE 流式响应": "Returns SSE streaming responses when true",
+    "兼容新版 Responses 风格调用，适合统一文本输入和多模态能力扩展。": "Compatible with the newer Responses style, suitable for unified text input and multimodal extension.",
+    "统一模型名": "Unified model name",
+    "用户输入内容": "User input",
+    "是否流式返回": "Whether to stream responses",
+    "文本向量": "Text Embeddings",
+    "转发文本向量生成请求，并记录 Token 与成本归因。": "Forward text embedding requests and record token and cost attribution.",
+    "向量统一模型名": "Unified embedding model name",
+    "需要向量化的文本": "Text to embed",
+    "可选 float/base64，取决于上游模型支持": "Optional float/base64 depending on upstream support",
+    "当前可调用模型": "Currently Callable Models",
+    "根据模型目录和路由策略汇总当前控制台可见模型。": "Summarize models visible to this console from the catalog and routing policy.",
+    "控制台登录": "Console Login",
+    "控制台用户登录接口，不等同于模型 API Key。": "Console user login API; not equivalent to a model API Key.",
+    "用户名或邮箱": "Username or email",
+    "控制台密码": "Console password",
+    "管理 API 仅用于控制台和受信任后台程序，不应该暴露给业务应用前端。": "Admin APIs are only for the console and trusted backends and should not be exposed to business frontends.",
+    "Provider 配置": "Provider Config",
+    "管理上游 Provider、Base URL、凭证和健康状态。": "Manage upstream Providers, Base URLs, credentials, and health status.",
+    "读取 Provider 列表": "Read Provider list",
+    "新增 Provider 配置": "Create Provider config",
+    "更新 Provider 凭证、状态和元信息": "Update Provider credentials, status, and metadata",
+    "维护统一模型到 Provider 资源的优先级、权重和状态。": "Maintain priorities, weights, and status from unified models to Provider resources.",
+    "当前路由": "Current Routes",
+    "按权限查看模型调用日志、命中路由、耗时、Token 和错误信息。": "View model call logs, matched routes, latency, tokens, and errors by permission.",
+    "日志样本": "Log Samples",
+    "用途": "Purpose",
+    "排查 request_id 和上游响应": "Troubleshoot request_id and upstream responses",
+    "常见错误": "Common Errors",
+    "按状态码定位 API Key、模型白名单、路由和额度问题。": "Locate API Key, model allowlist, route, and quota issues by status code.",
+    "状态码": "Status",
+    "错误码": "Error Code",
+    "处理方式": "How to Handle",
+    "检查 Authorization 是否使用 TokenHub API Key": "Check whether Authorization uses a TokenHub API Key",
+    "检查 Key 的模型白名单和项目状态": "Check the Key model allowlist and project status",
+    "为统一模型配置启用路由": "Configure an active route for the unified model",
+    "检查项目额度、并发和 Provider 资源限制": "Check project quotas, concurrency, and Provider resource limits",
+    "在请求日志里查看上游响应和 request_id": "Check upstream responses and request_id in request logs",
+    "SDK 示例": "SDK Examples",
+    "使用 OpenAI 兼容 SDK 接入 TokenHub。": "Use OpenAI-compatible SDKs to integrate with TokenHub.",
+    "调用链路": "Call Flow",
+    "从鉴权到 Provider 路由的完整治理链路。": "Full governance flow from authentication to Provider routing.",
+    "阶段": "Stage",
+    "当前数据": "Current Data",
+    "认证": "Authentication",
+    "权限": "Permissions",
+    "模型白名单 + 项目状态": "Model allowlist + project status",
+    "上游渠道实例、凭证和健康状态": "Upstream channel instances, credentials, and health",
+    "对外模型到 Provider 的优先级/权重映射": "Priority/weight mapping from public models to Providers",
+    "额度、审计、成本统计": "Quota, audit, and cost analytics",
+    "请求参数": "Request Parameters",
+    "明细": "Details",
+    "示例": "Examples",
+    "复制": "Copy",
+    "复制代码": "Copy code",
+    "企业 AI 用量看板": "Enterprise AI Usage Dashboard",
+    "面向管理层的部门、个人与 Token 消耗对比": "Department, individual, and token comparisons for leadership",
+    "按部门": "By Department",
+    "Token 口径": "Token basis",
+    "Token 消耗": "Token Usage",
+    "总 Token 消耗": "Total Token Usage",
+    "覆盖部门": "Covered Departments",
+    "活跃成员": "Active Members",
+    "统计时间": "Generated",
+    "最高": "Top",
+    "暂无部门归因": "No department attribution",
+    "次请求": "requests",
+    "部门 Token 消耗对比": "Department Token Comparison",
+    "输入 Token 与输出 Token 分段展示，按总量排序": "Input and output tokens segmented and sorted by total",
+    "部门排行": "Department Ranking",
+    "个人排行": "Individual Ranking",
+    "公司内部成员 Token 消耗 Top 20": "Top 20 internal members by token usage",
+    "按 Token 降序": "Sorted by token descending",
+    "可用于复盘配额": "Useful for quota review",
+    "暂无部门 Token 数据": "No department token data",
+    "暂无部门排行数据": "No department ranking data",
+    "暂无个人排行数据": "No individual ranking data",
+    "排名": "Rank",
+    "部门": "Department",
+    "占比": "Share",
+    "未归属部门": "Unassigned Department",
+    "团队用户": "Team Users",
+    "关闭成员列表": "Close member list",
+    "姓名": "Name",
+    "成员数": "Members",
+    "项目额度": "Project Quota",
+    "关闭额度配置": "Close quota settings",
+    "已配置项目专属额度": "Project-specific quota configured",
+    "未配置项目专属额度": "No project-specific quota configured",
+    "留空或填 0 表示该项不限额；Key 自身额度仍会叠加生效。": "Leave blank or 0 for unlimited; Key-level quotas still apply.",
+    "已有额度提升申请待审批": "Quota increase request is pending approval",
+    "最近触发了项目额度限制": "Project quota limit was recently triggered",
+    "可在审批记录中处理。": "Handle it in approval records.",
+    "次额度不足，请填写希望提升后的目标额度再提交审批。": "quota hits. Enter the target quota and submit for approval.",
+    "待审批": "Pending approval",
+    "需提升": "Increase needed",
+    "日请求": "Daily Requests",
+    "月请求": "Monthly Requests",
+    "日 Token": "Daily Tokens",
+    "月 Token": "Monthly Tokens",
+    "日成本": "Daily Cost",
+    "月成本": "Monthly Cost",
+    "最大并发": "Max Concurrency",
+    "提升额度申请": "Request Quota Increase",
+    "提交项目额度提升审批": "Submit project quota increase approval",
+    "保存额度": "Save Quota",
+    "按需导出": "On-demand Export",
+    "最近导出": "Recent Exports",
+    "自动导出配置": "Scheduled Export Config",
+    "新增配置": "Create Config",
+    "数据集": "Dataset",
+    "文件": "File",
+    "账期": "Period",
+    "导出 ": "Export ",
+    "模型分类": "Model Categories",
+    "Key 归属逻辑": "Key Ownership Logic",
+    "内部应用配置项目下发放的 Key；额度、模型白名单、用量和成本都会归属到该项目。": "Keys are issued under internal application projects; quotas, model allowlists, usage, and costs are attributed to that project.",
+    "个项目": "projects",
+    "个 Key": "Keys",
+    "批量导入": "Bulk Import",
+    "CSV 内容": "CSV Content",
+    "按 username 或 email 匹配已有用户；匹配到则更新，未匹配则创建。": "Match existing users by username or email; matched users are updated and unmatched users are created.",
+    "字段顺序": "Field Order",
+    "role 可填 admin、team_leader、user；status 可填 active 或 disabled。": "role supports admin, team_leader, user; status supports active or disabled.",
+    "导入中": "Importing",
+    "开始导入": "Start Import",
+    "模型配置": "Model Config",
+    "暂无聊天模型": "No chat models",
+    "条路由": "routes",
+    "未配置路由": "No route configured",
+    "响应格式": "Response Format",
+    "系统提示": "System Prompt",
+    "函数": "Functions",
+    "函数调用配置待接入": "Function calling config is not connected yet",
+    "添加函数": "Add Function",
+    "模型演练对话": "Model playground chat",
+    "复制模型名": "Copy model name",
+    "选择模型": "Select Model",
+    "模型详情": "Model Details",
+    "查看代码": "View Code",
+    "清空历史": "Clear History",
+    "默认资源": "Default Resource",
+    "次尝试": "attempts",
+    "当前模型": "Current Model",
+    "试用": "Try",
+    "当前还没有配置模型路由。": "No model routes are configured yet.",
+    "体验一下，看看模型在 TokenHub 网关上的表现": "Try it and see how the model performs through TokenHub",
+    "说点什么...": "Say something...",
+    "文件上传待接入": "File upload is not connected yet",
+    "上传文件": "Upload File",
+    "发送": "Send",
+    "API 使用": "API Usage",
+    "使用以下代码示例集成 TokenHub 模型接口": "Use these code examples to integrate TokenHub model APIs",
+    "API 调用语言": "API Language",
+    "未选择模型": "No model selected",
+    "模型没有返回可展示内容。": "The model did not return displayable content.",
+    "演练请求失败": "Playground request failed",
+    "Provider 模板加载失败": "Provider template failed to load",
+    "Provider 已": "Provider ",
+    "更新": "updated",
+    "创建": "created",
+    "模型类型": "Model Type",
+    "类": "categories",
+    "渠道商": "Provider",
+    "个标准模型": "standard models",
+    "自定义渠道商": "Custom Provider",
+    "搜索渠道商、ID、类型": "Search providers, IDs, or types",
+    "没有匹配的渠道商": "No matching providers",
+    "使用自定义渠道商": "Use custom Provider",
+    "请选择渠道商": "Select Provider",
+    "例如 prv_company_proxy": "e.g. prv_company_proxy",
+    "留空自动生成": "Leave blank to auto-generate",
+    "渠道名称": "Channel Name",
+    "渠道商类型": "Provider Type",
+    "编辑时留空则不修改已保存密钥。": "Leave blank while editing to keep the saved secret.",
+    "留空表示不修改现有 Key；填写新值才会覆盖。": "Leave blank to keep the existing Key; enter a new value to overwrite it.",
+    "开启后会为下方勾选模型补齐缺失线路，不覆盖已有策略。": "When enabled, missing routes will be added for selected models without overwriting existing policies.",
+    "保存渠道时会自动创建下方勾选模型的默认路由。": "Saving the Provider will create default routes for selected models.",
+    "上游模型映射": "Upstream Model Mapping",
+    "个可映射模型": "mappable models",
+    "加载中": "Loading",
+    "正在加载模型列表...": "Loading model list...",
+    "该渠道商暂无可匹配当前标准模型目录的上游模型": "This Provider has no upstream models matching the current standard catalog",
+    "已有路由": "Existing route",
+    "已关闭自动路由：保存后只创建 Provider，不生成路由策略。": "Auto routing is off: saving creates only the Provider and no routing policy.",
+    "当前没有勾选模型，保存后不会生成路由策略。": "No models are selected, so saving will not generate routing policies.",
+    "保存后会为": "After saving, routes will be created for",
+    "个已选": "selected",
+    "模型创建缺失的默认路由。": "models with missing default routes.",
+    "请求详情加载失败": "Request details failed to load",
+    "全部 ": "All ",
+    "成功 ": "Success ",
+    "失败 ": "Failed ",
+    "没有匹配的请求记录": "No matching request records",
+    "暂无大模型请求记录": "No model request records",
+    "正在加载请求详情...": "Loading request details...",
+    "请选择一条请求": "Select a request",
+    "复制请求 ID": "Copy request ID",
+    "Token 与成本": "Tokens and Cost",
+    "条记录": "records",
+    "暂无记录": "No records",
+    "路由尝试": "Route Attempts",
+    "次，含 fallback": "attempts, with fallback",
+    "没有记录到路由尝试": "No route attempts recorded",
+    "这条历史记录没有保存 request / response 快照": "This history record has no saved request / response snapshot",
+    "未记录请求内容": "Request content not recorded",
+    "未记录响应内容": "Response content not recorded",
+    "已截断": "Truncated",
+    "上游模型 ": "Upstream model ",
+    "资源 ": "Resource ",
+    "路由 ": "Route ",
+    "资源": "Resource",
+    "大小": "Size",
+    "触发方式": "Trigger",
+    "创建时间": "Created At",
+    "最近恢复": "Last Restored",
+    "校验": "Checksum",
+    "保留天数": "Retention Days",
+    "0 表示不过期": "0 means never expire",
+    "下载": "Download",
+    "恢复": "Restore",
+    "备份文件已开始下载": "Backup download has started",
+    "已恢复备份": "Backup restored",
+    "后台用户列表": "Admin User List",
+    "新增用户": "Create User",
+    "编辑时留空则不修改": "Leave blank while editing to keep unchanged",
+    "导入用户": "Import Users",
+    "从已有系统导出的 CSV 批量导入或更新用户": "Bulk import or update users from a CSV exported by an existing system",
+    "指标": "Metric",
+    "阈值": "Threshold",
+    "级别": "Severity",
+    "对象范围": "Scope",
+    "规则列表": "Rule List",
+    "触发事件": "Trigger Events",
+    "来源": "Source",
+    "系统默认": "System Default",
+    "事件": "Event",
+    "告警 ID": "Alert ID",
+    "渠道": "Channel",
+    "HTTP": "HTTP",
+    "失败原因": "Failure Reason",
+    "审批申请列表": "Approval Request List",
+    "触发条件": "Trigger",
+    "申请人": "Requester",
+    "处理人": "Handler",
+    "内容": "Content",
+    "批准": "Approve",
+    "批准并执行该申请": "Approve and execute this request",
+    "驳回该申请": "Reject this request",
+    "成本中心编码": "Cost Center Code",
+    "编码": "Code",
+    "月预算 USD": "Monthly Budget USD",
+    "月预算": "Monthly Budget",
+    "部门分摊": "Department Chargeback",
+    "分摊成本 USD": "Allocated Cost USD",
+    "请求数": "Requests",
+    "分摊规则": "Allocation Rule",
+    "分摊成本": "Allocated Cost",
+    "审批流": "Approval Flow",
+    "审批角色": "Approver Role",
+    "金额阈值 USD": "Amount Threshold USD",
+    "SLA 小时": "SLA Hours",
+    "金额阈值": "Amount Threshold",
+    "频率": "Frequency",
+    "接收人": "Recipients",
+    "导出 CSV 报表": "Export CSV report",
+    "内部账单": "Internal Invoice",
+    "金额 USD": "Amount USD",
+    "发票备注": "Invoice Note",
+    "确认人": "Confirmed By",
+    "确认时间": "Confirmed At",
+    "驳回原因": "Reject Reason",
+    "金额": "Amount",
+    "生成本月": "Generate This Month",
+    "按当前账期生成分摊和内部账单": "Generate chargebacks and internal invoices for the current period",
+    "输入账期 YYYY-MM，留空则导出全部": "Enter period YYYY-MM, leave blank to export all",
+    "输入账期 YYYY-MM，留空则生成本月": "Enter period YYYY-MM, leave blank to generate this month",
+    "请输入驳回原因": "Enter rejection reason",
+    "已生成分摊和内部账单": "Chargebacks and internal invoices generated",
+    "已提交审批：": "Approval submitted: ",
+    "请选择项目空间后再发放 API Key": "Select a project before issuing an API Key",
+    "发放 Key 失败": "Failed to issue Key",
+    "请先填写至少一项希望提升后的目标额度": "Enter at least one target quota to increase",
+    "不限额": "Unlimited",
+    "项目空间内配置的专属模型调用额度": "Project-specific model call quota",
+    "该记录": "this record",
+    "通知模式": "Notification Mode",
+    "目标对象": "Target Object",
+    "脱敏 Prompt": "Mask Prompt",
+    "错误透传": "Error Passthrough",
+    "每行一个 CIDR 或 IP，留空表示不配置白名单。": "One CIDR or IP per line. Leave blank for no allowlist.",
+    "开启后策略要求请求与响应审计避免直接展示完整 Prompt。": "When enabled, request and response audit should avoid showing full prompts directly.",
+    "通用 Webhook 告警通知": "Generic Webhook alert notification",
+    "飞书机器人告警通知": "Feishu bot alert notification",
+    "钉钉机器人告警通知": "DingTalk bot alert notification",
+    "企业微信机器人告警通知": "WeCom bot alert notification",
+    "Slack Incoming Webhook 告警通知": "Slack Incoming Webhook alert notification",
+    "SMTP 邮件告警通知": "SMTP email alert notification",
+    "告警通知渠道": "Alert notification channel",
+    "SMTP 已配置": "SMTP configured",
+    "SMTP 未配置": "SMTP not configured",
+    "通知渠道列表": "Notification Channel List",
+    "新增通知渠道": "Create Notification Channel",
+    "渠道类型": "Channel Type",
+    "签名密钥": "Signing Secret",
+    "可选预留。当前按普通机器人 Webhook 发送，留空不影响通知。": "Optional reserved field. Notifications are sent by normal bot Webhook; leaving it blank is fine.",
+    "SMTP 端口": "SMTP Port",
+    "SMTP 用户名": "SMTP Username",
+    "SMTP 密码": "SMTP Password",
+    "收件人": "Recipients",
+    "多个邮箱用逗号分隔。": "Separate multiple emails with commas.",
+    "地址/目标": "Address / Target",
+    "凭证": "Credential",
+    "告警类型": "Alert Type",
+    "监控名称": "Monitor Name",
+    "监控类型": "Monitor Type",
+    "检查间隔": "Check Interval",
+    "最近检查": "Last Check",
+    "环境": "Environment",
+    "区域": "Region",
+    "资源类型": "Resource Type",
+    "资源分组": "Resource Group",
+    "失败次数": "Failures",
+    "冷却至": "Cooldown Until",
+    "速率限制 RPM": "Rate Limit RPM",
+    "Token 限制 TPM": "Token Limit TPM",
+    "质量分": "Quality Score",
+    "成本分": "Cost Score",
+    "粘性": "Sticky",
+    "不限": "Unlimited",
+    "系统提示词": "System Prompt",
+    "支持参数": "Supported Parameters",
+    "输入模态": "Input Modalities",
+    "输出模态": "Output Modalities",
+    "计费输入": "Input Price",
+    "计费输出": "Output Price",
+    "Embedding 计费": "Embedding Price",
+    "模型家族": "Model Family",
+    "上下文窗口": "Context Window",
+    "公开 Base URL": "Public Base URL",
+    "默认超时": "Default Timeout",
+    "审计保留": "Audit Retention",
+    "用户名字段": "Username Claim",
+    "邮箱字段": "Email Claim",
+    "团队字段": "Team Claim",
+    "新增身份源": "Create Identity Source",
+    "新增可选角色": "Create Assignable Role",
+    "配置用户管理新增/编辑时可选择的后台角色。权限边界由系统内置角色模型控制。": "Configure roles available when creating or editing users. Permission boundaries are controlled by built-in role models.",
+    "Embedding 价 USD/1M": "Embedding Price USD/1M",
+    "IP 白名单": "IP Allowlist",
+    "IP 白名单，逗号分隔": "IP Allowlist, comma-separated",
+    "Key 名称": "Key Name",
+    "Key 必须挂在已有项目下，用于该项目的内部应用调用网关。": "Keys must be attached to an existing project for that project's internal applications to call the gateway.",
+    "SQLite 备份": "SQLite Backups",
+    "上游模型/部署名": "Upstream Model / Deployment",
+    "下载 SQLite 备份文件": "Download SQLite backup file",
+    "为该 Provider 新增模型路由": "Create model route for this Provider",
+    "为该对外模型新增 Provider 线路": "Create Provider route for this public model",
+    "为该项目创建内部 API Key": "Create an internal API Key for this project",
+    "从用户管理中选择团队负责人，用于审批和审计归属。": "Select a team owner from user management for approvals and audit attribution.",
+    "作用域": "Scope",
+    "作用域 ID": "Scope ID",
+    "保存项目额度": "Save project quota",
+    "内部 Key 列表": "Internal Key List",
+    "创建、下载和恢复 TokenHub SQLite 数据库快照。": "Create, download, and restore TokenHub SQLite database snapshots.",
+    "创建备份": "Create Backup",
+    "发件人": "Sender",
+    "发放 Key": "Issue Key",
+    "可用供应商": "Available Providers",
+    "后台操作、变更对象、操作人和时间": "Admin operations, changed objects, actors, and time",
+    "告警事件列表": "Alert Event List",
+    "告警通知的渠道、目标和发送结果": "Alert notification channel, target, and delivery result",
+    "团队 ID": "Team ID",
+    "团队名称": "Team Name",
+    "处理 Key 发放、额度提升和模型开通审批。": "Handle approvals for Key issuance, quota increases, and model access.",
+    "多个收件人用英文逗号分隔。": "Separate multiple recipients with commas.",
+    "对外模型": "Public Model",
+    "将数据库恢复到该备份": "Restore the database to this backup",
+    "并发": "Concurrency",
+    "归属项目": "Project",
+    "成本中心、负责人和部门归属配置": "Cost center, owner, and department attribution config",
+    "成本优先模式会优先选择该评分更高的线路，分数越高代表越省。": "Cost-first mode prefers routes with higher scores; higher means cheaper.",
+    "成本评分 1-100": "Cost Score 1-100",
+    "批量创建时留空，会为每个统一模型使用同名上游模型。": "Leave blank during bulk creation to use the same upstream model name for each unified model.",
+    "按模型、项目和日期归集 Token 与成本": "Aggregate tokens and costs by model, project, and date",
+    "按项目发放内部 API Key，限制模型白名单、额度、并发和有效期。": "Issue internal API Keys by project and limit model allowlists, quotas, concurrency, and validity.",
+    "支持参数，逗号分隔": "Supported parameters, comma-separated",
+    "数字越小越先调用；新增时留空会自动排在该统一模型已有 Provider 后面。": "Lower numbers are called first; leave blank when creating to place it after existing Providers for the unified model.",
+    "新增路由时可多选模型；编辑已有路由时仍按单条规则调整。": "Select multiple models when creating routes; editing still adjusts a single rule.",
+    "新增项目": "Create Project",
+    "日成本 USD": "Daily Cost USD",
+    "最近命中": "Last Hit",
+    "最近检测": "Last Check",
+    "最近消息": "Latest Message",
+    "最近状态": "Latest Status",
+    "月成本 USD": "Monthly Cost USD",
+    "查看告警通知的发送状态、目标和失败原因。": "View alert notification delivery status, target, and failure reason.",
+    "检测 Provider 可用性": "Check Provider availability",
+    "模型白名单，逗号分隔": "Model allowlist, comma-separated",
+    "渠道配置": "Channel Config",
+    "生成新 Key，并立即吊销旧 Key": "Generate a new Key and revoke the old Key immediately",
+    "用途/环境": "Purpose / Environment",
+    "留空则沿用统一模型名": "Leave blank to use the unified model name",
+    "留空自动追加": "Leave blank to append automatically",
+    "留空表示不限制 Key 级模型白名单；实际可调用模型仍受模型目录和路由策略约束。": "Leave blank for no Key-level model allowlist; callable models are still constrained by the model catalog and routing policy.",
+    "留空表示不限来源 IP。": "Leave blank to allow any source IP.",
+    "目录计价": "Catalog Pricing",
+    "目标": "Target",
+    "目标类型": "Target Type",
+    "确认该内部账单": "Confirm this internal invoice",
+    "立即执行该健康检测": "Run this health check now",
+    "立即检测": "Run Check",
+    "策略": "Strategy",
+    "管理 TokenHub 后台登录账号、角色权限、归属团队和账号状态。": "Manage TokenHub console accounts, roles, team attribution, and account status.",
+    "粘性会话": "Sticky Session",
+    "系列": "Family",
+    "编辑时留空表示不修改。": "Leave blank while editing to keep unchanged.",
+    "编辑时留空表示不修改现有 Key；只有填写新值才会覆盖。": "Leave blank while editing to keep the existing Key; only a new value overwrites it.",
+    "能力标签，逗号分隔": "Capability tags, comma-separated",
+    "评分": "Score",
+    "请求 ID、模型、状态码、Provider 路由和延迟": "Request ID, model, status code, Provider route, and latency",
+    "调度策略": "Scheduling Strategy",
+    "负责人用户 ID": "Owner User ID",
+    "质量优先模式会优先选择该评分更高的线路。": "Quality-first mode prefers routes with higher scores.",
+    "质量评分 1-100": "Quality Score 1-100",
+    "费用归集口径，可与团队不同；用于成本归集和用量统计。": "Cost attribution dimension; it may differ from the team and is used for cost and usage analytics.",
+    "模型用量": "Model Usage",
+    "成员用量": "Member Usage",
+    "项目归因": "Project Attribution",
+    "成员成本": "Member Cost",
+    "Provider 成本": "Provider Cost",
+    "Provider 明细成本": "Provider Detail Cost",
+    "命中 Provider": "Matched Provider",
+    "资源实例": "Resource Instance",
+    "资源实例 ID": "Resource Instance ID",
+    "路由数": "Routes",
+    "轮换": "Rotate",
+    "输入价 USD/1M": "Input Price USD/1M",
+    "输出价 USD/1M": "Output Price USD/1M",
+    "运行时触发的额度、成本和 Provider 健康事件。": "Quota, cost, and Provider health events triggered at runtime.",
+    "通知发送记录": "Notification Delivery Records",
+    "通过默认通知渠道发送该告警": "Send this alert through the default notification channel",
+    "配置通知渠道": "Configure Notification Channel",
+    "间隔秒数": "Interval Seconds",
+    "项目 ID": "Project ID",
+    "项目列表": "Project List",
+    "项目名称": "Project Name",
+    "项目是企业内部 AI 使用、Key、额度和成本归属的基本单元。": "Projects are the basic unit for internal AI usage, Keys, quotas, and cost attribution.",
+    "额度": "Quota",
+    "额度提升、Key 发放和模型开通审批记录": "Quota increase, Key issuance, and model access approval records",
+    "驳回该内部账单": "Reject this internal invoice",
+    "默认检测项": "Default Checks",
+    "更新路由顺序失败": "Failed to update route order",
+    "点击停用 API Key": "Click to disable API Key",
+    "点击启用 API Key": "Click to enable API Key",
+    },
   ja: {
     "总览": "概要",
     "网关概览": "ゲートウェイ概要",
@@ -1302,6 +1839,543 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "确认": "確認",
     "驳回": "却下",
     "导出": "エクスポート",
+    "切换主题": "テーマ切替",
+    "企业 AI 网关": "企業 AI ゲートウェイ",
+    "统一接入与成本治理平台": "統合アクセス・コストガバナンス基盤",
+    "显示密码": "パスワードを表示",
+    "隐藏密码": "パスワードを隠す",
+    "保持登录": "ログイン状態を保持",
+    "忘记密码？": "パスワードを忘れた場合",
+    "或": "または",
+    "使用企业 SSO 登录": "企業 SSO でログイン",
+    "做一个乐于助人的助手": "親切で役に立つアシスタントとして振る舞ってください",
+    "你是企业内部 AI 助手。": "あなたは企業内 AI アシスタントです。",
+    "用两句话介绍 TokenHub": "TokenHub を 2 文で紹介してください",
+    "总结今天的工单重点": "今日のチケットの要点をまとめてください",
+    "TokenHub 企业知识库": "TokenHub 企業ナレッジベース",
+    "请用三句话介绍 TokenHub。": "TokenHub を 3 文で紹介してください。",
+    "请先粘贴 CSV 内容。": "先に CSV 内容を貼り付けてください。",
+    "用户导入失败": "ユーザーインポートに失敗しました",
+    "搜索控制台": "コンソールを検索",
+    "搜索模型、Provider、日志...": "モデル、Provider、ログを検索...",
+    "报表时间范围": "レポート期間",
+    "7 天": "7 日",
+    "30 天": "30 日",
+    "本月": "今月",
+    "近 7 天": "直近 7 日",
+    "近 30 天": "直近 30 日",
+    "在线": "オンライン",
+    "全部健康 · 延迟 312ms": "すべて正常 · レイテンシ 312ms",
+    "API Key": "API Key",
+    "已发放": "発行済み",
+    "成本与用量趋势": "コストと利用量の推移",
+    "趋势指标": "推移指標",
+    "Provider 成本占比": "Provider コスト比率",
+    "暂无 Provider 成本数据": "Provider コストデータがありません",
+    "Top 模型 · 调用量": "上位モデル · 呼び出し数",
+    "暂无模型调用数据": "モデル呼び出しデータがありません",
+    "OpenAI 兼容协议": "OpenAI 互換プロトコル",
+    "接口基础信息": "API 基本情報",
+    "面向业务开发者的模型 API 调用说明。业务侧只使用 ": "業務開発者向けのモデル API 説明です。業務側は ",
+    " 和项目 API Key；": " とプロジェクト API Key のみを使用し、",
+    " 仅用于控制台管理。": " はコンソール管理専用です。",
+    "当前权限下还没有可展示模型，请先确认模型目录和路由策略。": "現在の権限では表示可能なモデルがありません。モデルカタログとルーティングポリシーを確認してください。",
+    "示例模型": "サンプルモデル",
+    "当前配置": "現在の設定",
+    "启用路由": "有効ルート",
+    "API 导航": "API ナビゲーション",
+    "按接口类型查看详细说明": "API 種別ごとに詳細を表示",
+    "开始": "開始",
+    "模型 API": "モデル API",
+    "管理 API": "管理 API",
+    "参考": "リファレンス",
+    "快速接入": "クイックスタート",
+    "用一个项目 API Key 调用 TokenHub 的 OpenAI 兼容模型接口。": "プロジェクト API Key で TokenHub の OpenAI 互換モデル API を呼び出します。",
+    "鉴权方式": "認証方式",
+    "业务应用只需要调用 /v1/*，不需要也不应该访问 /api/admin/*。": "業務アプリは /v1/* だけを呼び出し、/api/admin/* にはアクセスしません。",
+    "每个 API Key 都会受到项目状态、模型白名单、额度、并发和 Provider 路由策略约束。": "各 API Key はプロジェクト状態、モデル許可リスト、クォータ、同時実行数、Provider ルートに制約されます。",
+    "排查失败请求时，优先复制响应里的 request_id 到请求日志查看完整链路。": "失敗調査では、レスポンスの request_id をコピーしてリクエストログで全経路を確認します。",
+    "查询可用模型": "利用可能モデルを取得",
+    "发起一次对话": "チャットを開始",
+    "认证与权限": "認証と権限",
+    "业务 API 使用项目下发的 API Key；控制台登录令牌不能替代业务 Key。": "業務 API はプロジェクト発行の API Key を使います。コンソールログイントークンでは代替できません。",
+    "格式": "形式",
+    "当前 Key 数": "現在の Key 数",
+    "项目 API Key，格式为 Bearer thk_xxx": "プロジェクト API Key。形式は Bearer thk_xxx",
+    "POST 必填": "POST で必須",
+    "JSON 请求使用 application/json": "JSON リクエストは application/json を使用",
+    "模型接口必填": "モデル API で必須",
+    "统一模型名，需在 Key 白名单和路由策略中可用": "Key 許可リストとルートで利用可能な統一モデル名",
+    "401 通常表示 Key 缺失、格式错误、已停用或已过期。": "401 は通常 Key の欠落、形式不正、無効化、期限切れを示します。",
+    "403 通常表示项目状态、模型白名单或权限范围不允许当前调用。": "403 は通常プロジェクト状態、モデル許可リスト、権限範囲が呼び出しを許可していないことを示します。",
+    "模型列表": "モデル一覧",
+    "按当前 API Key 的权限返回可用统一模型。": "現在の API Key 権限で利用可能な統一モデルを返します。",
+    "请求示例": "リクエスト例",
+    "字段": "フィールド",
+    "必填": "必須",
+    "统一模型名称，用于后续调用的 model 字段": "以降の呼び出しで model フィールドに使う統一モデル名",
+    "OpenAI 兼容对象类型，通常为 model": "OpenAI 互換オブジェクト型。通常は model",
+    "模型归属或 Provider 标识": "モデル所有者または Provider 識別子",
+    "对话补全": "チャット補完",
+    "兼容 OpenAI Chat Completions，用于普通对话、工具调用和流式输出。": "OpenAI Chat Completions 互換。通常会話、ツール呼び出し、ストリーミングに利用します。",
+    "统一模型名，例如 ": "統一モデル名。例: ",
+    "system/user/assistant 消息数组": "system/user/assistant メッセージ配列",
+    "采样温度，默认由上游模型决定": "サンプリング温度。デフォルトは上流モデルに依存",
+    "true 时返回 SSE 流式响应": "true の場合 SSE ストリーミングレスポンスを返します",
+    "兼容新版 Responses 风格调用，适合统一文本输入和多模态能力扩展。": "新しい Responses 形式に互換し、統一テキスト入力とマルチモーダル拡張に適します。",
+    "统一模型名": "統一モデル名",
+    "用户输入内容": "ユーザー入力",
+    "是否流式返回": "ストリーミングするか",
+    "文本向量": "テキスト埋め込み",
+    "转发文本向量生成请求，并记录 Token 与成本归因。": "テキスト埋め込み生成リクエストを転送し、Token とコスト帰属を記録します。",
+    "向量统一模型名": "統一埋め込みモデル名",
+    "需要向量化的文本": "埋め込み対象テキスト",
+    "可选 float/base64，取决于上游模型支持": "上流モデル対応に応じて float/base64 を選択",
+    "当前可调用模型": "現在呼び出し可能なモデル",
+    "根据模型目录和路由策略汇总当前控制台可见模型。": "モデルカタログとルートに基づき、このコンソールで見えるモデルを集計します。",
+    "控制台登录": "コンソールログイン",
+    "控制台用户登录接口，不等同于模型 API Key。": "コンソールユーザーログイン API。モデル API Key とは異なります。",
+    "用户名或邮箱": "ユーザー名またはメール",
+    "控制台密码": "コンソールパスワード",
+    "管理 API 仅用于控制台和受信任后台程序，不应该暴露给业务应用前端。": "管理 API はコンソールと信頼されたバックエンド専用で、業務フロントエンドに公開しないでください。",
+    "Provider 配置": "Provider 設定",
+    "管理上游 Provider、Base URL、凭证和健康状态。": "上流 Provider、Base URL、認証情報、ヘルス状態を管理します。",
+    "读取 Provider 列表": "Provider 一覧を取得",
+    "新增 Provider 配置": "Provider 設定を作成",
+    "更新 Provider 凭证、状态和元信息": "Provider 認証情報、状態、メタ情報を更新",
+    "维护统一模型到 Provider 资源的优先级、权重和状态。": "統一モデルから Provider リソースへの優先度、重み、状態を管理します。",
+    "当前路由": "現在のルート",
+    "按权限查看模型调用日志、命中路由、耗时、Token 和错误信息。": "権限に応じてモデル呼び出しログ、命中ルート、所要時間、Token、エラーを確認します。",
+    "日志样本": "ログサンプル",
+    "用途": "用途",
+    "排查 request_id 和上游响应": "request_id と上流レスポンスの調査",
+    "常见错误": "よくあるエラー",
+    "按状态码定位 API Key、模型白名单、路由和额度问题。": "ステータスコードから API Key、モデル許可リスト、ルート、クォータ問題を特定します。",
+    "状态码": "ステータス",
+    "错误码": "エラーコード",
+    "处理方式": "対応方法",
+    "检查 Authorization 是否使用 TokenHub API Key": "Authorization が TokenHub API Key を使っているか確認",
+    "检查 Key 的模型白名单和项目状态": "Key のモデル許可リストとプロジェクト状態を確認",
+    "为统一模型配置启用路由": "統一モデルに有効ルートを設定",
+    "检查项目额度、并发和 Provider 资源限制": "プロジェクトクォータ、同時実行数、Provider リソース制限を確認",
+    "在请求日志里查看上游响应和 request_id": "リクエストログで上流レスポンスと request_id を確認",
+    "SDK 示例": "SDK 例",
+    "使用 OpenAI 兼容 SDK 接入 TokenHub。": "OpenAI 互換 SDK で TokenHub に接続します。",
+    "调用链路": "呼び出し経路",
+    "从鉴权到 Provider 路由的完整治理链路。": "認証から Provider ルーティングまでの完全なガバナンス経路です。",
+    "阶段": "段階",
+    "当前数据": "現在データ",
+    "认证": "認証",
+    "权限": "権限",
+    "模型白名单 + 项目状态": "モデル許可リスト + プロジェクト状態",
+    "上游渠道实例、凭证和健康状态": "上流チャネルインスタンス、認証情報、ヘルス",
+    "对外模型到 Provider 的优先级/权重映射": "公開モデルから Provider への優先度/重みマッピング",
+    "额度、审计、成本统计": "クォータ、監査、コスト統計",
+    "请求参数": "リクエストパラメータ",
+    "明细": "詳細",
+    "示例": "例",
+    "复制": "コピー",
+    "复制代码": "コードをコピー",
+    "企业 AI 用量看板": "企業 AI 利用ダッシュボード",
+    "面向管理层的部门、个人与 Token 消耗对比": "経営層向けの部門、個人、Token 消費比較",
+    "按部门": "部門別",
+    "Token 口径": "Token 基準",
+    "Token 消耗": "Token 消費",
+    "总 Token 消耗": "総 Token 消費",
+    "覆盖部门": "対象部門",
+    "活跃成员": "アクティブメンバー",
+    "统计时间": "集計時刻",
+    "最高": "最高",
+    "暂无部门归因": "部門帰属がありません",
+    "次请求": "件のリクエスト",
+    "部门 Token 消耗对比": "部門別 Token 消費比較",
+    "输入 Token 与输出 Token 分段展示，按总量排序": "入力 Token と出力 Token を区分表示し、総量順に並べます",
+    "部门排行": "部門ランキング",
+    "个人排行": "個人ランキング",
+    "公司内部成员 Token 消耗 Top 20": "社内メンバー Token 消費 Top 20",
+    "按 Token 降序": "Token 降順",
+    "可用于复盘配额": "クォータ見直しに利用可能",
+    "暂无部门 Token 数据": "部門 Token データがありません",
+    "暂无部门排行数据": "部門ランキングデータがありません",
+    "暂无个人排行数据": "個人ランキングデータがありません",
+    "排名": "順位",
+    "部门": "部門",
+    "占比": "比率",
+    "未归属部门": "未割当部門",
+    "团队用户": "チームユーザー",
+    "关闭成员列表": "メンバー一覧を閉じる",
+    "姓名": "氏名",
+    "成员数": "メンバー数",
+    "项目额度": "プロジェクトクォータ",
+    "关闭额度配置": "クォータ設定を閉じる",
+    "已配置项目专属额度": "プロジェクト専用クォータ設定済み",
+    "未配置项目专属额度": "プロジェクト専用クォータ未設定",
+    "留空或填 0 表示该项不限额；Key 自身额度仍会叠加生效。": "空欄または 0 は無制限です。Key 自身のクォータも重ねて有効です。",
+    "已有额度提升申请待审批": "クォータ増額申請が承認待ちです",
+    "最近触发了项目额度限制": "最近プロジェクトクォータ制限に達しました",
+    "可在审批记录中处理。": "承認記録で処理できます。",
+    "次额度不足，请填写希望提升后的目标额度再提交审批。": "回クォータ不足です。増額後の目標値を入力して承認申請してください。",
+    "待审批": "承認待ち",
+    "需提升": "増額が必要",
+    "日请求": "日次リクエスト",
+    "月请求": "月次リクエスト",
+    "日 Token": "日次 Token",
+    "月 Token": "月次 Token",
+    "日成本": "日次コスト",
+    "月成本": "月次コスト",
+    "最大并发": "最大同時実行数",
+    "提升额度申请": "クォータ増額申請",
+    "提交项目额度提升审批": "プロジェクトクォータ増額承認を申請",
+    "保存额度": "クォータを保存",
+    "按需导出": "オンデマンド出力",
+    "最近导出": "最近の出力",
+    "自动导出配置": "自動出力設定",
+    "新增配置": "設定を作成",
+    "数据集": "データセット",
+    "文件": "ファイル",
+    "账期": "期間",
+    "导出 ": "エクスポート ",
+    "模型分类": "モデル分類",
+    "Key 归属逻辑": "Key 帰属ロジック",
+    "内部应用配置项目下发放的 Key；额度、模型白名单、用量和成本都会归属到该项目。": "社内アプリのプロジェクト配下で Key を発行し、クォータ、モデル許可リスト、利用量、コストはそのプロジェクトに帰属します。",
+    "个项目": "件のプロジェクト",
+    "个 Key": "件の Key",
+    "批量导入": "一括インポート",
+    "导入用户": "ユーザーをインポート",
+    "CSV 内容": "CSV 内容",
+    "按 username 或 email 匹配已有用户；匹配到则更新，未匹配则创建。": "username または email で既存ユーザーを照合し、一致すれば更新、なければ作成します。",
+    "字段顺序": "フィールド順",
+    "role 可填 admin、team_leader、user；status 可填 active 或 disabled。": "role は admin、team_leader、user、status は active または disabled を指定できます。",
+    "导入中": "インポート中",
+    "开始导入": "インポート開始",
+    "模型配置": "モデル設定",
+    "暂无聊天模型": "チャットモデルがありません",
+    "条路由": "件のルート",
+    "未配置路由": "ルート未設定",
+    "响应格式": "レスポンス形式",
+    "系统提示": "システムプロンプト",
+    "函数": "関数",
+    "函数调用配置待接入": "関数呼び出し設定は未接続です",
+    "添加函数": "関数を追加",
+    "模型演练对话": "モデルプレイグラウンド会話",
+    "复制模型名": "モデル名をコピー",
+    "选择模型": "モデルを選択",
+    "模型详情": "モデル詳細",
+    "查看代码": "コード表示",
+    "清空历史": "履歴をクリア",
+    "默认资源": "デフォルトリソース",
+    "次尝试": "回試行",
+    "当前模型": "現在のモデル",
+    "试用": "試用",
+    "当前还没有配置模型路由。": "モデルルートはまだ設定されていません。",
+    "体验一下，看看模型在 TokenHub 网关上的表现": "TokenHub ゲートウェイ上でのモデル動作を試せます",
+    "说点什么...": "メッセージを入力...",
+    "文件上传待接入": "ファイルアップロードは未接続です",
+    "上传文件": "ファイルをアップロード",
+    "发送": "送信",
+    "API 使用": "API 利用",
+    "使用以下代码示例集成 TokenHub 模型接口": "以下のコード例で TokenHub モデル API を統合します",
+    "API 调用语言": "API 呼び出し言語",
+    "未选择模型": "モデル未選択",
+    "模型没有返回可展示内容。": "モデルは表示可能な内容を返しませんでした。",
+    "演练请求失败": "プレイグラウンドリクエストに失敗しました",
+    "Provider 模板加载失败": "Provider テンプレートの読み込みに失敗しました",
+    "Provider 已": "Provider は",
+    "更新": "更新済み",
+    "创建": "作成済み",
+    "模型类型": "モデルタイプ",
+    "类": "カテゴリ",
+    "渠道商": "Provider",
+    "个标准模型": "件の標準モデル",
+    "自定义渠道商": "カスタム Provider",
+    "搜索渠道商、ID、类型": "Provider、ID、タイプを検索",
+    "没有匹配的渠道商": "一致する Provider がありません",
+    "使用自定义渠道商": "カスタム Provider を使用",
+    "请选择渠道商": "Provider を選択",
+    "例如 prv_company_proxy": "例: prv_company_proxy",
+    "留空自动生成": "空欄で自動生成",
+    "渠道名称": "チャネル名",
+    "渠道商类型": "Provider タイプ",
+    "编辑时留空则不修改已保存密钥。": "編集時に空欄の場合、保存済みシークレットは変更しません。",
+    "留空表示不修改现有 Key；填写新值才会覆盖。": "空欄なら既存 Key を変更しません。新しい値を入力した場合のみ上書きします。",
+    "开启后会为下方勾选模型补齐缺失线路，不覆盖已有策略。": "有効にすると、選択モデルの不足ルートを追加し、既存ポリシーは上書きしません。",
+    "保存渠道时会自动创建下方勾选模型的默认路由。": "Provider 保存時に選択モデルのデフォルトルートを自動作成します。",
+    "上游模型映射": "上流モデルマッピング",
+    "个可映射模型": "件のマッピング可能モデル",
+    "加载中": "読み込み中",
+    "正在加载模型列表...": "モデル一覧を読み込み中...",
+    "该渠道商暂无可匹配当前标准模型目录的上游模型": "この Provider には現在の標準モデルカタログに一致する上流モデルがありません",
+    "已有路由": "既存ルート",
+    "已关闭自动路由：保存后只创建 Provider，不生成路由策略。": "自動ルートはオフです。保存後は Provider のみ作成し、ルートは生成しません。",
+    "当前没有勾选模型，保存后不会生成路由策略。": "モデルが選択されていないため、保存後にルートは生成されません。",
+    "保存后会为": "保存後、",
+    "个已选": "件の選択済み",
+    "模型创建缺失的默认路由。": "モデルに不足しているデフォルトルートを作成します。",
+    "请求详情加载失败": "リクエスト詳細の読み込みに失敗しました",
+    "全部 ": "すべて ",
+    "成功 ": "成功 ",
+    "失败 ": "失敗 ",
+    "没有匹配的请求记录": "一致するリクエスト記録がありません",
+    "暂无大模型请求记录": "モデルリクエスト記録がありません",
+    "正在加载请求详情...": "リクエスト詳細を読み込み中...",
+    "请选择一条请求": "リクエストを選択してください",
+    "复制请求 ID": "リクエスト ID をコピー",
+    "Token 与成本": "Token とコスト",
+    "条记录": "件の記録",
+    "暂无记录": "記録なし",
+    "路由尝试": "ルート試行",
+    "次，含 fallback": "回、fallback 含む",
+    "没有记录到路由尝试": "ルート試行は記録されていません",
+    "这条历史记录没有保存 request / response 快照": "この履歴には request / response スナップショットが保存されていません",
+    "未记录请求内容": "リクエスト内容未記録",
+    "未记录响应内容": "レスポンス内容未記録",
+    "已截断": "切り捨て済み",
+    "上游模型 ": "上流モデル ",
+    "资源 ": "リソース ",
+    "路由 ": "ルート ",
+    "资源": "リソース",
+    "大小": "サイズ",
+    "触发方式": "トリガー方式",
+    "创建时间": "作成日時",
+    "最近恢复": "最近の復元",
+    "校验": "チェックサム",
+    "保留天数": "保持日数",
+    "0 表示不过期": "0 は期限なし",
+    "下载": "ダウンロード",
+    "恢复": "復元",
+    "备份文件已开始下载": "バックアップのダウンロードを開始しました",
+    "已恢复备份": "バックアップを復元しました",
+    "后台用户列表": "管理ユーザー一覧",
+    "新增用户": "ユーザーを作成",
+    "编辑时留空则不修改": "編集時に空欄の場合は変更しません",
+    "从已有系统导出的 CSV 批量导入或更新用户": "既存システムから出力した CSV でユーザーを一括作成または更新",
+    "指标": "指標",
+    "阈值": "しきい値",
+    "级别": "レベル",
+    "对象范围": "対象範囲",
+    "规则列表": "ルール一覧",
+    "触发事件": "発生イベント",
+    "来源": "ソース",
+    "系统默认": "システム既定",
+    "事件": "イベント",
+    "告警 ID": "アラート ID",
+    "渠道": "チャネル",
+    "HTTP": "HTTP",
+    "失败原因": "失敗理由",
+    "审批申请列表": "承認申請一覧",
+    "触发条件": "トリガー条件",
+    "申请人": "申請者",
+    "处理人": "処理者",
+    "内容": "内容",
+    "批准": "承認",
+    "批准并执行该申请": "この申請を承認して実行",
+    "驳回该申请": "この申請を却下",
+    "成本中心编码": "コストセンターコード",
+    "编码": "コード",
+    "月预算 USD": "月次予算 USD",
+    "月预算": "月次予算",
+    "部门分摊": "部門配賦",
+    "分摊成本 USD": "配賦コスト USD",
+    "请求数": "リクエスト数",
+    "分摊规则": "配賦ルール",
+    "分摊成本": "配賦コスト",
+    "审批流": "承認フロー",
+    "审批角色": "承認ロール",
+    "金额阈值 USD": "金額しきい値 USD",
+    "SLA 小时": "SLA 時間",
+    "金额阈值": "金額しきい値",
+    "频率": "頻度",
+    "接收人": "受信者",
+    "导出 CSV 报表": "CSV レポートを出力",
+    "内部账单": "内部請求",
+    "金额 USD": "金額 USD",
+    "发票备注": "請求メモ",
+    "确认人": "確認者",
+    "确认时间": "確認日時",
+    "驳回原因": "却下理由",
+    "金额": "金額",
+    "生成本月": "今月分を生成",
+    "按当前账期生成分摊和内部账单": "現在期間の配賦と内部請求を生成",
+    "输入账期 YYYY-MM，留空则导出全部": "期間 YYYY-MM を入力。空欄ならすべて出力",
+    "输入账期 YYYY-MM，留空则生成本月": "期間 YYYY-MM を入力。空欄なら今月を生成",
+    "请输入驳回原因": "却下理由を入力してください",
+    "已生成分摊和内部账单": "配賦と内部請求を生成しました",
+    "已提交审批：": "承認申請済み: ",
+    "请选择项目空间后再发放 API Key": "API Key 発行前にプロジェクトを選択してください",
+    "发放 Key 失败": "Key 発行に失敗しました",
+    "请先填写至少一项希望提升后的目标额度": "増額後の目標クォータを少なくとも 1 つ入力してください",
+    "不限额": "無制限",
+    "项目空间内配置的专属模型调用额度": "プロジェクト内で設定する専用モデル呼び出しクォータ",
+    "该记录": "このレコード",
+    "通知模式": "通知モード",
+    "目标对象": "対象",
+    "脱敏 Prompt": "Prompt をマスク",
+    "错误透传": "エラー透過",
+    "每行一个 CIDR 或 IP，留空表示不配置白名单。": "1 行に CIDR または IP を 1 つ入力。空欄なら許可リストなし。",
+    "开启后策略要求请求与响应审计避免直接展示完整 Prompt。": "有効にすると、リクエスト/レスポンス監査で完全な Prompt を直接表示しない方針になります。",
+    "通用 Webhook 告警通知": "汎用 Webhook アラート通知",
+    "飞书机器人告警通知": "Feishu ボットアラート通知",
+    "钉钉机器人告警通知": "DingTalk ボットアラート通知",
+    "企业微信机器人告警通知": "WeCom ボットアラート通知",
+    "Slack Incoming Webhook 告警通知": "Slack Incoming Webhook アラート通知",
+    "SMTP 邮件告警通知": "SMTP メールアラート通知",
+    "告警通知渠道": "アラート通知チャネル",
+    "SMTP 已配置": "SMTP 設定済み",
+    "SMTP 未配置": "SMTP 未設定",
+    "通知渠道列表": "通知チャネル一覧",
+    "新增通知渠道": "通知チャネルを作成",
+    "渠道类型": "チャネルタイプ",
+    "签名密钥": "署名シークレット",
+    "可选预留。当前按普通机器人 Webhook 发送，留空不影响通知。": "任意の予約項目です。現在は通常のボット Webhook で送信するため、空欄でも問題ありません。",
+    "SMTP 端口": "SMTP ポート",
+    "SMTP 用户名": "SMTP ユーザー名",
+    "SMTP 密码": "SMTP パスワード",
+    "收件人": "受信者",
+    "多个邮箱用逗号分隔。": "複数メールはカンマで区切ってください。",
+    "地址/目标": "アドレス / 対象",
+    "凭证": "認証情報",
+    "告警类型": "アラートタイプ",
+    "监控名称": "監視名",
+    "监控类型": "監視タイプ",
+    "检查间隔": "チェック間隔",
+    "最近检查": "最終チェック",
+    "环境": "環境",
+    "区域": "リージョン",
+    "资源类型": "リソースタイプ",
+    "资源分组": "リソースグループ",
+    "失败次数": "失敗回数",
+    "冷却至": "クールダウン終了",
+    "速率限制 RPM": "レート制限 RPM",
+    "Token 限制 TPM": "Token 制限 TPM",
+    "质量分": "品質スコア",
+    "成本分": "コストスコア",
+    "粘性": "スティッキー",
+    "不限": "無制限",
+    "系统提示词": "システムプロンプト",
+    "支持参数": "対応パラメータ",
+    "输入模态": "入力モダリティ",
+    "输出模态": "出力モダリティ",
+    "计费输入": "入力単価",
+    "计费输出": "出力単価",
+    "Embedding 计费": "Embedding 単価",
+    "模型家族": "モデルファミリー",
+    "上下文窗口": "コンテキストウィンドウ",
+    "公开 Base URL": "公開 Base URL",
+    "默认超时": "デフォルトタイムアウト",
+    "审计保留": "監査保持",
+    "用户名字段": "ユーザー名 Claim",
+    "邮箱字段": "メール Claim",
+    "团队字段": "チーム Claim",
+    "新增身份源": "ID ソースを作成",
+    "新增可选角色": "割当可能ロールを作成",
+    "配置用户管理新增/编辑时可选择的后台角色。权限边界由系统内置角色模型控制。": "ユーザー作成/編集時に選択できる管理ロールを設定します。権限境界は組み込みロールモデルで制御されます。",
+    "Embedding 价 USD/1M": "Embedding 単価 USD/1M",
+    "IP 白名单": "IP 許可リスト",
+    "IP 白名单，逗号分隔": "IP 許可リスト、カンマ区切り",
+    "Key 名称": "Key 名",
+    "Key 必须挂在已有项目下，用于该项目的内部应用调用网关。": "Key は既存プロジェクトに紐づけ、そのプロジェクトの社内アプリがゲートウェイを呼び出すために使います。",
+    "SQLite 备份": "SQLite バックアップ",
+    "上游模型/部署名": "上流モデル / デプロイ名",
+    "下载 SQLite 备份文件": "SQLite バックアップファイルをダウンロード",
+    "为该 Provider 新增模型路由": "この Provider にモデルルートを作成",
+    "为该对外模型新增 Provider 线路": "この公開モデルに Provider ルートを作成",
+    "为该项目创建内部 API Key": "このプロジェクトに内部 API Key を作成",
+    "从用户管理中选择团队负责人，用于审批和审计归属。": "ユーザー管理からチーム責任者を選び、承認と監査帰属に利用します。",
+    "作用域": "スコープ",
+    "作用域 ID": "スコープ ID",
+    "保存项目额度": "プロジェクトクォータを保存",
+    "内部 Key 列表": "内部 Key 一覧",
+    "创建、下载和恢复 TokenHub SQLite 数据库快照。": "TokenHub SQLite データベーススナップショットを作成、ダウンロード、復元します。",
+    "创建备份": "バックアップを作成",
+    "发件人": "送信者",
+    "发放 Key": "Key 発行",
+    "可用供应商": "利用可能 Provider",
+    "后台操作、变更对象、操作人和时间": "管理操作、変更対象、実行者、時刻",
+    "告警事件列表": "アラートイベント一覧",
+    "告警通知的渠道、目标和发送结果": "アラート通知のチャネル、対象、送信結果",
+    "团队 ID": "チーム ID",
+    "团队名称": "チーム名",
+    "处理 Key 发放、额度提升和模型开通审批。": "Key 発行、クォータ増額、モデル開通の承認を処理します。",
+    "多个收件人用英文逗号分隔。": "複数の受信者は英字カンマで区切ります。",
+    "对外模型": "公開モデル",
+    "将数据库恢复到该备份": "データベースをこのバックアップへ復元",
+    "并发": "同時実行",
+    "归属项目": "所属プロジェクト",
+    "成本中心、负责人和部门归属配置": "コストセンター、責任者、部門帰属設定",
+    "成本优先模式会优先选择该评分更高的线路，分数越高代表越省。": "コスト優先モードはスコアが高いルートを優先します。高いほど低コストです。",
+    "成本评分 1-100": "コストスコア 1-100",
+    "批量创建时留空，会为每个统一模型使用同名上游模型。": "一括作成時に空欄の場合、各統一モデルと同名の上流モデルを使います。",
+    "按模型、项目和日期归集 Token 与成本": "モデル、プロジェクト、日付別に Token とコストを集計",
+    "按项目发放内部 API Key，限制模型白名单、额度、并发和有效期。": "プロジェクト別に内部 API Key を発行し、モデル許可リスト、クォータ、同時実行、有効期限を制限します。",
+    "支持参数，逗号分隔": "対応パラメータ、カンマ区切り",
+    "数字越小越先调用；新增时留空会自动排在该统一模型已有 Provider 后面。": "数値が小さいほど先に呼び出します。作成時に空欄の場合、既存 Provider の後ろに自動配置されます。",
+    "新增路由时可多选模型；编辑已有路由时仍按单条规则调整。": "ルート作成時は複数モデルを選択できます。既存ルート編集時は単一ルールを調整します。",
+    "新增项目": "プロジェクトを作成",
+    "日成本 USD": "日次コスト USD",
+    "最近命中": "最終ヒット",
+    "最近检测": "最終チェック",
+    "最近消息": "最新メッセージ",
+    "最近状态": "最新状態",
+    "月成本 USD": "月次コスト USD",
+    "查看告警通知的发送状态、目标和失败原因。": "アラート通知の送信状態、対象、失敗理由を確認します。",
+    "检测 Provider 可用性": "Provider 可用性をチェック",
+    "模型白名单，逗号分隔": "モデル許可リスト、カンマ区切り",
+    "渠道配置": "チャネル設定",
+    "生成新 Key，并立即吊销旧 Key": "新しい Key を生成し、古い Key をすぐ失効",
+    "用途/环境": "用途 / 環境",
+    "留空则沿用统一模型名": "空欄の場合は統一モデル名を使用",
+    "留空自动追加": "空欄なら自動追加",
+    "留空表示不限制 Key 级模型白名单；实际可调用模型仍受模型目录和路由策略约束。": "空欄なら Key レベルのモデル許可リストは無制限です。実際の呼び出し可能モデルはカタログとルートに制約されます。",
+    "留空表示不限来源 IP。": "空欄なら送信元 IP を制限しません。",
+    "目录计价": "カタログ単価",
+    "目标": "対象",
+    "目标类型": "対象タイプ",
+    "确认该内部账单": "この内部請求を確認",
+    "立即执行该健康检测": "このヘルスチェックを今すぐ実行",
+    "立即检测": "今すぐチェック",
+    "策略": "戦略",
+    "管理 TokenHub 后台登录账号、角色权限、归属团队和账号状态。": "TokenHub 管理ログインアカウント、ロール権限、所属チーム、アカウント状態を管理します。",
+    "粘性会话": "スティッキーセッション",
+    "系列": "ファミリー",
+    "编辑时留空表示不修改。": "編集時に空欄の場合は変更しません。",
+    "编辑时留空表示不修改现有 Key；只有填写新值才会覆盖。": "編集時に空欄の場合、既存 Key は変更しません。新しい値を入力した場合のみ上書きします。",
+    "能力标签，逗号分隔": "機能タグ、カンマ区切り",
+    "评分": "スコア",
+    "请求 ID、模型、状态码、Provider 路由和延迟": "リクエスト ID、モデル、ステータスコード、Provider ルート、レイテンシ",
+    "调度策略": "スケジューリング戦略",
+    "负责人用户 ID": "責任者ユーザー ID",
+    "质量优先模式会优先选择该评分更高的线路。": "品質優先モードはスコアが高いルートを優先します。",
+    "质量评分 1-100": "品質スコア 1-100",
+    "费用归集口径，可与团队不同；用于成本归集和用量统计。": "コスト帰属単位です。チームと異なる場合があり、コスト集計と利用統計に使います。",
+    "模型用量": "モデル利用量",
+    "成员用量": "メンバー利用量",
+    "项目归因": "プロジェクト帰属",
+    "成员成本": "メンバーコスト",
+    "Provider 成本": "Provider コスト",
+    "Provider 明细成本": "Provider 詳細コスト",
+    "命中 Provider": "命中 Provider",
+    "资源实例": "リソースインスタンス",
+    "资源实例 ID": "リソースインスタンス ID",
+    "路由数": "ルート数",
+    "轮换": "ローテーション",
+    "输入价 USD/1M": "入力単価 USD/1M",
+    "输出价 USD/1M": "出力単価 USD/1M",
+    "运行时触发的额度、成本和 Provider 健康事件。": "実行時に発生したクォータ、コスト、Provider ヘルスイベントです。",
+    "通知发送记录": "通知送信記録",
+    "通过默认通知渠道发送该告警": "既定の通知チャネルでこのアラートを送信",
+    "配置通知渠道": "通知チャネルを設定",
+    "间隔秒数": "間隔秒数",
+    "项目 ID": "プロジェクト ID",
+    "项目列表": "プロジェクト一覧",
+    "项目名称": "プロジェクト名",
+    "项目是企业内部 AI 使用、Key、额度和成本归属的基本单元。": "プロジェクトは社内 AI 利用、Key、クォータ、コスト帰属の基本単位です。",
+    "额度": "クォータ",
+    "额度提升、Key 发放和模型开通审批记录": "クォータ増額、Key 発行、モデル開通の承認記録",
+    "驳回该内部账单": "この内部請求を却下",
+    "默认检测项": "デフォルトチェック項目",
+    "更新路由顺序失败": "ルート順序の更新に失敗しました",
+    "点击停用 API Key": "クリックして API Key を無効化",
+    "点击启用 API Key": "クリックして API Key を有効化",
   },
 };
 
@@ -1318,17 +2392,125 @@ function setActiveLanguage(language: AppLanguage) {
 function tx(value: string | undefined | null) {
   if (!value) return "";
   if (activeLanguage === "zh-CN") return value;
-  return translations[activeLanguage][value] ?? value;
+  return translations[activeLanguage][value] ?? translateGeneratedText(value, activeLanguage) ?? value;
+}
+
+function translateGeneratedText(value: string, language: Exclude<AppLanguage, "zh-CN">) {
+  const createListMatch = value.match(/^(.+)列表$/);
+  if (createListMatch) {
+    const base = translations[language][createListMatch[1]] ?? createListMatch[1];
+    return language === "ja" ? `${base}一覧` : `${base} List`;
+  }
+  const createMatch = value.match(/^新增(.+)$/);
+  if (createMatch) {
+    const base = translations[language][createMatch[1]] ?? createMatch[1];
+    return language === "ja" ? `${base}を作成` : `Create ${base}`;
+  }
+  const approvalMatch = value.match(/^已提交审批：(.+)$/);
+  if (approvalMatch) return language === "ja" ? `承認申請済み: ${approvalMatch[1]}` : `Approval submitted: ${approvalMatch[1]}`;
+  const exportMatch = value.match(/^(.+) 已导出$/);
+  if (exportMatch) return language === "ja" ? `${exportMatch[1]} をエクスポートしました` : `${exportMatch[1]} exported`;
+  const sentMatch = value.match(/^(.+) 已发送$/);
+  if (sentMatch) return language === "ja" ? `${sentMatch[1]} を送信しました` : `${sentMatch[1]} sent`;
+  const approvedMatch = value.match(/^(.+) 已批准$/);
+  if (approvedMatch) return language === "ja" ? `${approvedMatch[1]} を承認しました` : `${approvedMatch[1]} approved`;
+  const rejectedMatch = value.match(/^(.+) 已驳回$/);
+  if (rejectedMatch) return language === "ja" ? `${rejectedMatch[1]} を却下しました` : `${rejectedMatch[1]} rejected`;
+  const confirmedMatch = value.match(/^(.+) 已确认$/);
+  if (confirmedMatch) return language === "ja" ? `${confirmedMatch[1]} を確認しました` : `${confirmedMatch[1]} confirmed`;
+  const quotaSubmittedMatch = value.match(/^(.+) 的额度提升申请已提交$/);
+  if (quotaSubmittedMatch) return language === "ja" ? `${quotaSubmittedMatch[1]} のクォータ増額申請を送信しました` : `${quotaSubmittedMatch[1]} quota increase request submitted`;
+  const quotaSavedMatch = value.match(/^(.+) 的额度已保存$/);
+  if (quotaSavedMatch) return language === "ja" ? `${quotaSavedMatch[1]} のクォータを保存しました` : `${quotaSavedMatch[1]} quota saved`;
+  const statusMatch = value.match(/^(.+) 已(启用|禁用|轮换，新 Key 已展示)$/);
+  if (statusMatch) {
+    const action = statusMatch[2];
+    if (language === "ja") {
+      const label = action === "启用" ? "有効化しました" : action === "禁用" ? "無効化しました" : "ローテーションしました。新しい Key を表示しています";
+      return `${statusMatch[1]} を${label}`;
+    }
+    const label = action === "启用" ? "enabled" : action === "禁用" ? "disabled" : "rotated; new Key is displayed";
+    return `${statusMatch[1]} ${label}`;
+  }
+  const routeOrderMatch = value.match(/^已更新 (.+) 的 Provider 调用顺序$/);
+  if (routeOrderMatch) return language === "ja" ? `${routeOrderMatch[1]} の Provider 呼び出し順を更新しました` : `Updated Provider call order for ${routeOrderMatch[1]}`;
+  return undefined;
 }
 
 function displayText(value: string | undefined | null) {
   return tx(value);
 }
 
+function translatedCell(value: React.ReactNode) {
+  return typeof value === "string" ? tx(value) : value;
+}
+
+function languageLocale() {
+  if (activeLanguage === "en") return "en-US";
+  if (activeLanguage === "ja") return "ja-JP";
+  return "zh-CN";
+}
+
+function countWithUnit(count: number, zhUnit: string, enUnit: string, jaUnit: string) {
+  const formatted = formatNumber(count);
+  if (activeLanguage === "en") return `${formatted} ${enUnit}${count === 1 ? "" : "s"}`;
+  if (activeLanguage === "ja") return `${formatted} ${jaUnit}`;
+  return `${formatted} ${zhUnit}`;
+}
+
+function countWithLabel(count: number, label: string) {
+  if (activeLanguage === "en") return `${formatNumber(count)} ${tx(label)}`;
+  if (activeLanguage === "ja") return `${formatNumber(count)} ${tx(label)}`;
+  return `${formatNumber(count)} ${label}`;
+}
+
 function selectedModelsText(count: number) {
   if (activeLanguage === "en") return `${count} models selected`;
   if (activeLanguage === "ja") return `${count} 件のモデルを選択済み`;
   return `已选择 ${count} 个模型`;
+}
+
+function defaultPlaygroundSystemPrompt() {
+  return tx("做一个乐于助人的助手");
+}
+
+function isDefaultPlaygroundSystemPrompt(value: string) {
+  return [
+    "做一个乐于助人的助手",
+    translations.en["做一个乐于助人的助手"],
+    translations.ja["做一个乐于助人的助手"],
+  ].includes(value);
+}
+
+function importUsersDoneMessage(created: number, updated: number, skipped: number) {
+  if (activeLanguage === "en") {
+    return `User import complete: ${created} created, ${updated} updated${skipped > 0 ? `, ${skipped} skipped` : ""}`;
+  }
+  if (activeLanguage === "ja") {
+    return `ユーザーインポート完了: 作成 ${created}、更新 ${updated}${skipped > 0 ? `、スキップ ${skipped}` : ""}`;
+  }
+  return `用户导入完成：新增 ${created}，更新 ${updated}${skipped > 0 ? `，跳过 ${skipped}` : ""}`;
+}
+
+function importUsersSkippedMessage(skipped: number, errors: string) {
+  if (activeLanguage === "en") return `${skipped} rows were not imported: ${errors}`;
+  if (activeLanguage === "ja") return `${skipped} 件はインポートされませんでした: ${errors}`;
+  return `有 ${skipped} 条未导入：${errors}`;
+}
+
+function deleteConfirmMessage(name: string) {
+  if (activeLanguage === "en") return `After deleting "${name}", the current in-memory data will be removed immediately.`;
+  if (activeLanguage === "ja") return `「${name}」を削除すると、現在のメモリ上のデータはすぐに削除されます。`;
+  return `删除「${name}」后，当前内存数据会立即移除。`;
+}
+
+function routeAttemptCountText(count: number) {
+  if (count > 1) {
+    if (activeLanguage === "en") return `${formatNumber(count)} attempts, with fallback`;
+    if (activeLanguage === "ja") return `${formatNumber(count)} 回、fallback 含む`;
+    return `${formatNumber(count)} 次，含 fallback`;
+  }
+  return countWithUnit(count, "次", "attempt", "回");
 }
 
 const navGroups: Array<{
@@ -1925,7 +3107,7 @@ export default function AdminHome() {
       setData((current) => mergeLoadedData(current, loaded));
     } catch (err) {
       if (isAuthExpiredError(err)) return;
-      setError(err instanceof Error ? err.message : "连接失败");
+      setError(err instanceof Error ? err.message : tx("连接失败"));
     } finally {
       setLoading(false);
     }
@@ -1947,7 +3129,7 @@ export default function AdminHome() {
       setCurrentUser(payload.user);
       saveSession({ baseURL, token: payload.token, user: payload.user, expiresAt: payload.expires_at });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "登录失败");
+      setError(err instanceof Error ? err.message : tx("登录失败"));
     } finally {
       setLoading(false);
     }
@@ -1979,7 +3161,7 @@ export default function AdminHome() {
       await load();
     } catch (err) {
       if (isAuthExpiredError(err)) return;
-      setError(err instanceof Error ? err.message : "保存失败");
+      setError(err instanceof Error ? err.message : tx("保存失败"));
     } finally {
       setLoading(false);
     }
@@ -1995,7 +3177,7 @@ export default function AdminHome() {
       await load();
     } catch (err) {
       if (isAuthExpiredError(err)) return;
-      setError(err instanceof Error ? err.message : "删除失败");
+      setError(err instanceof Error ? err.message : tx("删除失败"));
     } finally {
       setLoading(false);
     }
@@ -2005,7 +3187,7 @@ export default function AdminHome() {
     const trimmed = content.trim();
     if (!trimmed) {
       setNotice("");
-      setError("请先粘贴 CSV 内容。");
+      setError(tx("请先粘贴 CSV 内容。"));
       return;
     }
     setLoading(true);
@@ -2018,13 +3200,13 @@ export default function AdminHome() {
       const skipped = result.skipped ?? 0;
       setUserImportOpen(false);
       await load("users");
-      setNotice(`用户导入完成：新增 ${created}，更新 ${updated}${skipped > 0 ? `，跳过 ${skipped}` : ""}`);
+      setNotice(importUsersDoneMessage(created, updated, skipped));
       if (skipped > 0 && result.errors?.length) {
-        setError(`有 ${skipped} 条未导入：${result.errors.slice(0, 3).join("；")}`);
+        setError(importUsersSkippedMessage(skipped, result.errors.slice(0, 3).join("；")));
       }
     } catch (err) {
       if (isAuthExpiredError(err)) return;
-      setError(err instanceof Error ? err.message : "用户导入失败");
+      setError(err instanceof Error ? err.message : tx("用户导入失败"));
     } finally {
       setLoading(false);
     }
@@ -2034,18 +3216,18 @@ export default function AdminHome() {
     if (!activeConfig) return;
     if (loading) {
       setNotice("");
-      setError("数据加载中，请稍后再操作。");
+      setError(tx("数据加载中，请稍后再操作。"));
       return;
     }
     if (data.models.length === 0) {
       setNotice("");
-      setError("请先维护模型目录，再新增路由策略。");
+      setError(tx("请先维护模型目录，再新增路由策略。"));
       selectView("models");
       return;
     }
     if (data.providers.length === 0) {
       setNotice("");
-      setError("请先新增 Provider 渠道，再配置路由策略。");
+      setError(tx("请先新增 Provider 渠道，再配置路由策略。"));
       selectView("providers");
       return;
     }
@@ -2060,7 +3242,7 @@ export default function AdminHome() {
     }
     if (loading) {
       setNotice("");
-      setError("数据加载中，请稍后再操作。");
+      setError(tx("数据加载中，请稍后再操作。"));
       return;
     }
     if (activeConfig.view === "providers") {
@@ -2069,7 +3251,7 @@ export default function AdminHome() {
     }
     if (activeConfig.view === "api-keys" && data.projects.length === 0) {
       setNotice("");
-      setError("请先创建项目，再在项目下发放 API Key。");
+      setError(tx("请先创建项目，再在项目下发放 API Key。"));
       selectView("projects");
       return;
     }
@@ -2094,11 +3276,11 @@ export default function AdminHome() {
           priority: String(nextPriority),
         }));
       }
-      setNotice(`已更新 ${model.name} 的 Provider 调用顺序`);
+      setNotice(tx(`已更新 ${model.name} 的 Provider 调用顺序`));
       await load();
     } catch (err) {
       if (isAuthExpiredError(err)) return;
-      setError(err instanceof Error ? err.message : "更新路由顺序失败");
+      setError(err instanceof Error ? err.message : tx("更新路由顺序失败"));
     } finally {
       setLoading(false);
     }
@@ -2315,8 +3497,8 @@ export default function AdminHome() {
 
       {confirmDelete ? (
         <ConfirmDialog
-          title="确认删除"
-          message={`删除「${rowTitle(confirmDelete.item)}」后，当前内存数据会立即移除。`}
+          title={tx("确认删除")}
+          message={deleteConfirmMessage(rowTitle(confirmDelete.item))}
           loading={loading}
           onCancel={() => setConfirmDelete(null)}
           onConfirm={() => void deleteItem(confirmDelete.config, confirmDelete.item)}
@@ -2337,11 +3519,11 @@ export default function AdminHome() {
     setNotice("");
     try {
       await action.run(api, item);
-      setNotice(action.doneMessage?.(item) ?? "操作已完成");
+      setNotice(tx(action.doneMessage?.(item) ?? "操作已完成"));
       await load();
     } catch (err) {
       if (isAuthExpiredError(err)) return;
-      setError(err instanceof Error ? err.message : "操作失败");
+      setError(err instanceof Error ? err.message : tx("操作失败"));
     } finally {
       setLoading(false);
     }
@@ -2360,11 +3542,11 @@ export default function AdminHome() {
     setNotice("");
     try {
       await action.run(api, items);
-      setNotice(action.doneMessage?.() ?? "操作已完成");
+      setNotice(tx(action.doneMessage?.() ?? "操作已完成"));
       await load();
     } catch (err) {
       if (isAuthExpiredError(err)) return;
-      setError(err instanceof Error ? err.message : "操作失败");
+      setError(err instanceof Error ? err.message : tx("操作失败"));
     } finally {
       setLoading(false);
     }
@@ -2377,7 +3559,7 @@ export default function AdminHome() {
     try {
       const result = await downloadReport(api, dataset);
       if (result) {
-        setNotice(`${reportDatasetLabel(dataset)} 已导出`);
+        setNotice(tx(`${reportDatasetLabel(dataset)} 已导出`));
         setReportHistory((current) => [
           {
             id: uniqueUIID("export"),
@@ -2391,7 +3573,7 @@ export default function AdminHome() {
       }
     } catch (err) {
       if (isAuthExpiredError(err)) return;
-      setError(err instanceof Error ? err.message : "导出失败");
+      setError(err instanceof Error ? err.message : tx("导出失败"));
     } finally {
       setLoading(false);
     }
@@ -2426,7 +3608,7 @@ function LoginView({
 
   return (
     <main className="login-shell" data-theme={theme}>
-      <button className="login-theme-toggle" onClick={onThemeToggle} title="切换主题" type="button">
+      <button className="login-theme-toggle" onClick={onThemeToggle} title={tx("切换主题")} type="button">
         {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
       </button>
       <form className="login-card" onSubmit={submit}>
@@ -2434,13 +3616,13 @@ function LoginView({
           <img src="/brand/tokenhub-logo.png" alt="TokenHub" />
           <div>
             <strong>TokenHub</strong>
-            <span>企业 AI 网关</span>
+            <span>{tx("企业 AI 网关")}</span>
           </div>
         </div>
 
         <div className="login-title">
           <h1>{tx("登录控制台")}</h1>
-          <p>统一接入与成本治理平台</p>
+          <p>{tx("统一接入与成本治理平台")}</p>
         </div>
         <LanguageSwitcher
           className="login-language-switcher"
@@ -2461,7 +3643,7 @@ function LoginView({
               required
             />
             <button
-              aria-label={passwordVisible ? "隐藏密码" : "显示密码"}
+              aria-label={passwordVisible ? tx("隐藏密码") : tx("显示密码")}
               className="password-toggle"
               onClick={() => setPasswordVisible((value) => !value)}
               type="button"
@@ -2475,9 +3657,9 @@ function LoginView({
             <span className="login-checkmark">
               <Check size={11} />
             </span>
-            保持登录
+            {tx("保持登录")}
           </span>
-          <button type="button">忘记密码？</button>
+          <button type="button">{tx("忘记密码？")}</button>
         </div>
         {error ? <div className="login-error">{error}</div> : null}
         <button className="button login-submit" disabled={loading} type="submit">
@@ -2485,12 +3667,12 @@ function LoginView({
         </button>
         <div className="login-divider">
           <span />
-          <small>或</small>
+          <small>{tx("或")}</small>
           <span />
         </div>
         <button className="login-sso-button" type="button">
           <ShieldCheck size={17} />
-          使用企业 SSO 登录
+          {tx("使用企业 SSO 登录")}
         </button>
       </form>
     </main>
@@ -2647,14 +3829,14 @@ function TopNav({
 }) {
   return (
     <header className="topbar">
-      <label className="top-search" aria-label="搜索控制台">
+      <label className="top-search" aria-label={tx("搜索控制台")}>
         <Search size={16} />
-        <input placeholder="搜索模型、Provider、日志..." />
+        <input placeholder={tx("搜索模型、Provider、日志...")} />
         <span>⌘K</span>
       </label>
       <div className="topbar-spacer" />
       <div className="topbar-actions">
-        <button className="top-icon-button" onClick={onThemeToggle} title="切换主题" type="button">
+        <button className="top-icon-button" onClick={onThemeToggle} title={tx("切换主题")} type="button">
           {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
         </button>
       </div>
@@ -2708,7 +3890,7 @@ function OverviewView({
           label: "Provider",
           value: `${formatNumber(activeProviders)} / ${formatNumber(providerTotal)}`,
           icon: Server,
-          badge: `在线 ${formatNumber(activeProviders)}`,
+          badge: `${tx("在线")} ${formatNumber(activeProviders)}`,
           caption: "全部健康 · 延迟 312ms",
           values: series.map(() => activeProviders),
         }
@@ -2730,7 +3912,7 @@ function OverviewView({
           <p className="eyebrow">Enterprise AI Gateway</p>
           <h1>{tx("网关概览")}</h1>
         </div>
-        <div className="overview-range-tabs" role="tablist" aria-label="报表时间范围">
+        <div className="overview-range-tabs" role="tablist" aria-label={tx("报表时间范围")}>
           {overviewRangeTabs.map((item) => (
             <button
               className={range === item.key ? "active" : ""}
@@ -2738,7 +3920,7 @@ function OverviewView({
               onClick={() => setRange(item.key)}
               type="button"
             >
-              {item.label}
+              {tx(item.label)}
             </button>
           ))}
         </div>
@@ -2765,14 +3947,14 @@ function OverviewView({
         <article className="overview-panel overview-trend-panel">
           <div className="overview-panel-head">
             <div>
-              <h2>成本与用量趋势</h2>
+              <h2>{tx("成本与用量趋势")}</h2>
               <p>
                 <strong>{chartValue.value}</strong>
                 <span>{chartValue.delta}</span>
                 <em>· {overviewRangeLabel(range)}</em>
               </p>
             </div>
-            <div className="overview-metric-tabs" role="tablist" aria-label="趋势指标">
+            <div className="overview-metric-tabs" role="tablist" aria-label={tx("趋势指标")}>
               {overviewMetricTabs.map((item) => (
                 <button
                   className={chartMetric === item.key ? "active" : ""}
@@ -2780,7 +3962,7 @@ function OverviewView({
                   onClick={() => setChartMetric(item.key)}
                   type="button"
                 >
-                  {item.label}
+                  {tx(item.label)}
                 </button>
               ))}
             </div>
@@ -2834,13 +4016,13 @@ function OverviewMetricCard({
           <Icon size={17} />
           {tx(label)}
         </div>
-        {badge ? <span>{badge}</span> : null}
+        {badge ? <span>{tx(badge)}</span> : null}
       </div>
       <div className="metric-value">{value}</div>
       {caption ? (
         <div className="overview-health-caption">
           <span />
-          {caption}
+          {tx(caption)}
         </div>
       ) : (
         <OverviewSparkline values={values} />
@@ -2875,7 +4057,7 @@ function OverviewTrendChart({ metric, points }: { metric: OverviewMetricKey; poi
 
   return (
     <div className="overview-chart-wrap">
-      <svg className="overview-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="成本与用量趋势">
+      <svg className="overview-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={tx("成本与用量趋势")}>
         <defs>
           <linearGradient id="overviewArea" x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.22" />
@@ -2905,12 +4087,12 @@ function OverviewProviderShare({ rows }: { rows: Array<{ id: string; label: stri
   const totalCost = rows.reduce((sum, row) => sum + row.cost, 0);
   return (
     <article className="overview-panel overview-share-panel">
-      <h2>Provider 成本占比</h2>
+      <h2>{tx("Provider 成本占比")}</h2>
       <div className="overview-share-content">
         <div className="overview-donut" style={{ background: overviewDonutGradient(rows) }}>
           <div>
             <strong>{totalCost > 0 ? `$${compactNumber(totalCost)}` : "$0"}</strong>
-            <span>总成本</span>
+            <span>{tx("总成本")}</span>
           </div>
         </div>
         <div className="overview-share-list">
@@ -2921,7 +4103,7 @@ function OverviewProviderShare({ rows }: { rows: Array<{ id: string; label: stri
               <strong>{row.percent}%</strong>
             </div>
           )) : (
-            <div className="compact-empty">暂无 Provider 成本数据</div>
+            <div className="compact-empty">{tx("暂无 Provider 成本数据")}</div>
           )}
         </div>
       </div>
@@ -2933,7 +4115,7 @@ function OverviewTopModels({ rows }: { rows: UsageBreakdownRow[] }) {
   const max = Math.max(...rows.map((row) => row.request_count), 1);
   return (
     <article className="overview-panel overview-top-panel">
-      <h2>Top 模型 · 调用量</h2>
+      <h2>{tx("Top 模型 · 调用量")}</h2>
       <div className="overview-top-list">
         {rows.length ? rows.map((row) => (
           <div className="overview-top-row" key={row.id}>
@@ -2946,7 +4128,7 @@ function OverviewTopModels({ rows }: { rows: UsageBreakdownRow[] }) {
             </span>
           </div>
         )) : (
-          <div className="compact-empty">暂无模型调用数据</div>
+          <div className="compact-empty">{tx("暂无模型调用数据")}</div>
         )}
       </div>
     </article>
@@ -3017,9 +4199,9 @@ function overviewDeltaLabel(values: number[]) {
 }
 
 function overviewRangeLabel(range: OverviewRangeKey) {
-  if (range === "7d") return "近 7 天";
-  if (range === "30d") return "近 30 天";
-  return "本月";
+  if (range === "7d") return tx("近 7 天");
+  if (range === "30d") return tx("近 30 天");
+  return tx("本月");
 }
 
 function overviewLinePath(values: number[], width: number, height: number, pad = 0, offsetX = 0, offsetY = 0) {
@@ -3150,25 +4332,25 @@ function GatewayView({ api, data }: { api: ApiContext; data: AppData }) {
           <header className="api-doc-main-head">
             <div>
               <p className="eyebrow">Model API</p>
-              <h2>接口文档</h2>
+              <h2>{tx("接口文档")}</h2>
               <p>
-                面向业务开发者的模型 API 调用说明。业务侧只使用 <code>/v1/*</code> 和项目 API Key；<code>/api/admin/*</code> 仅用于控制台管理。
+                {tx("面向业务开发者的模型 API 调用说明。业务侧只使用 ")}<code>/v1/*</code>{tx(" 和项目 API Key；")}<code>/api/admin/*</code>{tx(" 仅用于控制台管理。")}
               </p>
             </div>
             <a href="https://docs.newapi.pro/zh/docs/api" target="_blank" rel="noreferrer">
               <Globe2 size={15} />
-              OpenAI 兼容协议
+              {tx("OpenAI 兼容协议")}
             </a>
           </header>
 
-          <section className="api-doc-quick-grid" aria-label="接口基础信息">
+          <section className="api-doc-quick-grid" aria-label={tx("接口基础信息")}>
             <GatewayCopyCard label="Base URL" value={baseURL} />
             <GatewayCopyCard label="Authorization" value={`Bearer ${keyHint}`} />
             <GatewayCopyCard label="示例模型" value={sampleModel} />
             <article className="gateway-copy-card api-doc-config-card">
-              <span>当前配置</span>
-              <strong>{formatNumber(activeRoutes || data.summary.active_route_count || 0)} 条启用路由</strong>
-              <small>{formatNumber(data.keys.length || data.summary.api_key_count || 0)} 个 API Key</small>
+              <span>{tx("当前配置")}</span>
+              <strong>{countWithUnit(activeRoutes || data.summary.active_route_count || 0, "条启用路由", "active route", "件の有効ルート")}</strong>
+              <small>{countWithUnit(data.keys.length || data.summary.api_key_count || 0, "个 API Key", "API Key", "件の API Key")}</small>
             </article>
           </section>
 
@@ -3212,18 +4394,18 @@ function GatewayDocNav({
   onSelect: (id: string) => void;
 }) {
   return (
-    <aside className="api-doc-nav" aria-label="API 导航">
+    <aside className="api-doc-nav" aria-label={tx("API 导航")}>
       <div className="api-doc-nav-head">
         <FileText size={16} />
         <div>
-          <strong>API 导航</strong>
-          <span>按接口类型查看详细说明</span>
+          <strong>{tx("API 导航")}</strong>
+          <span>{tx("按接口类型查看详细说明")}</span>
         </div>
       </div>
       <div className="api-doc-nav-list">
         {groups.map((group) => (
           <section className="api-doc-nav-group" key={group.title}>
-            <h3>{group.title}</h3>
+            <h3>{tx(group.title)}</h3>
             {group.items.map((item) => (
               <button
                 aria-selected={activeID === item.id}
@@ -3234,8 +4416,8 @@ function GatewayDocNav({
               >
                 {item.method ? <span className={`api-method ${apiMethodClass(item.method)}`}>{item.method}</span> : <span className="api-method muted">DOC</span>}
                 <span>
-                  <strong>{item.title}</strong>
-                  {item.path ? <em>{item.path}</em> : <em>{item.description}</em>}
+                  <strong>{tx(item.title)}</strong>
+                  {item.path ? <em>{item.path}</em> : <em>{tx(item.description)}</em>}
                 </span>
               </button>
             ))}
@@ -3277,12 +4459,12 @@ function GatewayDocContent({
             {callableModels.slice(0, 18).map((model) => (
               <span key={model.name}>
                 {model.name}
-                <em>{activeRouteCount(model.name, data)} 路由</em>
+                <em>{countWithUnit(activeRouteCount(model.name, data), "条路由", "route", "件のルート")}</em>
               </span>
             ))}
           </div>
         ) : (
-          <div className="empty">当前权限下还没有可展示模型，请先确认模型目录和路由策略。</div>
+          <div className="empty">{tx("当前权限下还没有可展示模型，请先确认模型目录和路由策略。")}</div>
         )}
       </article>
     );
@@ -3295,39 +4477,39 @@ function GatewayDocContent({
         <div className="api-doc-detail-grid">
           {doc.details.map((item) => (
             <div key={item.label}>
-              <span>{item.label}</span>
-              <strong>{item.value}</strong>
+              <span>{tx(item.label)}</span>
+              <strong>{tx(item.value)}</strong>
             </div>
           ))}
         </div>
       ) : null}
       {doc.notes ? (
         <section className="api-doc-panel">
-          <h3>说明</h3>
+          <h3>{tx("说明")}</h3>
           <ul className="api-doc-notes">
-            {doc.notes.map((note) => <li key={note}>{note}</li>)}
+            {doc.notes.map((note) => <li key={note}>{tx(note)}</li>)}
           </ul>
         </section>
       ) : null}
       {doc.params ? (
         <section className="api-doc-panel">
-          <h3>请求参数</h3>
+          <h3>{tx("请求参数")}</h3>
           <SimpleTable columns={["字段", "类型", "必填", "说明"]} rows={doc.params} />
         </section>
       ) : null}
       {doc.table ? (
         <section className="api-doc-panel">
-          <h3>明细</h3>
+          <h3>{tx("明细")}</h3>
           <SimpleTable columns={doc.table.columns} rows={doc.table.rows} />
         </section>
       ) : null}
       {doc.examples ? (
         <section className="api-doc-panel">
-          <h3>示例</h3>
+          <h3>{tx("示例")}</h3>
           <div className="api-doc-code-grid">
             {doc.examples.map((example) => (
               <div className="api-doc-code-card" key={example.title}>
-                <strong>{example.title}</strong>
+                <strong>{tx(example.title)}</strong>
                 <GatewayCodeBlock code={example.code} />
               </div>
             ))}
@@ -3342,9 +4524,9 @@ function GatewayDocTitle({ doc }: { doc: GatewayDocItem }) {
   return (
     <div className="api-doc-title">
       <div>
-        <span>{doc.group}</span>
-        <h2>{doc.title}</h2>
-        <p>{doc.description}</p>
+        <span>{tx(doc.group)}</span>
+        <h2>{tx(doc.title)}</h2>
+        <p>{tx(doc.description)}</p>
       </div>
       {doc.path ? (
         <div className="api-doc-endpoint">
@@ -3372,14 +4554,18 @@ function gatewayDocGroups({
   data: AppData;
 }): GatewayDocGroup[] {
   const authHeader = `Authorization: Bearer ${keyHint}`;
+  const sampleSystemPrompt = tx("你是企业内部 AI 助手。");
+  const sampleIntroPrompt = tx("用两句话介绍 TokenHub");
+  const sampleWorkOrderPrompt = tx("总结今天的工单重点");
+  const sampleKnowledgeInput = tx("TokenHub 企业知识库");
   const chatCurl = `curl -X POST "${baseURL}/chat/completions" \\
   -H "${authHeader}" \\
   -H "Content-Type: application/json" \\
   -d '{
     "model": "${sampleModel}",
     "messages": [
-      {"role": "system", "content": "你是企业内部 AI 助手。"},
-      {"role": "user", "content": "用两句话介绍 TokenHub"}
+      {"role": "system", "content": "${sampleSystemPrompt}"},
+      {"role": "user", "content": "${sampleIntroPrompt}"}
     ],
     "temperature": 0.7,
     "stream": false
@@ -3398,7 +4584,7 @@ function gatewayDocGroups({
             { label: "Base URL", value: baseURL },
             { label: "鉴权方式", value: "Bearer API Key" },
             { label: "示例模型", value: sampleModel },
-            { label: "启用路由", value: `${formatNumber(activeRoutes || data.summary.active_route_count || 0)} 条` },
+            { label: "启用路由", value: countWithUnit(activeRoutes || data.summary.active_route_count || 0, "条", "route", "件") },
           ],
           notes: [
             "业务应用只需要调用 /v1/*，不需要也不应该访问 /api/admin/*。",
@@ -3422,7 +4608,7 @@ function gatewayDocGroups({
           details: [
             { label: "Header", value: "Authorization" },
             { label: "格式", value: "Bearer YOUR_TOKENHUB_API_KEY" },
-            { label: "当前 Key 数", value: `${formatNumber(data.keys.length || data.summary.api_key_count || 0)} 个` },
+            { label: "当前 Key 数", value: countWithUnit(data.keys.length || data.summary.api_key_count || 0, "个", "Key", "件") },
           ],
           params: [
             ["Authorization", "header", "是", "项目 API Key，格式为 Bearer thk_xxx"],
@@ -3493,7 +4679,7 @@ function gatewayDocGroups({
               code: `curl -X POST "${baseURL}/responses" \\
   -H "${authHeader}" \\
   -H "Content-Type: application/json" \\
-  -d '{"model":"${sampleModel}","input":"总结今天的工单重点"}'`,
+  -d '{"model":"${sampleModel}","input":"${sampleWorkOrderPrompt}"}'`,
             },
           ],
         },
@@ -3516,7 +4702,7 @@ function gatewayDocGroups({
               code: `curl -X POST "${baseURL}/embeddings" \\
   -H "${authHeader}" \\
   -H "Content-Type: application/json" \\
-  -d '{"model":"text-embedding-3-small","input":"TokenHub 企业知识库"}'`,
+  -d '{"model":"text-embedding-3-small","input":"${sampleKnowledgeInput}"}'`,
             },
           ],
         },
@@ -3568,8 +4754,8 @@ function gatewayDocGroups({
           path: "/api/admin/routing-rules",
           description: "维护统一模型到 Provider 资源的优先级、权重和状态。",
           details: [
-            { label: "当前路由", value: `${formatNumber(data.routes.length)} 条` },
-            { label: "启用路由", value: `${formatNumber(activeRoutes)} 条` },
+            { label: "当前路由", value: countWithUnit(data.routes.length, "条", "route", "件") },
+            { label: "启用路由", value: countWithUnit(activeRoutes, "条", "active route", "件") },
           ],
         },
         {
@@ -3580,7 +4766,7 @@ function gatewayDocGroups({
           path: "/api/admin/audit/requests",
           description: "按权限查看模型调用日志、命中路由、耗时、Token 和错误信息。",
           details: [
-            { label: "日志样本", value: `${formatNumber(data.logs.length)} 条` },
+            { label: "日志样本", value: countWithUnit(data.logs.length, "条", "log", "件") },
             { label: "用途", value: "排查 request_id 和上游响应" },
           ],
         },
@@ -3653,7 +4839,7 @@ function GatewayCopyCard({ label, value }: { label: string; value: string }) {
     <article className="gateway-copy-card">
       <span>{tx(label)}</span>
       <strong>{value}</strong>
-      <button className="icon-button subtle" onClick={() => void copyValue()} type="button" title="复制">
+      <button className="icon-button subtle" onClick={() => void copyValue()} type="button" title={tx("复制")}>
         {copied ? <Check size={15} /> : <Copy size={15} />}
       </button>
     </article>
@@ -3673,7 +4859,7 @@ function GatewayCodeBlock({ code }: { code: string }) {
   }
   return (
     <div className="gateway-code-block">
-      <button className="icon-button subtle" onClick={() => void copyCode()} type="button" title="复制代码">
+      <button className="icon-button subtle" onClick={() => void copyCode()} type="button" title={tx("复制代码")}>
         {copied ? <Check size={15} /> : <Copy size={15} />}
       </button>
       <pre><code>{code}</code></pre>
@@ -3750,45 +4936,51 @@ function ExecutiveUsageReport({ data }: { data: AppData }) {
   const topDepartment = departments[0];
   const activeMembers = members.filter((row) => row.total_tokens > 0 || row.request_count > 0).length;
   const departmentShare = topDepartment && totalTokens > 0 ? Math.round((topDepartment.total_tokens / totalTokens) * 100) : 0;
-  const generatedAt = new Intl.DateTimeFormat("zh-CN", {
+  const generatedAt = new Intl.DateTimeFormat(languageLocale(), {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date());
+  const tokenDetail = `${tx("输入")} ${compactNumber(totalInput)} / ${tx("输出")} ${compactNumber(totalOutput)}`;
+  const departmentDetail = topDepartment
+    ? `${tx("最高")}：${topDepartment.name} · ${departmentShare}%`
+    : tx("暂无部门归因");
+  const generatedDetail = `${tx("统计时间")} ${generatedAt}`;
+  const requestDetail = countWithUnit(data.summary.request_count, "次请求", "request", "件のリクエスト");
 
   return (
     <section className="executive-report">
       <header className="executive-report-head">
         <div>
           <p className="eyebrow">Executive Usage Report</p>
-          <h2>企业 AI 用量看板</h2>
-          <span>面向管理层的部门、个人与 Token 消耗对比</span>
+          <h2>{tx("企业 AI 用量看板")}</h2>
+          <span>{tx("面向管理层的部门、个人与 Token 消耗对比")}</span>
         </div>
         <div className="executive-report-tools">
-          <span>本月</span>
-          <span>按部门</span>
-          <span>Token 口径</span>
+          <span>{tx("本月")}</span>
+          <span>{tx("按部门")}</span>
+          <span>{tx("Token 口径")}</span>
         </div>
       </header>
 
       <div className="executive-kpi-grid">
-        <ExecutiveKPI label="总 Token 消耗" value={compactNumber(totalTokens)} detail={`输入 ${compactNumber(totalInput)} / 输出 ${compactNumber(totalOutput)}`} />
-        <ExecutiveKPI label="覆盖部门" value={formatNumber(departments.length)} detail={topDepartment ? `最高：${topDepartment.name} · ${departmentShare}%` : "暂无部门归因"} />
-        <ExecutiveKPI label="活跃成员" value={formatNumber(activeMembers)} detail={`统计时间 ${generatedAt}`} />
-        <ExecutiveKPI label="估算成本" value={`$${formatMoney(data.summary.estimated_cost_usd)}`} detail={`${formatNumber(data.summary.request_count)} 次请求`} />
+        <ExecutiveKPI label="总 Token 消耗" value={compactNumber(totalTokens)} detail={tokenDetail} />
+        <ExecutiveKPI label="覆盖部门" value={formatNumber(departments.length)} detail={departmentDetail} />
+        <ExecutiveKPI label="活跃成员" value={formatNumber(activeMembers)} detail={generatedDetail} />
+        <ExecutiveKPI label="估算成本" value={`$${formatMoney(data.summary.estimated_cost_usd)}`} detail={requestDetail} />
       </div>
 
       <div className="executive-grid">
         <article className="executive-panel executive-chart-panel">
           <div className="executive-panel-head">
             <div>
-              <h3>部门 Token 消耗对比</h3>
-              <span>输入 Token 与输出 Token 分段展示，按总量排序</span>
+              <h3>{tx("部门 Token 消耗对比")}</h3>
+              <span>{tx("输入 Token 与输出 Token 分段展示，按总量排序")}</span>
             </div>
             <div className="executive-legend">
-              <span><i className="input" />输入</span>
-              <span><i className="output" />输出</span>
+              <span><i className="input" />{tx("输入")}</span>
+              <span><i className="output" />{tx("输出")}</span>
             </div>
           </div>
           <ExecutiveDepartmentChart rows={departments.slice(0, 8)} />
@@ -3797,8 +4989,8 @@ function ExecutiveUsageReport({ data }: { data: AppData }) {
         <article className="executive-panel executive-department-panel">
           <div className="executive-panel-head compact">
             <div>
-              <h3>部门排行</h3>
-              <span>Top {Math.min(departments.length, 8)} · Token 消耗</span>
+              <h3>{tx("部门排行")}</h3>
+              <span>Top {Math.min(departments.length, 8)} · {tx("Token 消耗")}</span>
             </div>
           </div>
           <ExecutiveDepartmentRanking rows={departments.slice(0, 8)} totalTokens={totalTokens} />
@@ -3808,12 +5000,12 @@ function ExecutiveUsageReport({ data }: { data: AppData }) {
       <article className="executive-panel executive-member-panel">
         <div className="executive-panel-head">
           <div>
-            <h3>个人排行</h3>
-            <span>公司内部成员 Token 消耗 Top 20</span>
+            <h3>{tx("个人排行")}</h3>
+            <span>{tx("公司内部成员 Token 消耗 Top 20")}</span>
           </div>
           <div className="executive-report-tools subtle">
-            <span>按 Token 降序</span>
-            <span>可用于复盘配额</span>
+            <span>{tx("按 Token 降序")}</span>
+            <span>{tx("可用于复盘配额")}</span>
           </div>
         </div>
         <ExecutiveMemberTable rows={members.slice(0, 20)} totalTokens={totalTokens} />
@@ -3825,7 +5017,7 @@ function ExecutiveUsageReport({ data }: { data: AppData }) {
 function ExecutiveKPI({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
     <article className="executive-kpi">
-      <span>{label}</span>
+      <span>{tx(label)}</span>
       <strong>{value}</strong>
       <small>{detail}</small>
     </article>
@@ -3833,7 +5025,7 @@ function ExecutiveKPI({ label, value, detail }: { label: string; value: string; 
 }
 
 function ExecutiveDepartmentChart({ rows }: { rows: ExecutiveDepartmentRow[] }) {
-  if (rows.length === 0) return <div className="empty">暂无部门 Token 数据</div>;
+  if (rows.length === 0) return <div className="empty">{tx("暂无部门 Token 数据")}</div>;
   const width = 960;
   const height = 320;
   const left = 54;
@@ -3849,7 +5041,7 @@ function ExecutiveDepartmentChart({ rows }: { rows: ExecutiveDepartmentRow[] }) 
 
   return (
     <div className="executive-chart-wrap">
-      <svg className="executive-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="部门 Token 消耗对比">
+      <svg className="executive-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={tx("部门 Token 消耗对比")}>
         {ticks.map((tick) => {
           const y = baseline - chartHeight * tick;
           return (
@@ -3882,7 +5074,7 @@ function ExecutiveDepartmentChart({ rows }: { rows: ExecutiveDepartmentRow[] }) 
 }
 
 function ExecutiveDepartmentRanking({ rows, totalTokens }: { rows: ExecutiveDepartmentRow[]; totalTokens: number }) {
-  if (rows.length === 0) return <div className="empty">暂无部门排行数据</div>;
+  if (rows.length === 0) return <div className="empty">{tx("暂无部门排行数据")}</div>;
   return (
     <div className="executive-rank-list">
       {rows.map((row, index) => {
@@ -3892,7 +5084,7 @@ function ExecutiveDepartmentRanking({ rows, totalTokens }: { rows: ExecutiveDepa
             <span className="executive-rank-index">{index + 1}</span>
             <div>
               <strong>{row.name}</strong>
-              <small>{formatNumber(row.member_count)} 人 · {formatNumber(row.request_count)} 次请求</small>
+              <small>{countWithUnit(row.member_count, "人", "member", "人")} · {countWithUnit(row.request_count, "次请求", "request", "件のリクエスト")}</small>
               <span className="executive-progress"><span style={{ width: `${Math.max(3, percent)}%` }} /></span>
             </div>
             <em>{compactNumber(row.total_tokens)}</em>
@@ -3904,21 +5096,21 @@ function ExecutiveDepartmentRanking({ rows, totalTokens }: { rows: ExecutiveDepa
 }
 
 function ExecutiveMemberTable({ rows, totalTokens }: { rows: ExecutiveMemberRow[]; totalTokens: number }) {
-  if (rows.length === 0) return <div className="empty">暂无个人排行数据</div>;
+  if (rows.length === 0) return <div className="empty">{tx("暂无个人排行数据")}</div>;
   return (
     <div className="executive-table-wrap">
       <table className="executive-rank-table">
         <thead>
           <tr>
-            <th>排名</th>
-            <th>成员</th>
-            <th>部门</th>
-            <th>请求</th>
-            <th>输入 Token</th>
-            <th>输出 Token</th>
-            <th>总 Token</th>
-            <th>占比</th>
-            <th>成本</th>
+            <th>{tx("排名")}</th>
+            <th>{tx("成员")}</th>
+            <th>{tx("部门")}</th>
+            <th>{tx("请求")}</th>
+            <th>{tx("输入 Token")}</th>
+            <th>{tx("输出 Token")}</th>
+            <th>{tx("总 Token")}</th>
+            <th>{tx("占比")}</th>
+            <th>{tx("成本")}</th>
           </tr>
         </thead>
         <tbody>
@@ -3928,7 +5120,7 @@ function ExecutiveMemberTable({ rows, totalTokens }: { rows: ExecutiveMemberRow[
               <tr key={row.id}>
                 <td><span className="executive-rank-badge">{index + 1}</span></td>
                 <td><strong>{row.name}</strong><small>{row.id}</small></td>
-                <td>{row.department}</td>
+                <td>{tx(row.department)}</td>
                 <td>{formatNumber(row.request_count)}</td>
                 <td>{compactNumber(row.input_tokens)}</td>
                 <td>{compactNumber(row.output_tokens)}</td>
@@ -3963,7 +5155,7 @@ function executiveDepartmentRows(data: AppData): ExecutiveDepartmentRow[] {
       const teamID = user?.team_id || "unknown";
       const current = byTeam.get(teamID) ?? {
         id: teamID,
-        name: teamID === "unknown" ? "未归属部门" : teamLabel(data, teamID),
+        name: teamID === "unknown" ? tx("未归属部门") : teamLabel(data, teamID),
         member_count: 0,
         request_count: 0,
         input_tokens: 0,
@@ -3997,7 +5189,7 @@ function executiveMemberRows(data: AppData): ExecutiveMemberRow[] {
       return {
         ...row,
         name: user ? displayText(user.name) || user.username || user.email : usageMemberLabel(data, row.id),
-        department: user?.team_id ? teamLabel(data, user.team_id) : "未归属部门",
+        department: user?.team_id ? teamLabel(data, user.team_id) : tx("未归属部门"),
       };
     });
   return sortUsageRows(rows);
@@ -4194,7 +5386,7 @@ function AuditView({ api, data, user }: { api: ApiContext; data: AppData; user: 
       .catch((err) => {
         if (isAuthExpiredError(err) || !alive) return;
         setDetail(null);
-        setDetailError(err instanceof Error ? err.message : "请求详情加载失败");
+        setDetailError(err instanceof Error ? err.message : tx("请求详情加载失败"));
       })
       .finally(() => {
         if (alive) setDetailLoading(false);
@@ -4215,14 +5407,14 @@ function AuditView({ api, data, user }: { api: ApiContext; data: AppData; user: 
   }, [data.logs]);
 
   const filters = [
-    { key: "all", label: `全部 ${data.logs.length}` },
-    { key: "ok", label: `成功 ${data.logs.length - requestStats.failures}` },
-    { key: "error", label: `失败 ${requestStats.failures}` },
+    { key: "all", label: `${tx("全部")} ${data.logs.length}` },
+    { key: "ok", label: `${tx("成功")} ${data.logs.length - requestStats.failures}` },
+    { key: "error", label: `${tx("失败")} ${requestStats.failures}` },
   ] as const;
 
   return (
     <div className="audit-view">
-      <div className="audit-tabs" role="tablist" aria-label="日志类型">
+      <div className="audit-tabs" role="tablist" aria-label={tx("日志类型")}>
         <button
           type="button"
           className={`audit-tab ${activeAuditTab === "requests" ? "active" : ""}`}
@@ -4231,7 +5423,7 @@ function AuditView({ api, data, user }: { api: ApiContext; data: AppData; user: 
           aria-selected={activeAuditTab === "requests"}
         >
           <Activity size={15} />
-          <span>大模型请求历史</span>
+          <span>{tx("大模型请求历史")}</span>
           <strong>{formatNumber(data.logs.length)}</strong>
         </button>
         {showAdminAudit ? (
@@ -4243,7 +5435,7 @@ function AuditView({ api, data, user }: { api: ApiContext; data: AppData; user: 
             aria-selected={activeAuditTab === "admin"}
           >
             <ShieldCheck size={15} />
-            <span>后台操作审计</span>
+            <span>{tx("后台操作审计")}</span>
             <strong>{formatNumber(data.auditEvents.length)}</strong>
           </button>
         ) : null}
@@ -4253,15 +5445,15 @@ function AuditView({ api, data, user }: { api: ApiContext; data: AppData; user: 
         <DataSection title="大模型请求历史">
           <div className="request-history">
             <div className="request-history-toolbar">
-              <label className="request-search" aria-label="搜索请求历史">
+              <label className="request-search" aria-label={tx("搜索请求历史")}>
                 <Search size={15} />
                 <input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="搜索请求 ID、模型、Provider、状态码"
+                  placeholder={tx("搜索请求 ID、模型、Provider、状态码")}
                 />
               </label>
-              <div className="request-filter-tabs" role="tablist" aria-label="请求状态筛选">
+              <div className="request-filter-tabs" role="tablist" aria-label={tx("请求状态筛选")}>
                 {filters.map((filter) => (
                   <button
                     key={filter.key}
@@ -4285,11 +5477,11 @@ function AuditView({ api, data, user }: { api: ApiContext; data: AppData; user: 
             <div className="request-history-layout">
               <div className="request-list-panel">
                 <div className="request-list-head">
-                  <span>请求列表</span>
-                  <strong>{formatNumber(filteredLogs.length)} 条</strong>
+                  <span>{tx("请求列表")}</span>
+                  <strong>{countWithUnit(filteredLogs.length, "条", "record", "件")}</strong>
                 </div>
                 {filteredLogs.length === 0 ? (
-                  <div className="compact-empty">没有匹配的请求记录</div>
+                  <div className="compact-empty">{tx("没有匹配的请求记录")}</div>
                 ) : (
                   <div className="request-list" role="list">
                     {visibleLogs.map((log) => (
@@ -4367,7 +5559,7 @@ function RequestDetailPanel({
   if (!requestID) {
     return (
       <div className="request-detail-panel">
-        <div className="compact-empty">暂无大模型请求记录</div>
+        <div className="compact-empty">{tx("暂无大模型请求记录")}</div>
       </div>
     );
   }
@@ -4375,7 +5567,7 @@ function RequestDetailPanel({
   if (loading && !detail) {
     return (
       <div className="request-detail-panel">
-        <div className="compact-empty">正在加载请求详情...</div>
+        <div className="compact-empty">{tx("正在加载请求详情...")}</div>
       </div>
     );
   }
@@ -4391,7 +5583,7 @@ function RequestDetailPanel({
   if (!detail) {
     return (
       <div className="request-detail-panel">
-        <div className="compact-empty">请选择一条请求</div>
+        <div className="compact-empty">{tx("请选择一条请求")}</div>
       </div>
     );
   }
@@ -4418,7 +5610,7 @@ function RequestDetailPanel({
     <div className="request-detail-panel">
       <div className="request-detail-head">
         <div>
-          <span>请求详情</span>
+          <span>{tx("请求详情")}</span>
           <strong>{log.model || "-"}</strong>
         </div>
         <StatusPill status={isError ? "error" : "ok"} label={String(log.status_code || "-")} />
@@ -4426,7 +5618,7 @@ function RequestDetailPanel({
 
       <div className="request-id-line">
         <code>{log.request_id}</code>
-        <button type="button" className="request-copy-button" onClick={() => void copyRequestID()} title="复制请求 ID">
+        <button type="button" className="request-copy-button" onClick={() => void copyRequestID()} title={tx("复制请求 ID")}>
           {copied ? <Check size={14} /> : <Copy size={14} />}
         </button>
       </div>
@@ -4452,8 +5644,8 @@ function RequestDetailPanel({
 
       <div className="request-subsection">
         <div className="request-subsection-title">
-          <span>Token 与成本</span>
-          <strong>{detail.usage.length ? `${detail.usage.length} 条记录` : "暂无记录"}</strong>
+          <span>{tx("Token 与成本")}</span>
+          <strong>{detail.usage.length ? countWithUnit(detail.usage.length, "条记录", "record", "件の記録") : tx("暂无记录")}</strong>
         </div>
         <div className="request-usage-strip">
           <UsageStat label="输入" value={compactNumber(usageTotals.input_tokens)} />
@@ -4465,11 +5657,11 @@ function RequestDetailPanel({
 
       <div className="request-subsection">
         <div className="request-subsection-title">
-          <span>路由尝试</span>
-          <strong>{detail.attempts.length > 1 ? `${detail.attempts.length} 次，含 fallback` : `${detail.attempts.length} 次`}</strong>
+          <span>{tx("路由尝试")}</span>
+          <strong>{routeAttemptCountText(detail.attempts.length)}</strong>
         </div>
         {detail.attempts.length === 0 ? (
-          <div className="compact-empty">没有记录到路由尝试</div>
+          <div className="compact-empty">{tx("没有记录到路由尝试")}</div>
         ) : (
           <div className="attempt-timeline">
             {detail.attempts.map((attempt) => (
@@ -4486,9 +5678,9 @@ function RequestDetailPanel({
                     />
                   </div>
                   <div className="attempt-meta">
-                    <span>上游模型 {attempt.provider_model || "-"}</span>
-                    <span>资源 {providerResourceAuditLabel(data, attempt.provider_resource_id)}</span>
-                    <span>路由 {attempt.route_id || "-"}</span>
+                    <span>{tx("上游模型")} {attempt.provider_model || "-"}</span>
+                    <span>{tx("资源")} {providerResourceAuditLabel(data, attempt.provider_resource_id)}</span>
+                    <span>{tx("路由")} {attempt.route_id || "-"}</span>
                   </div>
                   {attempt.error_code || attempt.error_message ? (
                     <p className="attempt-error">
@@ -4536,17 +5728,17 @@ function RequestPayloadSection({ payload }: { payload: RequestPayloadLog | null 
         <strong>{payload ? tx("已记录快照") : tx("未记录")}</strong>
       </div>
       {!payload ? (
-        <div className="compact-empty">这条历史记录没有保存 request / response 快照</div>
+        <div className="compact-empty">{tx("这条历史记录没有保存 request / response 快照")}</div>
       ) : (
         <div className="payload-grid">
           <PayloadBlock
             title="Request"
-            body={payload.request_body || "未记录请求内容"}
+            body={payload.request_body || tx("未记录请求内容")}
             truncated={payload.request_truncated}
           />
           <PayloadBlock
             title="Response"
-            body={payload.response_body || "未记录响应内容"}
+            body={payload.response_body || tx("未记录响应内容")}
             truncated={payload.response_truncated}
           />
         </div>
@@ -4560,7 +5752,7 @@ function PayloadBlock({ title, body, truncated }: { title: string; body: string;
     <div className="payload-block">
       <div className="payload-block-head">
         <span>{title}</span>
-        {truncated ? <strong>已截断</strong> : null}
+        {truncated ? <strong>{tx("已截断")}</strong> : null}
       </div>
       <pre>
         <code>{body}</code>
@@ -4734,11 +5926,11 @@ function TeamMembersPanel({ data, team, onClose }: { data: AppData; team: AdminR
     <div className="team-members-panel">
       <div className="team-members-head">
         <div>
-          <span>团队用户</span>
+          <span>{tx("团队用户")}</span>
           <strong>{team.name || team.id}</strong>
         </div>
-        <span>{formatNumber(users.length)} 人</span>
-        <button className="icon-button subtle" onClick={onClose} type="button" title="关闭成员列表">
+        <span>{countWithUnit(users.length, "人", "member", "人")}</span>
+        <button className="icon-button subtle" onClick={onClose} type="button" title={tx("关闭成员列表")}>
           <X size={15} />
         </button>
       </div>
@@ -4803,18 +5995,18 @@ function ProjectQuotaPanel({
     <div className="project-quota-panel">
       <div className="project-quota-head">
         <div>
-          <span>项目额度</span>
+          <span>{tx("项目额度")}</span>
           <strong>{project.name || project.id}</strong>
         </div>
-        <button className="icon-button subtle" onClick={onClose} type="button" title="关闭额度配置">
+        <button className="icon-button subtle" onClick={onClose} type="button" title={tx("关闭额度配置")}>
           <X size={15} />
         </button>
       </div>
       <div className="project-quota-body">
         <div className="quota-status-row">
           <div>
-            <strong>{hasQuota ? "已配置项目专属额度" : "未配置项目专属额度"}</strong>
-            <span>留空或填 0 表示该项不限额；Key 自身额度仍会叠加生效。</span>
+            <strong>{hasQuota ? tx("已配置项目专属额度") : tx("未配置项目专属额度")}</strong>
+            <span>{tx("留空或填 0 表示该项不限额；Key 自身额度仍会叠加生效。")}</span>
           </div>
           <StatusPill status={values.status || "active"} />
         </div>
@@ -4822,11 +6014,11 @@ function ProjectQuotaPanel({
         {quotaIssue || pendingApproval ? (
           <div className="quota-request-banner">
             <div>
-              <strong>{pendingApproval ? "已有额度提升申请待审批" : "最近触发了项目额度限制"}</strong>
+              <strong>{pendingApproval ? tx("已有额度提升申请待审批") : tx("最近触发了项目额度限制")}</strong>
               <span>
                 {pendingApproval
-                  ? `${approvalTriggerLabel(pendingApproval.trigger)} ${pendingApproval.id}，可在审批记录中处理。`
-                  : `${formatNumber(quotaIssue?.count ?? 0)} 次额度不足，请填写希望提升后的目标额度再提交审批。`}
+                  ? `${approvalTriggerLabel(pendingApproval.trigger)} ${pendingApproval.id}，${tx("可在审批记录中处理。")}`
+                  : `${formatNumber(quotaIssue?.count ?? 0)} ${tx("次额度不足，请填写希望提升后的目标额度再提交审批。")}`}
               </span>
             </div>
             {pendingApproval ? <StatusPill status="pending" label="待审批" /> : <StatusPill status="warning" label="需提升" />}
@@ -4834,17 +6026,17 @@ function ProjectQuotaPanel({
         ) : null}
 
         <label className="field">
-          <span>状态</span>
+          <span>{tx("状态")}</span>
           <select value={values.status} onChange={(event) => setValues((current) => ({ ...current, status: event.target.value }))}>
-            <option value="active">启用</option>
-            <option value="disabled">停用</option>
+            <option value="active">{tx("启用")}</option>
+            <option value="disabled">{tx("停用")}</option>
           </select>
         </label>
 
         <div className="project-quota-grid">
           {projectQuotaFields.map((field) => (
             <label className="field" key={field.key}>
-              <span>{field.label}</span>
+              <span>{tx(field.label)}</span>
               <input
                 min="0"
                 type="number"
@@ -4870,7 +6062,7 @@ function ProjectQuotaPanel({
               }
               type="button"
             >
-              提升额度申请
+              {tx("提升额度申请")}
             </button>
           ) : null}
           <button
@@ -4885,7 +6077,7 @@ function ProjectQuotaPanel({
             }
             type="button"
           >
-            保存额度
+            {tx("保存额度")}
           </button>
         </div>
       </div>
@@ -4920,7 +6112,7 @@ function ReportsView({
     <div className="reports-center">
       <div className="reports-export-head">
         <div>
-          <h2>按需导出</h2>
+          <h2>{tx("按需导出")}</h2>
           <span>CSV</span>
         </div>
       </div>
@@ -4933,7 +6125,7 @@ function ReportsView({
               disabled={loading}
               key={item.dataset}
               onClick={() => onExport(item.dataset)}
-              title={`导出 ${item.label}`}
+              title={`${tx("导出")} ${item.label}`}
               type="button"
             >
               <span className="report-export-icon">
@@ -4941,7 +6133,7 @@ function ReportsView({
               </span>
               <span className="report-export-copy">
                 <strong>{item.label}</strong>
-                <span>{item.description}</span>
+                <span>{tx(item.description)}</span>
               </span>
               <em>CSV</em>
             </button>
@@ -4968,7 +6160,7 @@ function ReportsView({
           <div className="reports-config-toolbar">
             <button className="button" onClick={onCreate} type="button">
               <Plus size={16} />
-              新增配置
+              {tx("新增配置")}
             </button>
           </div>
           <EntityTable
@@ -4999,7 +6191,7 @@ function ModelCategoryTabs({
   const tabs = modelCategoryTabs(data, view);
   if (tabs.length <= 1) return null;
   return (
-    <div className="category-tabs" role="tablist" aria-label="模型分类">
+    <div className="category-tabs" role="tablist" aria-label={tx("模型分类")}>
       {tabs.map((tab) => (
         <button
           className={active === tab.key ? "category-tab active" : "category-tab"}
@@ -5620,12 +6812,12 @@ function APIKeyFlowHint({ data }: { data: AppData }) {
   return (
     <div className="workflow-hint">
       <div>
-        <strong>Key 归属逻辑</strong>
-        <span>内部应用配置项目下发放的 Key；额度、模型白名单、用量和成本都会归属到该项目。</span>
+        <strong>{tx("Key 归属逻辑")}</strong>
+        <span>{tx("内部应用配置项目下发放的 Key；额度、模型白名单、用量和成本都会归属到该项目。")}</span>
       </div>
       <div className="workflow-hint-stats">
-        <span>{data.projects.length} 个项目</span>
-        <span>{data.keys.length} 个 Key</span>
+        <span>{countWithLabel(data.projects.length, "个项目")}</span>
+        <span>{countWithLabel(data.keys.length, "个 Key")}</span>
       </div>
     </div>
   );
@@ -5695,7 +6887,7 @@ function EntityTable<T>({
                       onToggle={(nextStatus) => onAction(apiKeyStatusAction(nextStatus) as unknown as ResourceAction<T>, item)}
                     />
                   ) : column.render ? (
-                    column.render(item, data)
+                    translatedCell(column.render(item, data))
                   ) : (
                     displayCellValue(readPath(item, column.key))
                   )}
@@ -5931,14 +7123,14 @@ function UserImportModal({
       <form className="modal user-import-modal" onSubmit={submit}>
         <div className="modal-header">
           <div>
-            <p className="eyebrow">批量导入</p>
-            <h2>导入用户</h2>
+            <p className="eyebrow">{tx("批量导入")}</p>
+            <h2>{tx("导入用户")}</h2>
           </div>
-          <button className="icon-button" onClick={onClose} type="button" title="关闭">×</button>
+          <button className="icon-button" onClick={onClose} type="button" title={tx("关闭")}>×</button>
         </div>
         <div className="modal-body user-import-body">
           <label className="field">
-            <span>CSV 内容</span>
+            <span>{tx("CSV 内容")}</span>
             <textarea
               className="user-import-textarea"
               value={content}
@@ -5946,17 +7138,17 @@ function UserImportModal({
               placeholder={"username,name,email,role,team_id,status\nzhangsan,张三,zhangsan@example.com,user,team_platform,active"}
               required
             />
-            <small>按 username 或 email 匹配已有用户；匹配到则更新，未匹配则创建。</small>
+            <small>{tx("按 username 或 email 匹配已有用户；匹配到则更新，未匹配则创建。")}</small>
           </label>
           <div className="user-import-example">
-            <strong>字段顺序</strong>
+            <strong>{tx("字段顺序")}</strong>
             <code>username,name,email,role,team_id,status</code>
-            <span>role 可填 admin、team_leader、user；status 可填 active 或 disabled。</span>
+            <span>{tx("role 可填 admin、team_leader、user；status 可填 active 或 disabled。")}</span>
           </div>
         </div>
         <div className="modal-actions">
-          <button className="secondary-button" onClick={onClose} type="button">取消</button>
-          <button className="button" disabled={loading} type="submit">{loading ? "导入中" : "开始导入"}</button>
+          <button className="secondary-button" onClick={onClose} type="button">{tx("取消")}</button>
+          <button className="button" disabled={loading} type="submit">{loading ? tx("导入中") : tx("开始导入")}</button>
         </div>
       </form>
     </div>
@@ -5982,7 +7174,7 @@ function PlaygroundPanel({
   const [modelName, setModelName] = useState(models[0]?.name ?? "");
   const [messages, setMessages] = useState<PlaygroundMessage[]>([]);
   const [draft, setDraft] = useState("");
-  const [systemPrompt, setSystemPrompt] = useState("做一个乐于助人的助手");
+  const [systemPrompt, setSystemPrompt] = useState(defaultPlaygroundSystemPrompt);
   const [responseFormat, setResponseFormat] = useState("text");
   const [maxTokens, setMaxTokens] = useState("4096");
   const [temperature, setTemperature] = useState("0.7");
@@ -6007,6 +7199,11 @@ function PlaygroundPanel({
       setModelName(models[0].name);
     }
   }, [modelName, models]);
+
+  const languageVersion = activeLanguage;
+  useEffect(() => {
+    setSystemPrompt((current) => isDefaultPlaygroundSystemPrompt(current) ? defaultPlaygroundSystemPrompt() : current);
+  }, [languageVersion]);
 
   useEffect(() => {
     const parsed = Number(maxTokens);
@@ -6051,12 +7248,12 @@ function PlaygroundPanel({
         {
           id: uniqueUIID("msg"),
           role: "assistant",
-          content: assistantText || "模型没有返回可展示内容。",
+          content: assistantText || tx("模型没有返回可展示内容。"),
         },
       ]);
     } catch (err) {
       if (isAuthExpiredError(err)) return;
-      setError(err instanceof Error ? err.message : "演练请求失败");
+      setError(err instanceof Error ? err.message : tx("演练请求失败"));
     } finally {
       setLoading(false);
     }
@@ -6070,15 +7267,15 @@ function PlaygroundPanel({
 
   return (
     <div className="playground-shell">
-      <aside className="playground-config" aria-label="模型配置">
+      <aside className="playground-config" aria-label={tx("模型配置")}>
         <label className="playground-model-select">
           <select value={modelName} onChange={(event) => setModelName(event.target.value)} disabled={models.length === 0}>
-            {models.length === 0 ? <option value="">暂无聊天模型</option> : null}
+            {models.length === 0 ? <option value="">{tx("暂无聊天模型")}</option> : null}
             {models.map((model) => {
               const routeCount = activeRouteCount(model.name, data);
               return (
                 <option key={model.name} value={model.name}>
-                  {routeCount > 0 ? `${model.name} · ${routeCount} 条路由` : `${model.name} · 未配置路由`}
+                  {routeCount > 0 ? `${model.name} · ${countWithUnit(routeCount, "条路由", "route", "件のルート")}` : `${model.name} · ${tx("未配置路由")}`}
                 </option>
               );
             })}
@@ -6086,15 +7283,15 @@ function PlaygroundPanel({
         </label>
 
         <div className="playground-config-body">
-          <h2>模型配置</h2>
+          <h2>{tx("模型配置")}</h2>
           <label className="playground-field">
-            <span>响应格式</span>
+            <span>{tx("响应格式")}</span>
             <select value={responseFormat} onChange={(event) => setResponseFormat(event.target.value)}>
               <option value="text">text</option>
             </select>
           </label>
           <label className="playground-field">
-            <span>系统提示</span>
+            <span>{tx("系统提示")}</span>
             <textarea value={systemPrompt} onChange={(event) => setSystemPrompt(event.target.value)} />
           </label>
           <PlaygroundConfigSlider label="max_tokens" value={maxTokens} onChange={setMaxTokens} min={128} max={maxTokenLimit} step={128} />
@@ -6104,44 +7301,44 @@ function PlaygroundPanel({
           <PlaygroundConfigSlider label="min_p" value={minP} onChange={setMinP} min={0} max={1} step={0.01} />
           <PlaygroundConfigSlider label="top_k" value={topK} onChange={setTopK} min={0} max={100} step={1} />
           <div className="playground-functions">
-            <strong>函数</strong>
-            <button type="button" className="secondary-button compact" disabled title="函数调用配置待接入">
+            <strong>{tx("函数")}</strong>
+            <button type="button" className="secondary-button compact" disabled title={tx("函数调用配置待接入")}>
               <Plus size={14} />
-              添加函数
+              {tx("添加函数")}
             </button>
           </div>
         </div>
       </aside>
 
-      <section className="playground-main" aria-label="模型演练对话">
+      <section className="playground-main" aria-label={tx("模型演练对话")}>
         <div className="playground-model-bar">
           <div className="playground-model-title">
-            <button type="button" className="playground-copy-model" title="复制模型名" onClick={() => navigator.clipboard?.writeText(modelName).catch(() => undefined)}>
-              <strong>{modelName || "选择模型"}</strong>
+            <button type="button" className="playground-copy-model" title={tx("复制模型名")} onClick={() => navigator.clipboard?.writeText(modelName).catch(() => undefined)}>
+              <strong>{modelName || tx("选择模型")}</strong>
               <Copy size={13} />
             </button>
             <span>
-              {contextWindow ? `${formatNumber(contextWindow)} 上下文` : "上下文 -"}
+              {contextWindow ? `${formatNumber(contextWindow)} ${tx("上下文")}` : `${tx("上下文")} -`}
               <em />
-              ${formatMoney(inputPrice)}/Mt 输入
+              ${formatMoney(inputPrice)}/Mt {tx("输入")}
               <em />
-              ${formatMoney(outputPrice)}/Mt 输出
+              ${formatMoney(outputPrice)}/Mt {tx("输出")}
               <em />
-              {selectedModelRouteCount} 条启用路由
+              {countWithUnit(selectedModelRouteCount, "条启用路由", "active route", "件の有効ルート")}
             </span>
           </div>
           <div className="playground-actions">
             <button type="button" className={showModelDetails ? "secondary-button compact active" : "secondary-button compact"} onClick={() => setShowModelDetails((value) => !value)}>
               <Sparkles size={14} />
-              模型详情
+              {tx("模型详情")}
             </button>
             <button type="button" className={showCode ? "secondary-button compact active" : "secondary-button compact"} onClick={() => setShowCode((value) => !value)}>
               <Code2 size={14} />
-              查看代码
+              {tx("查看代码")}
             </button>
             <button type="button" className="secondary-button compact" onClick={clearHistory} disabled={messages.length === 0 && !lastResult}>
               <Trash2 size={14} />
-              清空历史
+              {tx("清空历史")}
             </button>
           </div>
         </div>
@@ -6165,7 +7362,7 @@ function PlaygroundPanel({
           <div className="playground-route">
             <span>{lastResult.route.provider_name || lastResult.route.provider_id || "-"}</span>
             <em>{lastResult.route.provider_model || "-"}</em>
-            <small>{lastResult.route.resource_name || lastResult.route.resource_id || "默认资源"} · {routeStrategyLabel(lastResult.route.strategy)} · {lastResult.attempts?.length ?? 0} 次尝试</small>
+            <small>{lastResult.route.resource_name || lastResult.route.resource_id || tx("默认资源")} · {routeStrategyLabel(lastResult.route.strategy)} · {countWithUnit(lastResult.attempts?.length ?? 0, "次尝试", "attempt", "回試行")}</small>
           </div>
         ) : null}
 
@@ -6175,8 +7372,8 @@ function PlaygroundPanel({
           {messages.length === 0 ? (
             <div className="playground-empty">
               <Sparkles size={22} />
-              <strong>试用 {modelName || "当前模型"}</strong>
-              <span>{data.routes.length === 0 ? "当前还没有配置模型路由。" : "体验一下，看看模型在 TokenHub 网关上的表现"}</span>
+              <strong>{tx("试用")} {modelName || tx("当前模型")}</strong>
+              <span>{data.routes.length === 0 ? tx("当前还没有配置模型路由。") : tx("体验一下，看看模型在 TokenHub 网关上的表现")}</span>
             </div>
           ) : (
             messages.map((message) => (
@@ -6192,13 +7389,13 @@ function PlaygroundPanel({
           <textarea
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="说点什么..."
+            placeholder={tx("说点什么...")}
             disabled={loading || models.length === 0}
           />
           <div className="playground-composer-actions">
-            <button className="secondary-button compact" type="button" disabled title="文件上传待接入">
+            <button className="secondary-button compact" type="button" disabled title={tx("文件上传待接入")}>
               <Plus size={14} />
-              上传文件
+              {tx("上传文件")}
             </button>
             {lastResult?.usage ? (
               <div className="playground-foot">
@@ -6208,7 +7405,7 @@ function PlaygroundPanel({
                 {lastResult.request_id ? <span>{lastResult.request_id}</span> : null}
               </div>
             ) : null}
-            <button className="playground-send-button" disabled={loading || !draft.trim() || models.length === 0} type="submit" title="发送">
+            <button className="playground-send-button" disabled={loading || !draft.trim() || models.length === 0} type="submit" title={tx("发送")}>
               <Send size={18} />
             </button>
           </div>
@@ -6266,14 +7463,14 @@ function PlaygroundAPIExamples({ baseURL, modelName }: { baseURL: string; modelN
     <section className="api-example-panel">
       <div className="api-example-header">
         <div>
-          <strong>API 使用</strong>
-          <span>使用以下代码示例集成 TokenHub 模型接口</span>
+          <strong>{tx("API 使用")}</strong>
+          <span>{tx("使用以下代码示例集成 TokenHub 模型接口")}</span>
         </div>
-        <button className="icon-button subtle" onClick={() => void copyCurrent()} type="button" title="复制代码">
+        <button className="icon-button subtle" onClick={() => void copyCurrent()} type="button" title={tx("复制代码")}>
           {copied ? <Check size={15} /> : <Copy size={15} />}
         </button>
       </div>
-      <div className="api-example-tabs" role="tablist" aria-label="API 调用语言">
+      <div className="api-example-tabs" role="tablist" aria-label={tx("API 调用语言")}>
         {apiExampleLanguages.map((item) => (
           <button
             aria-selected={language === item.key}
@@ -6292,7 +7489,7 @@ function PlaygroundAPIExamples({ baseURL, modelName }: { baseURL: string; modelN
       </div>
       <div className="api-example-meta">
         <span>Chat Completions</span>
-        <em>{modelName || "未选择模型"}</em>
+        <em>{modelName || tx("未选择模型")}</em>
       </div>
       <pre className="api-code-block"><code>{current}</code></pre>
     </section>
@@ -6412,7 +7609,7 @@ function ProviderUpsertModal({
       .catch((err) => {
         if (!cancelled) {
           if (isAuthExpiredError(err)) return;
-          const message = err instanceof Error ? err.message : "Provider 模板加载失败";
+          const message = err instanceof Error ? err.message : tx("Provider 模板加载失败");
           setModelError(message);
           setError(message);
         }
@@ -6536,11 +7733,11 @@ function ProviderUpsertModal({
       if (!resp.ok) throw new Error(`${mode === "edit" ? "update" : "create"} provider ${resp.status}`);
       const result = (await resp.json()) as { created_routes?: number; provider?: Provider };
       const routed = result.created_routes ?? 0;
-      setNotice(`Provider 已${mode === "edit" ? "更新" : "新增"}${routed ? `，创建 ${routed} 条${modelCategoryLabel(modelCategory)}路由` : ""}`);
+      setNotice(`${tx("Provider 已")}${tx(mode === "edit" ? "更新" : "新增")}${routed ? `，${tx("创建")} ${countWithUnit(routed, `条${modelCategoryLabel(modelCategory)}路由`, `${modelCategoryLabel(modelCategory)} route`, `${modelCategoryLabel(modelCategory)} ルート`)}` : ""}`);
       await onSaved();
     } catch (err) {
       if (isAuthExpiredError(err)) return;
-      setError(err instanceof Error ? err.message : `${mode === "edit" ? "更新" : "新增"} Provider 失败`);
+      setError(err instanceof Error ? err.message : tx("保存失败"));
     } finally {
       setLoading(false);
     }
@@ -6551,16 +7748,16 @@ function ProviderUpsertModal({
       <form className="modal provider-modal" onSubmit={submit}>
         <div className="modal-header">
           <div>
-            <p className="eyebrow">{mode === "edit" ? "编辑" : "新增"}</p>
-            <h2>Provider 渠道</h2>
+            <p className="eyebrow">{tx(mode === "edit" ? "编辑" : "新增")}</p>
+            <h2>{tx("Provider 渠道")}</h2>
           </div>
-          <button className="icon-button" onClick={onClose} type="button" title="关闭">×</button>
+          <button className="icon-button" onClick={onClose} type="button" title={tx("关闭")}>×</button>
         </div>
         <div className="provider-modal-body">
           <section className="provider-catalog-pane">
             <div className="provider-catalog-head">
-              <strong>模型类型</strong>
-              <span>{availableCategories.length} 类</span>
+              <strong>{tx("模型类型")}</strong>
+              <span>{countWithLabel(availableCategories.length, "类")}</span>
             </div>
             <div className="provider-category-list">
               {availableCategories.map((category) => (
@@ -6570,15 +7767,15 @@ function ProviderUpsertModal({
                   onClick={() => selectCategory(category.key)}
                   type="button"
                 >
-                  <strong>{category.label}</strong>
-                  <span>{category.count} 个模型</span>
+                  <strong>{tx(category.label)}</strong>
+                  <span>{countWithLabel(category.count, "个模型")}</span>
                 </button>
               ))}
             </div>
 
             <div className="provider-catalog-head provider-catalog-subhead">
-              <strong>渠道商</strong>
-              <span>{filteredCatalog.length}/{categoryCatalog.length} 个</span>
+              <strong>{tx("渠道商")}</strong>
+              <span>{filteredCatalog.length}/{categoryCatalog.length}</span>
             </div>
             <button
               className={catalogID === "custom" ? "custom-provider-button active" : "custom-provider-button"}
@@ -6586,22 +7783,22 @@ function ProviderUpsertModal({
               type="button"
             >
               <Plus size={14} />
-              <span>自定义渠道商</span>
-              <em>{modelCategoryLabel(modelCategory)} · {customCatalogEntry.models_count} 个标准模型</em>
+              <span>{tx("自定义渠道商")}</span>
+              <em>{modelCategoryLabel(modelCategory)} · {countWithLabel(customCatalogEntry.models_count, "个标准模型")}</em>
             </button>
             <div className="provider-template-search">
               <Search size={14} />
               <input
                 value={catalogQuery}
                 onChange={(event) => setCatalogQuery(event.target.value)}
-                placeholder="搜索渠道商、ID、类型"
+                placeholder={tx("搜索渠道商、ID、类型")}
               />
             </div>
             <div className="provider-catalog-list compact">
               {filteredCatalog.length === 0 ? (
                 <div className="empty compact-empty">
-                  <span>没有匹配的渠道商</span>
-                  <button className="secondary-button" onClick={selectCustomCatalog} type="button">使用自定义渠道商</button>
+                  <span>{tx("没有匹配的渠道商")}</span>
+                  <button className="secondary-button" onClick={selectCustomCatalog} type="button">{tx("使用自定义渠道商")}</button>
                 </div>
               ) : filteredCatalog.map((entry) => (
                 <button
@@ -6611,7 +7808,7 @@ function ProviderUpsertModal({
                   type="button"
                 >
                   <strong>{entry.display_name || entry.name}</strong>
-                  <span>{providerTypeLabel(entry.type)} · {providerEntryCategoryCount(entry, modelCategory)} 个模型</span>
+                  <span>{providerTypeLabel(entry.type)} · {countWithLabel(providerEntryCategoryCount(entry, modelCategory), "个模型")}</span>
                 </button>
               ))}
             </div>
@@ -6620,20 +7817,20 @@ function ProviderUpsertModal({
           <section className="provider-config-pane">
             <div className="provider-selected-summary">
               <strong>{modelCategoryLabel(modelCategory)}</strong>
-              <span>{selectedEntry?.display_name || selectedEntry?.name || "请选择渠道商"}</span>
+              <span>{selectedEntry?.display_name || selectedEntry?.name || tx("请选择渠道商")}</span>
               <em>{providerTypeLabel(selectedEntry?.type || values.type || "openai_compatible")}</em>
             </div>
             <div className="provider-form-grid">
               <label className="field">
                 <span>Provider ID</span>
-                <input value={values.id ?? ""} onChange={(event) => update("id", event.target.value)} placeholder={catalogID === "custom" ? "例如 prv_company_proxy" : "留空自动生成"} readOnly={mode === "edit"} />
+                <input value={values.id ?? ""} onChange={(event) => update("id", event.target.value)} placeholder={catalogID === "custom" ? tx("例如 prv_company_proxy") : tx("留空自动生成")} readOnly={mode === "edit"} />
               </label>
               <label className="field">
-                <span>渠道名称</span>
+                <span>{tx("渠道名称")}</span>
                 <input value={values.name ?? ""} onChange={(event) => update("name", event.target.value)} required />
               </label>
               <label className="field">
-                <span>渠道商类型</span>
+                <span>{tx("渠道商类型")}</span>
                 <select value={values.type ?? ""} onChange={(event) => update("type", event.target.value)} required>
                   {providerTypeOptions.map((option) => <option key={option} value={option}>{providerTypeLabel(option)}</option>)}
                 </select>
@@ -6645,18 +7842,18 @@ function ProviderUpsertModal({
               <label className="field">
                 <span>API Key</span>
                 <input value={values.api_key ?? ""} type="password" onChange={(event) => update("api_key", event.target.value)} />
-                {mode === "edit" ? <small>留空表示不修改现有 Key；填写新值才会覆盖。</small> : null}
+                {mode === "edit" ? <small>{tx("留空表示不修改现有 Key；填写新值才会覆盖。")}</small> : null}
               </label>
               <label className="field">
-                <span>优先级</span>
+                <span>{tx("优先级")}</span>
                 <input value={values.priority ?? "10"} type="number" onChange={(event) => update("priority", event.target.value)} />
               </label>
             </div>
 
             <div className="provider-import-options">
               <div>
-                <strong>自动路由</strong>
-                <span>{mode === "edit" ? "开启后会为下方勾选模型补齐缺失线路，不覆盖已有策略。" : "保存渠道时会自动创建下方勾选模型的默认路由。"}</span>
+                <strong>{tx("自动路由")}</strong>
+                <span>{mode === "edit" ? tx("开启后会为下方勾选模型补齐缺失线路，不覆盖已有策略。") : tx("保存渠道时会自动创建下方勾选模型的默认路由。")}</span>
               </div>
               <div className="boolean-toggle provider-route-toggle" role="radiogroup" aria-label={tx("自动路由")}>
                 <button
@@ -6666,7 +7863,7 @@ function ProviderUpsertModal({
                   role="radio"
                   type="button"
                 >
-                  开启
+                  {tx("开启")}
                 </button>
                 <button
                   aria-checked={!autoRouteEnabled}
@@ -6675,30 +7872,30 @@ function ProviderUpsertModal({
                   role="radio"
                   type="button"
                 >
-                  关闭
+                  {tx("关闭开关")}
                 </button>
               </div>
             </div>
 
             <div className="provider-model-head">
               <div>
-                <strong>上游模型映射</strong>
-                <span>{detail ? `${models.length}/${detail.models_count} 个可映射模型` : "加载中"}</span>
+                <strong>{tx("上游模型映射")}</strong>
+                <span>{detail ? `${models.length}/${detail.models_count} ${tx("个可映射模型")}` : tx("加载中")}</span>
               </div>
               <div className="provider-model-tools">
-                <input value={modelQuery} onChange={(event) => setModelQuery(event.target.value)} placeholder="搜索模型、能力、参数" />
+                <input value={modelQuery} onChange={(event) => setModelQuery(event.target.value)} placeholder={tx("搜索模型、能力、参数")} />
                 <button className="secondary-button" onClick={() => selectedEntry && selectCatalog(selectedEntry)} type="button">
-                  重新加载
+                  {tx("重新加载")}
                 </button>
               </div>
             </div>
             <div className="provider-model-list">
               {modelLoading ? (
-                <div className="empty">正在加载模型列表...</div>
+                <div className="empty">{tx("正在加载模型列表...")}</div>
               ) : modelError ? (
                 <div className="empty">{modelError}</div>
               ) : filteredModels.length === 0 ? (
-                <div className="empty">{models.length === 0 ? "该渠道商暂无可匹配当前标准模型目录的上游模型" : "没有匹配的模型"}</div>
+                <div className="empty">{models.length === 0 ? tx("该渠道商暂无可匹配当前标准模型目录的上游模型") : tx("没有匹配的模型")}</div>
               ) : filteredModels.map((model) => (
                 <label className="model-option" key={model.id}>
                   <input
@@ -6712,7 +7909,7 @@ function ProviderUpsertModal({
                     <span>{model.canonical_name || model.id} ← {model.id}</span>
                     <small>
                       {modelCategoryLabel(modelCategoryForCatalog(model))} · {model.family || "model"} · {model.type || "chat"} · {formatModelPrice(model)} · {model.context_window ? `${compactNumber(model.context_window)} ctx` : "ctx -"}
-                      {existingRouteModels.has(model.canonical_name || canonicalModelNameForUI(model.id, model.display_name)) ? " · 已有路由" : ""}
+                      {existingRouteModels.has(model.canonical_name || canonicalModelNameForUI(model.id, model.display_name)) ? ` · ${tx("已有路由")}` : ""}
                     </small>
                     <div className="capability-row">
                       {modelCapabilities(model).map((capability) => <em key={capability}>{capability}</em>)}
@@ -6723,16 +7920,16 @@ function ProviderUpsertModal({
             </div>
             <p className="provider-import-hint">
               {!autoRouteEnabled
-                ? "已关闭自动路由：保存后只创建 Provider，不生成路由策略。"
+                ? tx("已关闭自动路由：保存后只创建 Provider，不生成路由策略。")
                 : selectedRouteCount > 0
-                  ? `保存后会为 ${selectedRouteCount} 个已选 ${modelCategoryLabel(modelCategory)} 模型创建缺失的默认路由。`
-                  : "当前没有勾选模型，保存后不会生成路由策略。"}
+                  ? `${tx("保存后会为")} ${selectedRouteCount} ${tx("个已选")} ${modelCategoryLabel(modelCategory)} ${tx("模型创建缺失的默认路由。")}`
+                  : tx("当前没有勾选模型，保存后不会生成路由策略。")}
             </p>
           </section>
         </div>
         <div className="modal-actions">
-          <button className="secondary-button" onClick={onClose} type="button">取消</button>
-          <button className="button" disabled={loading} type="submit">保存</button>
+          <button className="secondary-button" onClick={onClose} type="button">{tx("取消")}</button>
+          <button className="button" disabled={loading} type="submit">{tx("保存")}</button>
         </div>
       </form>
     </div>
@@ -6949,7 +8146,7 @@ function SimpleTable({
         </thead>
         <tbody>
           {rows.map((row, index) => (
-            <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{typeof cell === "string" ? tx(cell) : cell}</td>)}</tr>
+            <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{translatedCell(cell)}</td>)}</tr>
           ))}
         </tbody>
       </table>
@@ -6980,7 +8177,7 @@ function PaginatedSimpleTable({
           </thead>
           <tbody>
             {visibleRows.map((row, index) => (
-              <tr key={pagination.startIndex + index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>
+              <tr key={pagination.startIndex + index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{translatedCell(cell)}</td>)}</tr>
             ))}
           </tbody>
         </table>
@@ -7305,13 +8502,13 @@ function sqliteBackupConfig(): ResourceConfig<SQLiteBackup> {
         label: "下载",
         title: "下载 SQLite 备份文件",
         run: async (ctx, item) => downloadSQLiteBackup(ctx, item),
-        doneMessage: () => "备份文件已开始下载",
+        doneMessage: () => tx("备份文件已开始下载"),
       },
       {
         label: "恢复",
         title: "将数据库恢复到该备份",
         run: async (ctx, item) => restoreSQLiteBackup(ctx, item),
-        doneMessage: (item) => `已恢复备份 ${item.id}`,
+        doneMessage: (item) => `${tx("已恢复备份")} ${item.id}`,
       },
     ],
   };
@@ -7534,7 +8731,7 @@ function routeConfig(): ResourceConfig<ModelRoute> {
       { key: "weight", label: "权重" },
       { key: "score", label: "评分", render: (item) => routeScoreSummary(item) },
       { key: "strategy", label: "策略", render: (item) => routeStrategyLabel(item.strategy) },
-      { key: "sticky_session", label: "粘性", render: (item) => item.sticky_session ? "开启" : "关闭" },
+      { key: "sticky_session", label: "粘性", render: (item) => item.sticky_session ? tx("开启") : tx("关闭开关") },
       { key: "last_used_at", label: "最近命中", render: (item) => formatTime(item.last_used_at ?? "") },
       { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
     ],
@@ -7621,8 +8818,8 @@ function apiKeyConfig(): ResourceConfig<APIKey> {
       { key: "project_owner", label: "负责人", render: (item, ctx) => projectOwnerLabel(ctx, item.project_id) },
       { key: "project_team", label: "团队", render: (item, ctx) => projectTeamLabel(ctx, item.project_id) },
       { key: "key_prefix", label: "Key", render: (item) => `${item.key_prefix}...${item.key_suffix}` },
-      { key: "allowed_models", label: "模型", render: (item) => (item.allowed_models ?? []).join(", ") || "全部" },
-      { key: "ip_allowlist", label: "IP 白名单", render: (item) => (item.ip_allowlist ?? []).join(", ") || "不限" },
+      { key: "allowed_models", label: "模型", render: (item) => (item.allowed_models ?? []).join(", ") || tx("全部") },
+      { key: "ip_allowlist", label: "IP 白名单", render: (item) => (item.ip_allowlist ?? []).join(", ") || tx("不限") },
       { key: "limits.max_concurrency", label: "并发" },
       { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
     ],
@@ -7708,13 +8905,13 @@ function APIKeyStatusSwitch({
         onToggle(nextStatus);
       }}
       role="switch"
-      title={enabled ? "点击停用 API Key" : "点击启用 API Key"}
+      title={enabled ? tx("点击停用 API Key") : tx("点击启用 API Key")}
       type="button"
     >
       <span className="status-switch-track">
         <span className="status-switch-thumb" />
       </span>
-      <strong>{enabled ? "启用" : "停用"}</strong>
+      <strong>{enabled ? tx("启用") : tx("停用")}</strong>
     </button>
   );
 }
@@ -7724,7 +8921,7 @@ function apiKeyStatusAction(status: "active" | "disabled"): ResourceAction<APIKe
     label: status === "active" ? "启用" : "禁用",
     title: status === "active" ? "重新启用该 API Key" : "立即禁用该 API Key",
     run: (ctx, item) => updateAPIKeyStatus(ctx, item, status),
-    doneMessage: (item) => `${item.name} 已${status === "active" ? "启用" : "禁用"}`,
+    doneMessage: (item) => tx(`${item.name} 已${status === "active" ? "启用" : "禁用"}`),
   };
 }
 
@@ -7800,7 +8997,7 @@ function alertRuleConfig(): ResourceConfig<AdminResource> {
       { key: "fields.severity", label: "级别", render: (item) => <StatusPill status={stringifyValue(item.fields?.severity || "warning")} /> },
       { key: "fields.channel", label: "通知渠道", render: (item) => stringifyValue(item.fields?.channel) || "default" },
       { key: "fields.event_codes", label: "触发事件", render: (item) => compactList(item.fields?.event_codes) },
-      { key: "fields.managed_by", label: "来源", render: (item) => stringifyValue(item.fields?.managed_by) === "tokenhub_auto" ? "系统默认" : "自定义" },
+      { key: "fields.managed_by", label: "来源", render: (item) => stringifyValue(item.fields?.managed_by) === "tokenhub_auto" ? tx("系统默认") : tx("自定义") },
       { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
     ],
   };
@@ -8063,7 +9260,7 @@ function invoiceConfig(): ResourceConfig<AdminResource> {
           });
           if (!resp.ok) throw new Error(`generate billing ${resp.status}`);
         },
-        doneMessage: () => "已生成分摊和内部账单",
+        doneMessage: () => tx("已生成分摊和内部账单"),
       },
     ],
   };
@@ -9286,7 +10483,7 @@ function rowID(item: unknown) {
 }
 
 function rowTitle(item: unknown) {
-  return String(readPath(item, "name") || readPath(item, "id") || "该记录");
+  return String(readPath(item, "name") || readPath(item, "id") || tx("该记录"));
 }
 
 function readPath(item: unknown, path: string): React.ReactNode {
@@ -10167,7 +11364,8 @@ const apiExampleLanguages: Array<{ key: ApiExampleLanguage; label: string }> = [
 function apiExampleScripts(baseURL: string, modelName: string): Record<ApiExampleLanguage, string> {
   const normalizedBaseURL = apiGatewayBaseURL(baseURL);
   const model = modelName || "gpt-4.1-mini";
-  const prompt = "请用三句话介绍 TokenHub。";
+  const systemPrompt = tx("你是企业内部 AI 助手。");
+  const prompt = tx("请用三句话介绍 TokenHub。");
   return {
     python: `from openai import OpenAI
 
@@ -10179,7 +11377,7 @@ client = OpenAI(
 response = client.chat.completions.create(
     model="${model}",
     messages=[
-        {"role": "system", "content": "你是企业内部 AI 助手。"},
+        {"role": "system", "content": "${systemPrompt}"},
         {"role": "user", "content": "${prompt}"},
     ],
     temperature=0.7,
@@ -10196,7 +11394,7 @@ const client = new OpenAI({
 const response = await client.chat.completions.create({
   model: "${model}",
   messages: [
-    { role: "system", content: "你是企业内部 AI 助手。" },
+    { role: "system", content: "${systemPrompt}" },
     { role: "user", content: "${prompt}" },
   ],
   temperature: 0.7,
@@ -10217,7 +11415,7 @@ public class TokenHubExample {
 
     ChatCompletionCreateParams params = ChatCompletionCreateParams.builder()
         .model(ChatModel.of("${model}"))
-        .addSystemMessage("你是企业内部 AI 助手。")
+        .addSystemMessage("${systemPrompt}")
         .addUserMessage("${prompt}")
         .temperature(0.7)
         .build();
@@ -10245,7 +11443,7 @@ func main() {
 	resp, err := client.Chat.Completions.New(context.Background(), openai.ChatCompletionNewParams{
 		Model: "${model}",
 		Messages: []openai.ChatCompletionMessageParamUnion{
-			openai.SystemMessage("你是企业内部 AI 助手。"),
+			openai.SystemMessage("${systemPrompt}"),
 			openai.UserMessage("${prompt}"),
 		},
 		Temperature: openai.Float(0.7),
