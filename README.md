@@ -1,52 +1,52 @@
 # TokenHub
 
-Enterprise AI Gateway / 企业 AI 访问与成本治理平台
+Language: English | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
 
-TokenHub 是一个面向企业私有化部署的 AI API Gateway 与 Token 治理平台。它为企业提供统一的模型访问入口，集中管理多模型 Provider、内部 API Key、额度分配、模型路由、调用审计、成本分析与告警，让内部应用可以安全、可控、可追踪地使用 OpenAI、Azure OpenAI、Anthropic Claude、Google Gemini、DeepSeek、Qwen、本地 vLLM/Ollama 等模型能力。
+Enterprise AI Gateway / Enterprise AI access and cost governance platform
 
-本项目采用 Go + Next.js 实现：
+TokenHub is an AI API Gateway and token governance platform designed for private enterprise deployment. It provides a unified model access layer, centralized management for multiple model Providers, internal API keys, quotas, model routing, request logging, cost analytics, and alerting, so internal applications can use OpenAI, Azure OpenAI, Anthropic Claude, Google Gemini, DeepSeek, Qwen, local vLLM/Ollama, and other model services in a safe, controlled, and auditable way.
 
-- 后端：Go，负责高并发 API 网关、Provider Adapter、额度与路由策略、审计日志、计费统计、管理 API。
-- 前端：Next.js，负责企业管理后台，包括项目、Key、模型、额度、账单、告警与审计视图。
-- 存储：GORM + SQLite 本地持久化。配置、额度计数、审计、用量、告警、审批、成本治理数据都落在 SQLite，后续保持 SQLite-only。
-- 部署：支持 Docker Compose、Helm、离线包与企业内网部署。
+The project is implemented with Go + Next.js:
 
-## 产品定位
+- Backend: Go, responsible for the high-concurrency API gateway, Provider adapters, quota and routing policies, audit logs, billing statistics, and Admin API.
+- Frontend: Next.js, responsible for the enterprise admin console, including projects, keys, models, quotas, billing, alerts, and audit views.
+- Storage: GORM + SQLite local persistence. Configuration, quota counters, audit logs, usage records, alerts, approvals, and cost governance data are stored in SQLite. The project continues to follow a SQLite-only direction.
+- Deployment: Supports Docker Compose, Helm, offline packages, and enterprise intranet deployment.
 
-Provider credentials should come from enterprise-owned official APIs, cloud vendor instances, or enterprise-authorized private model services.
+## Product Positioning
 
-TokenHub 的核心价值是企业级 AI 基础设施：
+TokenHub focuses on enterprise-grade AI infrastructure:
 
-- 统一入口：内部应用只需要调用统一的 OpenAI-Compatible API。
-- 统一管控：按用户、团队、项目、Key 维度管理权限、模型、额度和并发。
-- 统一治理：按模型、项目、部门统计 Token、请求数、成本和异常调用。
-- 统一审计：记录关键调用链路，支持敏感内容脱敏、审计留痕和安全告警。
-- 统一部署：支持私有化、内网、离线和 Kubernetes 部署。
+- Unified access: internal applications only need to call one OpenAI-compatible API.
+- Unified control: manage permissions, models, quotas, and concurrency by user, team, project, and key.
+- Unified governance: analyze tokens, requests, costs, and abnormal calls by model, project, and department.
+- Unified audit: record key request paths with sensitive data masking, audit trails, and security alerts.
+- Unified deployment: support private, intranet, offline, and Kubernetes deployment.
 
-## 核心模块
+## Core Modules
 
-| 模块 | 作用 |
+| Module | Purpose |
 | --- | --- |
-| 统一 API 网关 | 对外兼容 OpenAI API，并预留 Anthropic、Gemini、自定义协议入口 |
-| Provider 管理 | 管理可调用的上游渠道实例，包括服务商类型、Base URL、API Key、模型路由映射和健康状态 |
-| Key 管理 | 按企业内部用户、团队、项目维度发放和吊销 API Key |
-| 额度管理 | 为 Key、用户、项目设置日额度、月额度、模型白名单、并发上限 |
-| 路由策略 | 按模型、成本、可用性、延迟、区域、优先级进行路由 |
-| 计费统计 | 统计 Token、请求数、模型成本、项目成本、部门成本 |
-| 审计与安全 | 请求日志、敏感词、数据脱敏、异常调用检测、审计留痕 |
-| 管理后台 | 用户、团队、项目、模型、Provider、额度、账单、告警、审计 |
-| 私有化部署 | Docker、Helm、离线部署、内网部署 |
-| 企业集成 | OIDC、LDAP、钉钉、飞书、企业微信、SSO |
+| Unified API Gateway | Exposes OpenAI-compatible APIs and reserves entry points for Anthropic, Gemini, and custom protocols |
+| Provider Management | Manages callable upstream channel instances, including provider type, Base URL, API key, model route mappings, and health status |
+| Key Management | Issues and revokes API keys by enterprise user, team, and project |
+| Quota Management | Configures daily quotas, monthly quotas, model allowlists, and concurrency limits for keys and users |
+| Routing Policy | Routes by model, cost, availability, latency, region, priority, and weight |
+| Billing Statistics | Tracks tokens, request counts, model costs, project costs, and department costs |
+| Audit and Security | Request logs, sensitive-word policies, data masking, anomaly detection, and audit trails |
+| Admin Console | Users, teams, projects, models, Providers, quotas, billing, alerts, and audit |
+| Private Deployment | Docker, Helm, offline deployment, and intranet deployment |
+| Enterprise Integration | OIDC, LDAP, DingTalk, Feishu, WeCom, and SSO |
 
-## MVP 范围
+## MVP Scope
 
-第一版聚焦 5 个核心能力：
+The first version focuses on five core capabilities:
 
 1. OpenAI-Compatible Gateway
-   - 支持 `/v1/chat/completions`
-   - 支持 `/v1/responses`
-   - 支持 `/v1/embeddings`
-   - 支持流式响应与标准错误格式
+   - Supports `/v1/chat/completions`
+   - Supports `/v1/responses`
+   - Supports `/v1/embeddings`
+   - Supports streaming responses and standard error formats
 
 2. Provider Adapter
    - OpenAI
@@ -55,23 +55,23 @@ TokenHub 的核心价值是企业级 AI 基础设施：
    - Google Gemini
    - DeepSeek
    - Qwen
-   - 本地 vLLM/Ollama
+   - Local vLLM/Ollama
 
-3. API Key + Project 管理
-   - 每个项目可创建多个 Key
-   - 支持模型白名单、额度、并发、过期时间
-   - 支持 Key 启停、轮换、吊销
+3. API Key + Project Management
+   - Each project can create multiple keys
+   - Supports model allowlists, quotas, concurrency limits, and expiration time
+   - Supports enabling, disabling, rotating, and revoking keys
 
-4. Token 用量与成本统计
-   - 按模型、项目、用户、Key、时间维度统计
-   - 支持输入 Token、输出 Token、总 Token、请求数、错误率、估算成本
+4. Token Usage and Cost Statistics
+   - Statistics by model, project, user, key, and time
+   - Supports input tokens, output tokens, total tokens, request count, error rate, and estimated cost
 
-5. 审计日志与告警
-   - 记录请求元信息、路由结果、Provider 响应状态、用量与成本
-   - 支持敏感字段脱敏
-   - 支持额度、错误率、异常调用、Provider 不可用告警
+5. Audit Logs and Alerts
+   - Records request metadata, routing results, Provider response status, usage, and cost
+   - Supports sensitive field masking
+   - Supports alerts for quotas, error rates, abnormal calls, and Provider outages
 
-## 总体架构
+## Architecture
 
 ```mermaid
 flowchart LR
@@ -91,7 +91,7 @@ flowchart LR
     AdminAPI --> DB
 ```
 
-## 建议目录结构
+## Suggested Directory Structure
 
 ```text
 tokenhub/
@@ -120,70 +120,67 @@ tokenhub/
   README.md
 ```
 
-## 文档
+## Documentation
 
-- [产品规划总览](doc/README.md)
-- [产品定位与边界](doc/01-product-positioning.md)
-- [系统架构规划](doc/02-architecture.md)
-- [MVP 与路线图](doc/03-mvp-roadmap.md)
-- [API 设计](doc/04-api-design.md)
-- [数据模型规划](doc/05-data-model.md)
-- [管理后台规划](doc/06-admin-console.md)
-- [部署与运维规划](doc/07-deployment-ops.md)
-- [安全与合规规划](doc/08-security-compliance.md)
+- [Product planning overview](doc/README.md)
+- [Product positioning and boundaries](doc/01-product-positioning.md)
+- [System architecture plan](doc/02-architecture.md)
+- [MVP and roadmap](doc/03-mvp-roadmap.md)
+- [API design](doc/04-api-design.md)
+- [Data model plan](doc/05-data-model.md)
+- [Admin console plan](doc/06-admin-console.md)
+- [Deployment and operations plan](doc/07-deployment-ops.md)
+- [Security and compliance plan](doc/08-security-compliance.md)
 
-## 合规边界
+## Compliance Boundary
 
-TokenHub 只面向企业自有、合规授权的模型 API 访问场景：
+TokenHub is intended for enterprise-owned and properly authorized model API access scenarios:
 
-- 不直接复用任何第三方项目的代码、SQL、前端组件、接口实现或配置结构。
-- 不以规避上游服务条款、风控或计费规则作为产品卖点。
-- 不承诺规避官方 API 费用。
-- 不把个人 Claude、ChatGPT、Gemini 等订阅转成API 分发 分发作为核心功能。
-- Provider 凭证应来自企业自有官方 API、云厂商实例或企业授权的私有模型服务。
+- It does not directly reuse code, SQL, frontend components, API implementations, or configuration structures from third-party projects.
+- Provider credentials should come from enterprise-owned official APIs, cloud vendor instances, or enterprise-authorized private model services.
 
-## 当前状态
+## Current Status
 
-当前仓库已进入 MVP 实现阶段，包含一个可运行的 Go 后端与 Next.js 管理后台原型。
+The repository is now in MVP implementation and includes a runnable Go backend and Next.js admin console prototype.
 
-已实现的第一批能力：
+Implemented capabilities include:
 
-- Go 后端 HTTP 服务与健康检查。
-- OpenAI-Compatible Gateway：`/v1/models`、`/v1/chat/completions`、`/v1/responses`、`/v1/embeddings`。
-- API Key 鉴权、项目绑定、模型白名单、请求额度、并发限制。
-- Mock Provider 与 OpenAI-Compatible、Azure OpenAI、Anthropic、Gemini Adapter 骨架。
-- 用量统计、成本估算、请求审计、额度告警。
-- Admin API Bearer Token 认证。
-- 日粒度用量趋势接口与后台柱状图。
-- Admin API：项目、Key、Provider、模型、路由、用量、审计、告警。
-- Provider 管理：配置上游 Base URL、API Key、服务商模板、标准模型映射、连接测试和健康状态。
-- 健康监控：Provider 和模型路由手动检测，状态回写并在失败时生成告警事件。
-- 成本治理：成本中心、预算、部门分摊、内部账单、发票备注、账单确认/驳回、审批流、结构化 CSV 导出。
-- SQLite 数据管理：手动备份、备份列表、下载、确认式恢复和删除。
-- Next.js 管理后台：参考用量分析类企业后台风格，包含总览、项目、Provider、模型、路由、成本中心、预算、部门分摊、内部账单、审批、审计、健康监控、告警、报表导出、数据备份、创建项目、创建 Provider、映射标准模型、创建模型路由、发放 Key。
+- Go backend HTTP service and health check.
+- OpenAI-Compatible Gateway: `/v1/models`, `/v1/chat/completions`, `/v1/responses`, `/v1/embeddings`.
+- API key authentication, project binding, model allowlists, request quotas, and concurrency limits.
+- Mock Provider plus adapter skeletons for OpenAI-compatible, Azure OpenAI, Anthropic, and Gemini.
+- Usage statistics, cost estimation, request audit, and quota alerts.
+- Admin API Bearer Token authentication.
+- Daily usage trend API and admin console bar chart.
+- Admin API for projects, keys, Providers, models, routes, usage, audit logs, and alerts.
+- Provider management: upstream Base URL, API key, provider templates, standard model mappings, connection testing, and health status.
+- Health monitoring: manual checks for Providers and model routes, status write-back, and alert events on failure.
+- Cost governance: cost centers, budgets, chargebacks, internal invoices, invoice notes, bill confirmation/rejection, approval flows, and structured CSV export.
+- SQLite data management: manual backups, backup list, download, confirmation-based restore, and deletion.
+- Next.js admin console: an enterprise dashboard style inspired by usage analytics tools, covering overview, projects, Providers, models, routes, cost centers, budgets, chargebacks, internal invoices, approvals, audit, health monitoring, alerts, report export, data backup, project creation, Provider creation, standard model mapping, model route creation, and key issuance.
 
-MVP 当前已使用 GORM + SQLite 做默认持久化，项目、Key、Provider、模型、路由、审计、用量、告警、审批、通知、后台用户、会话和备份记录都会落库。后续生产化继续围绕 SQLite 做定时备份、迁移、RBAC、企业 SSO 和更完整的 Provider 配置管理。
+The MVP currently uses GORM + SQLite as the default persistence layer. Projects, keys, Providers, models, routes, audits, usage, alerts, approvals, notifications, admin users, sessions, and backup records are all stored in SQLite. Future production work continues around SQLite-based scheduled backups, migrations, RBAC, enterprise SSO, and more complete Provider configuration management.
 
-当前 MVP 的产品模型刻意保持简单：Provider 就是一个可调用上游渠道实例。一个企业需要多个上游备份时，直接创建多个 Provider，并在同一个对外模型下配置多条路由的优先级和权重。更细粒度的 Provider 内部资源池只作为后续高级扩展，不作为第一版后台主菜单。
+The current MVP intentionally keeps the product model simple: a Provider is a callable upstream channel instance. If an enterprise needs multiple upstream backups, it can create multiple Providers and configure route priorities and weights under the same external model. More granular resource pools inside a Provider are treated as advanced future extensions rather than first-version admin menu concepts.
 
-## 本地运行
+## Local Development
 
-后端：
+Backend:
 
 ```bash
 cd backend
 go run ./cmd/tokenhub
 ```
 
-默认数据库文件为 `backend/data/tokenhub.db`。可通过 `TOKENHUB_DATABASE_URL` 覆盖，例如：
+The default database file is `backend/data/tokenhub.db`. Override it with `TOKENHUB_DATABASE_URL`, for example:
 
 ```bash
 TOKENHUB_DATABASE_URL=sqlite:///absolute/path/tokenhub.db go run ./cmd/tokenhub
 ```
 
-默认备份目录为 `backend/data/backups`。可通过 `TOKENHUB_SQLITE_BACKUP_DIR` 覆盖。
+The default backup directory is `backend/data/backups`. Override it with `TOKENHUB_SQLITE_BACKUP_DIR`.
 
-前端：
+Frontend:
 
 ```bash
 cd frontend
@@ -191,14 +188,14 @@ npm install
 npm run dev
 ```
 
-默认地址：
+Default addresses:
 
-- 后端 API：`http://localhost:8080`
-- 前端后台：`http://localhost:3000`
-- Demo API Key：`thk_demo_local`
-- Demo Admin Token：`dev_admin_token`
+- Backend API: `http://localhost:8080`
+- Admin console: `http://localhost:3000`
+- Demo API Key: `thk_demo_local`
+- Demo Admin Token: `dev_admin_token`
 
-调用示例：
+Example request:
 
 ```bash
 curl http://localhost:8080/v1/chat/completions \
@@ -210,7 +207,7 @@ curl http://localhost:8080/v1/chat/completions \
   }'
 ```
 
-测试：
+Tests:
 
 ```bash
 cd backend
@@ -221,7 +218,7 @@ npm run typecheck
 npm run build
 ```
 
-Docker Compose：
+Docker Compose:
 
 ```bash
 cd deploy/docker-compose
