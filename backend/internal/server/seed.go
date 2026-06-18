@@ -209,6 +209,25 @@ func seedDefaultOrgResources(store Store) {
 			"audit_retention": "180d",
 		},
 	})
+	seedResourceIfMissing(store, "identity-providers", AdminResource{
+		ID:          "idp_oidc_template",
+		Name:        "企业 OIDC/OAuth 身份源",
+		Description: "对接企业已有 SSO/OAuth/OIDC 身份系统，用于后续统一登录和用户同步。",
+		Status:      "draft",
+		Fields: map[string]any{
+			"provider_type":  "oidc",
+			"issuer_url":     "https://sso.example.com",
+			"client_id":      "tokenhub-admin",
+			"client_secret":  "",
+			"authorize_url":  "https://sso.example.com/oauth2/authorize",
+			"token_url":      "https://sso.example.com/oauth2/token",
+			"userinfo_url":   "https://sso.example.com/oauth2/userinfo",
+			"scopes":         "openid, profile, email",
+			"username_claim": "preferred_username",
+			"email_claim":    "email",
+			"team_claim":     "department",
+		},
+	})
 	seedDefaultRoleConfigs(store)
 }
 

@@ -37,8 +37,8 @@ otel-collector
 | `TOKENHUB_ENV` | dev、staging、prod |
 | `TOKENHUB_HTTP_ADDR` | 后端监听地址 |
 | `TOKENHUB_PUBLIC_BASE_URL` | 对外访问地址 |
-| `TOKENHUB_DATABASE_URL` | 数据库连接，当前默认 `sqlite://data/tokenhub.db` |
-| `TOKENHUB_SQLITE_BACKUP_DIR` | SQLite 备份目录，默认 `data/backups` |
+| `TOKENHUB_DATABASE_URL` | 数据库连接，当前默认运行库为 `backend/data/tokenhub.db` |
+| `TOKENHUB_SQLITE_BACKUP_DIR` | SQLite 备份目录，默认 `backend/data/backups` |
 | `TOKENHUB_SECRET_KEY` | 本地加密主密钥，生产建议接 KMS |
 | `TOKENHUB_JWT_SECRET` | 管理后台认证密钥 |
 | `TOKENHUB_LOG_LEVEL` | 日志级别 |

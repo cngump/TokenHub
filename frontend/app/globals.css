@@ -1518,6 +1518,19 @@ h2 {
   margin-bottom: 10px;
 }
 
+.table-toolbar .search-box {
+  flex: 1 1 260px;
+}
+
+.table-toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .reports-center {
   display: grid;
   gap: 14px;
@@ -3085,6 +3098,10 @@ th:last-child {
   width: min(1080px, 100%);
 }
 
+.user-import-modal {
+  width: min(760px, 100%);
+}
+
 .playground-modal {
   width: min(880px, 100%);
   overflow: hidden;
@@ -3141,6 +3158,42 @@ th:last-child {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+.user-import-body {
+  grid-template-columns: 1fr;
+}
+
+.user-import-textarea {
+  min-height: 180px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  line-height: 1.55;
+}
+
+.user-import-example {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 11px;
+  display: grid;
+  gap: 7px;
+  background: var(--surface-soft);
+}
+
+.user-import-example strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.user-import-example code {
+  color: var(--muted-strong);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.user-import-example span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .provider-modal-body {
@@ -4435,6 +4488,12 @@ th:last-child {
   .table-toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .table-toolbar-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    white-space: normal;
   }
 
   .pagination {

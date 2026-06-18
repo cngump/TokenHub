@@ -148,7 +148,7 @@ func OpenStore(databaseURL string) (*GormStore, error) {
 
 func OpenStoreWithConfig(databaseURL string, config Config) (*GormStore, error) {
 	if strings.TrimSpace(databaseURL) == "" {
-		databaseURL = defaultSQLiteDatabaseURL
+		databaseURL = defaultConfigDatabaseURL()
 	}
 	return NewSQLiteStoreWithConfig(databaseURL, config)
 }
@@ -234,7 +234,7 @@ func NewMemoryStore() *MemoryStore {
 func sqliteDSN(databaseURL string) (string, error) {
 	databaseURL = strings.TrimSpace(databaseURL)
 	if databaseURL == "" {
-		databaseURL = defaultSQLiteDatabaseURL
+		databaseURL = defaultConfigDatabaseURL()
 	}
 	if strings.HasPrefix(databaseURL, "sqlite://") {
 		parsed, err := url.Parse(databaseURL)
@@ -3438,6 +3438,8 @@ func resourcePrefix(kind string) string {
 		return "team"
 	case "role-configs":
 		return "role"
+	case "identity-providers":
+		return "idp"
 	case "users":
 		return "usr"
 	case "monitors":

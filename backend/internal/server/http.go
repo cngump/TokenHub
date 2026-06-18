@@ -72,6 +72,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/admin/projects", s.handleAdminProjects)
 	s.mux.HandleFunc("/api/admin/projects/", s.handleAdminProjectNested)
 	s.mux.HandleFunc("/api/admin/users", s.handleAdminUsers)
+	s.mux.HandleFunc("/api/admin/users/import", s.handleAdminUsersImport)
 	s.mux.HandleFunc("/api/admin/users/", s.handleAdminUserItem)
 	s.mux.HandleFunc("/api/admin/provider-catalog", s.handleAdminProviderCatalog)
 	s.mux.HandleFunc("/api/admin/provider-catalog/", s.handleAdminProviderCatalogItem)
@@ -1049,6 +1050,231 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
 	}
+}
+
+type adminUserImportItem struct {
+	Username string `json:"username"`
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Role     string `json:"role"`
+	TeamID   string `json:"team_id"`
+	Status   string `json:"status"`
+}
+
+func (s *Server) handleAdminUsersImport(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.requireAdmin(w, r, "identity", r.Method)
+	if !ok {
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
+		return
+	}
+	var req struct {
+		Source  string                `json:"source"`
+		Format  string                `json:"format"`
+		Content string                `json:"content"`
+		Users   []adminUserImportItem `json:"users"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, r, NewHTTPError(400, "invalid_request", err.Error()))
+		return
+	}
+	users := req.Users
+	if strings.TrimSpace(req.Content) != "" {
+		parsed, err := parseAdminUserImportCSV(req.Content)
+		if err != nil {
+			writeError(w, r, NewHTTPError(400, "invalid_import", err.Error()))
+			return
+		}
+		users = append(users, parsed...)
+	}
+	if len(users) == 0 {
+		writeError(w, r, NewHTTPError(400, "invalid_import", "no users to import"))
+		return
+	}
+
+	existing := s.store.ListAdminUsers()
+	result := map[string]any{
+		"source":  strings.TrimSpace(req.Source),
+		"format":  strings.TrimSpace(req.Format),
+		"created": 0,
+		"updated": 0,
+		"skipped": 0,
+		"errors":  []string{},
+		"users":   []AdminUser{},
+	}
+	importedUsers := []AdminUser{}
+	errors := []string{}
+	created := 0
+	updated := 0
+	skipped := 0
+
+	for index, item := range users {
+		normalized, err := normalizeAdminUserImportItem(actor, item)
+		if err != nil {
+			skipped++
+			errors = append(errors, fmt.Sprintf("row %d: %s", index+1, err.Error()))
+			continue
+		}
+		if normalizeAdminRole(actor.Role) == "team_leader" {
+			if normalized.TeamID != actor.TeamID {
+				skipped++
+				errors = append(errors, fmt.Sprintf("row %d: team leader can only import own team", index+1))
+				continue
+			}
+			if normalizeAdminRole(normalized.Role) != "user" {
+				skipped++
+				errors = append(errors, fmt.Sprintf("row %d: team leader can only import ordinary users", index+1))
+				continue
+			}
+		}
+
+		if current, ok := findImportedAdminUser(existing, normalized); ok {
+			if normalizeAdminRole(actor.Role) == "team_leader" && current.TeamID != actor.TeamID {
+				skipped++
+				errors = append(errors, fmt.Sprintf("row %d: existing user is outside current team", index+1))
+				continue
+			}
+			user, err := s.store.UpdateAdminUser(current.ID, normalized, "")
+			if err != nil {
+				skipped++
+				errors = append(errors, fmt.Sprintf("row %d: %s", index+1, err.Error()))
+				continue
+			}
+			importedUsers = append(importedUsers, user)
+			updated++
+			for i := range existing {
+				if existing[i].ID == user.ID {
+					existing[i] = user
+					break
+				}
+			}
+			continue
+		}
+
+		user, err := s.store.CreateAdminUser(normalized, NewID("sso"))
+		if err != nil {
+			skipped++
+			errors = append(errors, fmt.Sprintf("row %d: %s", index+1, err.Error()))
+			continue
+		}
+		importedUsers = append(importedUsers, user)
+		existing = append(existing, user)
+		created++
+	}
+
+	result["created"] = created
+	result["updated"] = updated
+	result["skipped"] = skipped
+	result["errors"] = errors
+	result["users"] = importedUsers
+	s.recordAdminAudit(r, actor, "import", "admin_user", "", "", result)
+	writeJSON(w, http.StatusOK, result)
+}
+
+func parseAdminUserImportCSV(content string) ([]adminUserImportItem, error) {
+	reader := csv.NewReader(strings.NewReader(content))
+	reader.TrimLeadingSpace = true
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+	if len(records) < 2 {
+		return nil, fmt.Errorf("csv must include header and at least one user row")
+	}
+	headers := map[string]int{}
+	for index, header := range records[0] {
+		headers[normalizeImportHeader(header)] = index
+	}
+	value := func(record []string, names ...string) string {
+		for _, name := range names {
+			if index, ok := headers[name]; ok && index < len(record) {
+				return strings.TrimSpace(record[index])
+			}
+		}
+		return ""
+	}
+	items := make([]adminUserImportItem, 0, len(records)-1)
+	for _, record := range records[1:] {
+		if len(record) == 0 || strings.TrimSpace(strings.Join(record, "")) == "" {
+			continue
+		}
+		items = append(items, adminUserImportItem{
+			Username: value(record, "username"),
+			Name:     value(record, "name"),
+			Email:    value(record, "email"),
+			Role:     value(record, "role"),
+			TeamID:   value(record, "team_id", "team"),
+			Status:   value(record, "status"),
+		})
+	}
+	return items, nil
+}
+
+func normalizeImportHeader(header string) string {
+	header = strings.TrimSpace(strings.ToLower(header))
+	switch header {
+	case "用户名", "账号", "工号":
+		return "username"
+	case "姓名", "名称", "昵称":
+		return "name"
+	case "邮箱", "邮件":
+		return "email"
+	case "角色":
+		return "role"
+	case "团队", "团队id", "部门", "部门id":
+		return "team_id"
+	case "状态":
+		return "status"
+	default:
+		return strings.ReplaceAll(header, "-", "_")
+	}
+}
+
+func normalizeAdminUserImportItem(actor AdminUser, item adminUserImportItem) (AdminUser, error) {
+	email := strings.TrimSpace(item.Email)
+	username := strings.TrimSpace(item.Username)
+	if email == "" {
+		return AdminUser{}, fmt.Errorf("email is required")
+	}
+	if username == "" {
+		username = email
+	}
+	role := normalizeAdminRole(item.Role)
+	if role == "" {
+		role = "user"
+	}
+	teamID := strings.TrimSpace(item.TeamID)
+	if normalizeAdminRole(actor.Role) == "team_leader" {
+		teamID = actor.TeamID
+	}
+	status := strings.TrimSpace(item.Status)
+	if status == "" {
+		status = StatusActive
+	}
+	return AdminUser{
+		Username: username,
+		Name:     strings.TrimSpace(item.Name),
+		Email:    email,
+		Role:     role,
+		TeamID:   teamID,
+		Status:   status,
+	}, nil
+}
+
+func findImportedAdminUser(existing []AdminUser, user AdminUser) (AdminUser, bool) {
+	email := strings.ToLower(strings.TrimSpace(user.Email))
+	username := strings.ToLower(strings.TrimSpace(user.Username))
+	for _, item := range existing {
+		if email != "" && strings.ToLower(strings.TrimSpace(item.Email)) == email {
+			return item, true
+		}
+		if username != "" && strings.ToLower(strings.TrimSpace(item.Username)) == username {
+			return item, true
+		}
+	}
+	return AdminUser{}, false
 }
 
 func (s *Server) handleAdminUserItem(w http.ResponseWriter, r *http.Request) {
@@ -4211,6 +4437,9 @@ func adminResourcePermission(path string) string {
 		return "quota"
 	}
 	if strings.Contains(path, "/security-policies") {
+		return "security"
+	}
+	if strings.Contains(path, "/identity-providers") {
 		return "security"
 	}
 	if strings.Contains(path, "/alert-rules") {

@@ -463,6 +463,7 @@ type ViewKey =
   | "proxies"
   | "sqlite-backups"
   | "announcements"
+  | "identity-providers"
   | "settings";
 
 const viewRoutes: Record<ViewKey, string> = {
@@ -496,6 +497,7 @@ const viewRoutes: Record<ViewKey, string> = {
   proxies: "/proxies",
   "sqlite-backups": "/sqlite-backups",
   announcements: "/announcements",
+  "identity-providers": "/identity-providers",
   settings: "/settings",
 };
 
@@ -569,8 +571,16 @@ type ResourceAction<T> = {
 type ToolbarAction = {
   label: string;
   title?: string;
-  run: (ctx: ApiContext, items?: unknown[]) => Promise<void>;
+  kind?: "import-users";
+  run?: (ctx: ApiContext, items?: unknown[]) => Promise<void>;
   doneMessage?: () => string;
+};
+
+type UserImportResult = {
+  created?: number;
+  updated?: number;
+  skipped?: number;
+  errors?: string[];
 };
 
 type AppData = {
@@ -609,6 +619,8 @@ type ConfirmState<T> = {
   config: ResourceConfig<T>;
   item: T;
 };
+
+type SettingsTabKey = "settings" | "role-configs" | "identity-providers";
 
 const defaultBaseURL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
@@ -769,6 +781,7 @@ function defaultViewForRole(user: AdminUser): ViewKey {
 
 type LoadPlan = {
   overview: boolean;
+  providers: boolean;
   providerResources: boolean;
   keys: boolean;
   routes: boolean;
@@ -792,6 +805,7 @@ type LoadedData = Partial<Omit<AppData, "resources">> & {
 function emptyLoadPlan(): LoadPlan {
   return {
     overview: false,
+    providers: false,
     providerResources: false,
     keys: false,
     routes: false,
@@ -851,6 +865,7 @@ function loadPlanForView(user: AdminUser, view: ViewKey): LoadPlan {
       plan.auditEvents = canViewAdminAudit(user);
       break;
     case "providers":
+      plan.providers = true;
       plan.overview = true;
       plan.routes = true;
       plan.providerCatalog = true;
@@ -886,6 +901,7 @@ function loadPlanForView(user: AdminUser, view: ViewKey): LoadPlan {
     case "settings":
       addResourceDependency(plan, "settings");
       addResourceDependency(plan, "role-configs");
+      addResourceDependency(plan, "identity-providers");
       break;
     case "quota-policies":
     case "cost-centers":
@@ -899,6 +915,7 @@ function loadPlanForView(user: AdminUser, view: ViewKey): LoadPlan {
     case "proxies":
     case "announcements":
     case "security-policies":
+    case "identity-providers":
       addResourceDependency(plan, view);
       break;
     case "alerts":
@@ -961,10 +978,11 @@ export default function AdminHome() {
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [modelCategoryFilter, setModelCategoryFilter] = useState("all");
-  const [settingsTab, setSettingsTab] = useState<"settings" | "role-configs">("settings");
+  const [settingsTab, setSettingsTab] = useState<SettingsTabKey>("settings");
   const [modal, setModal] = useState<ModalState<any> | null>(null);
   const [providerCreateOpen, setProviderCreateOpen] = useState(false);
   const [providerEditItem, setProviderEditItem] = useState<Provider | null>(null);
+  const [userImportOpen, setUserImportOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<ConfirmState<any> | null>(null);
   const [issuedKey, setIssuedKey] = useState("");
   const [reportHistory, setReportHistory] = useState<ReportExportHistoryItem[]>([]);
@@ -1056,6 +1074,7 @@ export default function AdminHome() {
       setModal(null);
       setProviderCreateOpen(false);
       setProviderEditItem(null);
+      setUserImportOpen(false);
       setConfirmDelete(null);
       setIssuedKey("");
       setNotice("");
@@ -1089,6 +1108,7 @@ export default function AdminHome() {
       };
 
       queue(plan.overview, "overview", "/api/admin/overview");
+      queue(plan.providers, "providers", "/api/admin/providers");
       queue(plan.providerResources, "provider-resources", "/api/admin/provider-resources");
       queue(plan.keys, "api-keys", "/api/admin/api-keys");
       queue(plan.routes, "routes", "/api/admin/routing-rules");
@@ -1126,6 +1146,9 @@ export default function AdminHome() {
           loaded.providerResources = overview.provider_resources ?? [];
           loaded.models = overview.models ?? [];
           loaded.alerts = overview.alerts ?? [];
+        } else if (name === "providers") {
+          const payload = (await resp.json()) as { data: Provider[] };
+          loaded.providers = payload.data ?? [];
         } else if (name === "provider-resources") {
           const payload = (await resp.json()) as { data: ProviderResource[] };
           loaded.providerResources = payload.data ?? [];
@@ -1210,6 +1233,7 @@ export default function AdminHome() {
     setAdminToken("");
     setCurrentUser(null);
     setData(emptyData());
+    setUserImportOpen(false);
     selectView("overview", { replace: true });
   }
 
@@ -1244,6 +1268,35 @@ export default function AdminHome() {
     } catch (err) {
       if (isAuthExpiredError(err)) return;
       setError(err instanceof Error ? err.message : "删除失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function importUsersFromCSV(content: string) {
+    const trimmed = content.trim();
+    if (!trimmed) {
+      setNotice("");
+      setError("请先粘贴 CSV 内容。");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await importUsersFromCSVContent(api, trimmed);
+      const created = result.created ?? 0;
+      const updated = result.updated ?? 0;
+      const skipped = result.skipped ?? 0;
+      setUserImportOpen(false);
+      await load("users");
+      setNotice(`用户导入完成：新增 ${created}，更新 ${updated}${skipped > 0 ? `，跳过 ${skipped}` : ""}`);
+      if (skipped > 0 && result.errors?.length) {
+        setError(`有 ${skipped} 条未导入：${result.errors.slice(0, 3).join("；")}`);
+      }
+    } catch (err) {
+      if (isAuthExpiredError(err)) return;
+      setError(err instanceof Error ? err.message : "用户导入失败");
     } finally {
       setLoading(false);
     }
@@ -1509,6 +1562,14 @@ export default function AdminHome() {
         />
       ) : null}
 
+      {userImportOpen ? (
+        <UserImportModal
+          loading={loading}
+          onClose={() => setUserImportOpen(false)}
+          onImport={(content) => void importUsersFromCSV(content)}
+        />
+      ) : null}
+
       {confirmDelete ? (
         <ConfirmDialog
           title="确认删除"
@@ -1544,6 +1605,13 @@ export default function AdminHome() {
   }
 
   async function runToolbarAction(action: ToolbarAction, items: unknown[]) {
+    if (action.kind === "import-users") {
+      setError("");
+      setNotice("");
+      setUserImportOpen(true);
+      return;
+    }
+    if (!action.run) return;
     setLoading(true);
     setError("");
     setNotice("");
@@ -2841,17 +2909,19 @@ function CrudView<T>({
           <Search size={16} />
           <input value={query} onChange={(event) => onQuery(event.target.value)} placeholder="搜索名称、ID、状态" />
         </div>
-        {config.create ? (
-          <button className="button" onClick={onCreate} type="button">
-            <Plus size={17} />
-            {config.view === "notification-channels" ? `配置 ${notificationChannelLabel(categoryFilter)}` : config.createLabel ?? "新增"}
-          </button>
-        ) : null}
-        {(config.toolbarActions ?? []).map((action) => (
-          <button className="secondary-button" key={action.label} onClick={() => onToolbarAction(action)} title={action.title} type="button">
-            {action.label}
-          </button>
-        ))}
+        <div className="table-toolbar-actions">
+          {config.create ? (
+            <button className="button" onClick={onCreate} type="button">
+              <Plus size={17} />
+              {config.view === "notification-channels" ? `配置 ${notificationChannelLabel(categoryFilter)}` : config.createLabel ?? "新增"}
+            </button>
+          ) : null}
+          {(config.toolbarActions ?? []).map((action) => (
+            <button className="secondary-button" key={action.label} onClick={() => onToolbarAction(action)} title={action.title} type="button">
+              {action.label}
+            </button>
+          ))}
+        </div>
       </div>
       {issuedKey ? <div className="secret">新 Key 仅展示一次：{issuedKey}</div> : null}
       <div className={detailPanelOpen ? "resource-detail-layout with-panel" : "resource-detail-layout"}>
@@ -3665,15 +3735,15 @@ function SettingsView({
   onToolbarAction,
 }: {
   data: AppData;
-  activeTab: "settings" | "role-configs";
-  onTabChange: (tab: "settings" | "role-configs") => void;
+  activeTab: SettingsTabKey;
+  onTabChange: (tab: SettingsTabKey) => void;
   onCreate: (config: ResourceConfig<AdminResource>) => void;
   onEdit: (config: ResourceConfig<AdminResource>, item: AdminResource) => void;
   onDelete: (config: ResourceConfig<AdminResource>, item: AdminResource) => void;
   onAction: (action: ResourceAction<AdminResource>, item: AdminResource) => void;
   onToolbarAction: (action: ToolbarAction, items: AdminResource[]) => void;
 }) {
-  const configs = useMemo(() => [systemSettingConfig(), roleConfig()], []);
+  const configs = useMemo(() => [systemSettingConfig(), roleConfig(), identityProviderConfig()], []);
   const activeConfig = configs.find((config) => config.view === activeTab) ?? configs[0];
   const [queries, setQueries] = useState<Record<string, string>>({});
   const query = queries[activeConfig.view] ?? "";
@@ -3693,11 +3763,11 @@ function SettingsView({
             aria-selected={activeConfig.view === config.view}
             className={activeConfig.view === config.view ? "settings-tab active" : "settings-tab"}
             key={config.view}
-            onClick={() => onTabChange(config.view as "settings" | "role-configs")}
+            onClick={() => onTabChange(config.view as SettingsTabKey)}
             role="tab"
             type="button"
           >
-            {config.view === "settings" ? "基础设置" : "角色配置"}
+            {settingsTabLabel(config.view as SettingsTabKey)}
           </button>
         ))}
       </div>
@@ -4001,6 +4071,59 @@ function EditModal<T>({
         <div className="modal-actions">
           <button className="secondary-button" onClick={onClose} type="button">取消</button>
           <button className="button" disabled={loading} type="submit">保存</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function UserImportModal({
+  loading,
+  onClose,
+  onImport,
+}: {
+  loading: boolean;
+  onClose: () => void;
+  onImport: (content: string) => void;
+}) {
+  const [content, setContent] = useState("");
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onImport(content);
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <form className="modal user-import-modal" onSubmit={submit}>
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">批量导入</p>
+            <h2>导入用户</h2>
+          </div>
+          <button className="icon-button" onClick={onClose} type="button" title="关闭">×</button>
+        </div>
+        <div className="modal-body user-import-body">
+          <label className="field">
+            <span>CSV 内容</span>
+            <textarea
+              className="user-import-textarea"
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              placeholder={"username,name,email,role,team_id,status\nzhangsan,张三,zhangsan@example.com,user,team_platform,active"}
+              required
+            />
+            <small>按 username 或 email 匹配已有用户；匹配到则更新，未匹配则创建。</small>
+          </label>
+          <div className="user-import-example">
+            <strong>字段顺序</strong>
+            <code>username,name,email,role,team_id,status</code>
+            <span>role 可填 admin、team_leader、user；status 可填 active 或 disabled。</span>
+          </div>
+        </div>
+        <div className="modal-actions">
+          <button className="secondary-button" onClick={onClose} type="button">取消</button>
+          <button className="button" disabled={loading} type="submit">{loading ? "导入中" : "开始导入"}</button>
         </div>
       </form>
     </div>
@@ -5216,6 +5339,7 @@ const resourceConfigs: Partial<Record<ViewKey, ResourceConfig<any>>> = {
     { key: "notify_mode", label: "通知模式", type: "select", options: ["silent", "popup"], required: true },
     { key: "target", label: "目标对象" },
   ]),
+  "identity-providers": identityProviderConfig(),
   settings: systemSettingConfig(),
 };
 
@@ -5227,6 +5351,38 @@ function systemSettingConfig(): ResourceConfig<AdminResource> {
       { key: "audit_retention", label: "审计保留" },
     ]),
     eyebrow: "基础设置",
+  };
+}
+
+function identityProviderConfig(): ResourceConfig<AdminResource> {
+  const fields: FieldConfig[] = [
+    { key: "provider_type", label: "类型", type: "select", options: ["oidc", "oauth2", "saml", "ldap"], required: true },
+    { key: "issuer_url", label: "Issuer URL" },
+    { key: "client_id", label: "Client ID" },
+    { key: "client_secret", label: "Client Secret", type: "password", help: "编辑时留空则不修改已保存密钥。" },
+    { key: "authorize_url", label: "Authorize URL" },
+    { key: "token_url", label: "Token URL" },
+    { key: "userinfo_url", label: "UserInfo URL" },
+    { key: "scopes", label: "Scopes" },
+    { key: "username_claim", label: "用户名字段" },
+    { key: "email_claim", label: "邮箱字段" },
+    { key: "team_claim", label: "团队字段" },
+  ];
+  const base = genericResourceConfig("identity-providers", "身份源", "配置企业已有 SSO/OAuth/OIDC/SAML/LDAP 身份系统。当前用于记录配置和用户同步导入，登录回调可在该配置基础上继续接入。", fields);
+  return {
+    ...base,
+    eyebrow: "身份源",
+    createLabel: "新增身份源",
+    columns: [
+      { key: "name", label: "名称" },
+      { key: "provider_type", label: "类型", render: (item) => identityProviderTypeLabel(stringifyValue(item.fields?.provider_type)) },
+      { key: "issuer_url", label: "Issuer", render: (item) => stringifyValue(item.fields?.issuer_url) || "-" },
+      { key: "client_id", label: "Client ID", render: (item) => stringifyValue(item.fields?.client_id) || "-" },
+      { key: "scopes", label: "Scopes", render: (item) => compactList(item.fields?.scopes) },
+      { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
+    ],
+    create: (ctx, values) => adminMutate(ctx, "/api/admin/resources/identity-providers", "POST", identityProviderPayload(values, fields)),
+    update: (ctx, item, values) => adminMutate(ctx, `/api/admin/resources/identity-providers/${item.id}`, "PATCH", identityProviderPayload(values, fields, item)),
   };
 }
 
@@ -5768,6 +5924,13 @@ function adminUserConfig(): ResourceConfig<AdminUser> {
     create: (ctx, values) => adminMutate(ctx, "/api/admin/users", "POST", userPayload(values, true)),
     update: (ctx, item, values) => adminMutate(ctx, `/api/admin/users/${item.id}`, "PATCH", userPayload(values, false)),
     remove: (ctx, item) => adminDelete(ctx, `/api/admin/users/${item.id}`),
+    toolbarActions: [
+      {
+        label: "导入用户",
+        title: "从已有系统导出的 CSV 批量导入或更新用户",
+        kind: "import-users",
+      },
+    ],
     toForm: (item) => ({
       username: item.username,
       name: item.name,
@@ -6571,12 +6734,19 @@ function defaultFormValues<T>(config: ResourceConfig<T>, data: AppData) {
     if (field.key === "role") values[field.key] = "user";
     if (field.key === "owner") values[field.key] = firstActiveUser(data)?.id ?? "";
     if (field.key === "cost_center") values[field.key] = firstCostCenterCode(data);
-    if (field.key === "role_key") values[field.key] = "project_admin";
-    if (field.key === "display_name") values[field.key] = "项目管理员";
-    if (field.key === "data_scope") values[field.key] = "project";
+    if (field.key === "role_key") values[field.key] = "user";
+    if (field.key === "display_name") values[field.key] = "普通用户";
+    if (field.key === "data_scope") values[field.key] = "self";
     if (field.key === "permissions") values[field.key] = "overview:read, project:read";
     if (field.key === "menu_scopes") values[field.key] = "overview, projects";
     if (field.key === "assignable") values[field.key] = "true";
+    if (field.key === "provider_type") values[field.key] = "oidc";
+    if (field.key === "issuer_url") values[field.key] = "https://sso.example.com";
+    if (field.key === "client_id") values[field.key] = "tokenhub-admin";
+    if (field.key === "scopes") values[field.key] = "openid, profile, email";
+    if (field.key === "username_claim") values[field.key] = "preferred_username";
+    if (field.key === "email_claim") values[field.key] = "email";
+    if (field.key === "team_claim") values[field.key] = "department";
     if (field.key === "password") values[field.key] = "changeme123456";
     if (field.key === "expire_days") values[field.key] = "14";
   }
@@ -6702,6 +6872,41 @@ function resourcePayload(values: Record<string, string>, customFields: FieldConf
     status: values.status || "active",
     fields,
   };
+}
+
+function identityProviderPayload(values: Record<string, string>, fields: FieldConfig[], existing?: AdminResource) {
+  const payload = resourcePayload(values, fields);
+  if (existing && !values.client_secret) {
+    payload.fields.client_secret = stringifyValue(existing.fields?.client_secret);
+  }
+  return payload;
+}
+
+async function importUsersFromCSVContent(ctx: ApiContext, content: string): Promise<UserImportResult> {
+  const resp = await adminFetch(ctx, "/api/admin/users/import", {
+    method: "POST",
+    body: JSON.stringify({
+      source: "manual_csv",
+      format: "csv",
+      content,
+    }),
+  });
+  if (!resp.ok) {
+    const message = await readAdminError(resp, "用户导入失败");
+    throw new Error(message);
+  }
+  return await resp.json() as UserImportResult;
+}
+
+async function readAdminError(resp: Response, fallback: string) {
+  const body = await resp.text().catch(() => "");
+  if (!body) return `${fallback} (${resp.status})`;
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: string }; message?: string };
+    return parsed.error?.message || parsed.message || `${fallback} (${resp.status})`;
+  } catch {
+    return body.length > 180 ? `${body.slice(0, 180)}...` : body;
+  }
 }
 
 async function adminMutate(ctx: ApiContext, path: string, method: "POST" | "PATCH", payload: unknown) {
@@ -7712,6 +7917,25 @@ function compactList(value: unknown) {
 function boolLabel(value: unknown) {
   const text = stringifyValue(value).trim().toLowerCase();
   return text === "false" || text === "0" || text === "no" ? "否" : "是";
+}
+
+function settingsTabLabel(tab: SettingsTabKey) {
+  const labels: Record<SettingsTabKey, string> = {
+    settings: "基础设置",
+    "role-configs": "角色配置",
+    "identity-providers": "身份源",
+  };
+  return labels[tab];
+}
+
+function identityProviderTypeLabel(type: string) {
+  const labels: Record<string, string> = {
+    oidc: "OIDC",
+    oauth2: "OAuth2",
+    saml: "SAML",
+    ldap: "LDAP",
+  };
+  return labels[type] ?? (type || "-");
 }
 
 function dataScopeLabel(scope: string) {

@@ -15,13 +15,32 @@ type Config struct {
 func ConfigFromEnv() Config {
 	return Config{
 		AdminToken:               getenv("TOKENHUB_ADMIN_TOKEN", "dev_admin_token"),
-		DatabaseURL:              getenv("TOKENHUB_DATABASE_URL", defaultSQLiteDatabaseURL),
-		SQLiteBackupDir:          getenv("TOKENHUB_SQLITE_BACKUP_DIR", "data/backups"),
+		DatabaseURL:              getenv("TOKENHUB_DATABASE_URL", defaultConfigDatabaseURL()),
+		SQLiteBackupDir:          getenv("TOKENHUB_SQLITE_BACKUP_DIR", defaultSQLiteBackupDir()),
 		SecretKey:                getenv("TOKENHUB_SECRET_KEY", "dev_tokenhub_secret_key"),
 		SeedDemo:                 getenvBool("TOKENHUB_SEED_DEMO", false),
 		ResourceFailureThreshold: getenvInt("TOKENHUB_RESOURCE_FAILURE_THRESHOLD", 3),
 		ResourceCooldownSeconds:  getenvInt("TOKENHUB_RESOURCE_COOLDOWN_SECONDS", 300),
 	}
+}
+
+func defaultConfigDatabaseURL() string {
+	if pathExists("backend/data") {
+		return "sqlite://backend/data/tokenhub.db"
+	}
+	return defaultSQLiteDatabaseURL
+}
+
+func defaultSQLiteBackupDir() string {
+	if pathExists("backend/data") {
+		return "backend/data/backups"
+	}
+	return "data/backups"
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func getenv(key, fallback string) string {

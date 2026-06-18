@@ -286,6 +286,59 @@ func TestBootstrapBaseDataSeedsGovernanceResources(t *testing.T) {
 			t.Fatalf("expected seeded role key %s, got %+v", key, roleKeys)
 		}
 	}
+
+	identityProviders := store.ListResources("identity-providers")
+	if len(identityProviders) != 1 || identityProviders[0].ID != "idp_oidc_template" {
+		t.Fatalf("expected default identity provider template, got %+v", identityProviders)
+	}
+	if stringField(identityProviders[0].Fields, "provider_type") != "oidc" || stringField(identityProviders[0].Fields, "client_id") == "" {
+		t.Fatalf("unexpected identity provider fields: %+v", identityProviders[0].Fields)
+	}
+}
+
+func TestAdminImportsUsersFromExistingSystemCSV(t *testing.T) {
+	store := NewMemoryStore()
+	if err := BootstrapBaseData(store); err != nil {
+		t.Fatal(err)
+	}
+	app := New(store).Handler()
+
+	content := "username,name,email,role,team_id,status\nimported_user,导入用户,imported@example.com,user,team_platform,active\n"
+	resp := doJSON(t, app, http.MethodPost, "/api/admin/users/import", map[string]any{
+		"source":  "manual_csv",
+		"format":  "csv",
+		"content": content,
+	}, "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected import 200, got %d: %s", resp.Code, resp.Body)
+	}
+	if !strings.Contains(resp.Body, `"created":1`) || !strings.Contains(resp.Body, `"updated":0`) {
+		t.Fatalf("expected one created user: %s", resp.Body)
+	}
+
+	update := "username,name,email,role,team_id,status\nimported_user,导入用户已更新,imported@example.com,team_leader,team_platform,active\n"
+	updated := doJSON(t, app, http.MethodPost, "/api/admin/users/import", map[string]any{
+		"source":  "manual_csv",
+		"format":  "csv",
+		"content": update,
+	}, "")
+	if updated.Code != http.StatusOK {
+		t.Fatalf("expected import update 200, got %d: %s", updated.Code, updated.Body)
+	}
+	if !strings.Contains(updated.Body, `"created":0`) || !strings.Contains(updated.Body, `"updated":1`) {
+		t.Fatalf("expected one updated user: %s", updated.Body)
+	}
+	users := store.ListAdminUsers()
+	var found AdminUser
+	for _, user := range users {
+		if user.Email == "imported@example.com" {
+			found = user
+			break
+		}
+	}
+	if found.ID == "" || found.Name != "导入用户已更新" || found.Role != "team_leader" {
+		t.Fatalf("expected imported user update, got %+v", found)
+	}
 }
 
 func TestGatewayRejectsUnauthorizedModel(t *testing.T) {
