@@ -7,7 +7,8 @@ This guide starts TokenHub locally and verifies the model API path.
 ## Run With Docker Compose
 
 ```bash
-docker compose -f deploy/docker-compose/docker-compose.yml up --build
+cp deploy/.env.example deploy/.env
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
 ```
 
 Default URLs:

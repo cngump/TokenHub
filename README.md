@@ -133,6 +133,41 @@ TokenHub currently uses GORM + SQLite as the default persistence layer. Projects
 
 The current product model intentionally keeps Provider routing clear: a Provider is a callable upstream channel instance. If an enterprise needs multiple upstream backups, it can create multiple Providers and configure route priorities and weights under the same external model. More granular resource pools inside a Provider are treated as advanced extensions rather than default admin concepts.
 
+## Deployment
+
+TokenHub includes a one-command Docker Compose deployment file at `deploy/docker-compose.yml`.
+
+```bash
+cp deploy/.env.example deploy/.env
+```
+
+Edit `deploy/.env` before production use:
+
+- Set `TOKENHUB_ADMIN_TOKEN` and `TOKENHUB_SECRET_KEY` to strong random values.
+- Set `TOKENHUB_PUBLIC_BASE_URL` and `NEXT_PUBLIC_API_BASE_URL` to the backend URL reachable by your users.
+- Change `TOKENHUB_BACKEND_PORT` or `TOKENHUB_FRONTEND_PORT` if ports `8080` or `3000` are already used.
+
+Start TokenHub from the repository root:
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
+```
+
+Open:
+
+- Admin console: `http://localhost:3000`
+- Backend API: `http://localhost:8080`
+- Health check: `http://localhost:8080/healthz`
+
+Initial admin login:
+
+- Username: `admin`
+- Password: `admin123456`
+
+Change the default password or create a new administrator before exposing the service to a wider network.
+
+SQLite data is stored in the named Docker volume `tokenhub-data`. The model catalog is mounted from `data/model-catalog.yaml` into the backend container. See [Deployment](docs/deployment.md) for production notes, backups, environment variables, and reverse proxy guidance.
+
 ## Local Development
 
 Backend:
@@ -197,8 +232,8 @@ npm run build
 Docker Compose:
 
 ```bash
-cd deploy/docker-compose
-docker compose up --build
+cp deploy/.env.example deploy/.env
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
 ```
 
 ## License

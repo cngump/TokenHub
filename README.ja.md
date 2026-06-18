@@ -133,6 +133,41 @@ TokenHub は現在、GORM + SQLite をデフォルトの永続化層として使
 
 現在のプロダクトモデルでは、Provider ルーティングを分かりやすく保っています。Provider は呼び出し可能な上流チャネルインスタンスです。企業が複数の上流バックアップを必要とする場合は、複数の Provider を作成し、同一の外部向けモデルの下で複数ルートの優先度と重みを設定します。Provider 内部のより細かなリソースプールは、デフォルトの管理概念ではなく高度な拡張として扱います。
 
+## デプロイ
+
+TokenHub には、`deploy/docker-compose.yml` にワンコマンド Docker Compose デプロイファイルが含まれています。
+
+```bash
+cp deploy/.env.example deploy/.env
+```
+
+本番利用前に `deploy/.env` を編集してください。
+
+- `TOKENHUB_ADMIN_TOKEN` と `TOKENHUB_SECRET_KEY` を強いランダム値に変更します。
+- `TOKENHUB_PUBLIC_BASE_URL` と `NEXT_PUBLIC_API_BASE_URL` をユーザーが到達できるバックエンド URL に変更します。
+- `8080` または `3000` が使用済みの場合は、`TOKENHUB_BACKEND_PORT` または `TOKENHUB_FRONTEND_PORT` を変更します。
+
+リポジトリルートから起動します。
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
+```
+
+アクセス先:
+
+- 管理コンソール: `http://localhost:3000`
+- バックエンド API: `http://localhost:8080`
+- ヘルスチェック: `http://localhost:8080/healthz`
+
+初回管理者ログイン:
+
+- ユーザー名: `admin`
+- パスワード: `admin123456`
+
+サービスを広いネットワークに公開する前に、デフォルトパスワードを変更するか、新しい管理者アカウントを作成してください。
+
+SQLite データは Docker named volume `tokenhub-data` に保存されます。モデルカタログは `data/model-catalog.yaml` からバックエンドコンテナへマウントされます。本番設定、バックアップ、環境変数、リバースプロキシについては [デプロイドキュメント](docs/ja/deployment.md) を参照してください。
+
 ## ローカル実行
 
 バックエンド:
@@ -197,8 +232,8 @@ npm run build
 Docker Compose:
 
 ```bash
-cd deploy/docker-compose
-docker compose up --build
+cp deploy/.env.example deploy/.env
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
 ```
 
 ## ライセンス

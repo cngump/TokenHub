@@ -133,6 +133,41 @@ TokenHub 当前使用 GORM + SQLite 做默认持久化，项目、Key、Provider
 
 当前产品模型刻意保持清晰：Provider 就是一个可调用上游渠道实例。一个企业需要多个上游备份时，直接创建多个 Provider，并在同一个对外模型下配置多条路由的优先级和权重。更细粒度的 Provider 内部资源池作为高级扩展能力，不作为默认后台概念。
 
+## 部署
+
+TokenHub 在 `deploy/docker-compose.yml` 提供了一键 Docker Compose 部署文件。
+
+```bash
+cp deploy/.env.example deploy/.env
+```
+
+生产使用前请先编辑 `deploy/.env`：
+
+- 将 `TOKENHUB_ADMIN_TOKEN` 和 `TOKENHUB_SECRET_KEY` 改成强随机值。
+- 将 `TOKENHUB_PUBLIC_BASE_URL` 和 `NEXT_PUBLIC_API_BASE_URL` 改成用户可访问的后端地址。
+- 如果 `8080` 或 `3000` 端口已被占用，调整 `TOKENHUB_BACKEND_PORT` 或 `TOKENHUB_FRONTEND_PORT`。
+
+在仓库根目录启动：
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
+```
+
+访问地址：
+
+- 管理后台：`http://localhost:3000`
+- 后端 API：`http://localhost:8080`
+- 健康检查：`http://localhost:8080/healthz`
+
+首次登录后台：
+
+- 用户名：`admin`
+- 密码：`admin123456`
+
+对外开放前，请修改默认密码或创建新的管理员账号。
+
+SQLite 数据会保存在 Docker named volume `tokenhub-data` 中。模型目录从 `data/model-catalog.yaml` 挂载到后端容器。更多生产部署、备份、环境变量和反向代理说明见 [部署文档](docs/zh-CN/deployment.md)。
+
 ## 本地运行
 
 后端：
@@ -197,8 +232,8 @@ npm run build
 Docker Compose：
 
 ```bash
-cd deploy/docker-compose
-docker compose up --build
+cp deploy/.env.example deploy/.env
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
 ```
 
 ## 许可证

@@ -7,7 +7,8 @@ Language: [English](../quick-start.md) | [简体中文](../zh-CN/quick-start.md)
 ## Docker Compose で起動
 
 ```bash
-docker compose -f deploy/docker-compose/docker-compose.yml up --build
+cp deploy/.env.example deploy/.env
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
 ```
 
 デフォルト URL:

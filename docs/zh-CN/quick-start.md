@@ -7,7 +7,8 @@ Language: [English](../quick-start.md) | 简体中文 | [日本語](../ja/quick-
 ## 使用 Docker Compose 启动
 
 ```bash
-docker compose -f deploy/docker-compose/docker-compose.yml up --build
+cp deploy/.env.example deploy/.env
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
 ```
 
 默认地址：
