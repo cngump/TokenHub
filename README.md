@@ -91,46 +91,16 @@ flowchart LR
     AdminAPI --> DB
 ```
 
-## Suggested Directory Structure
-
-```text
-tokenhub/
-  backend/
-    cmd/tokenhub/
-    internal/
-      gateway/
-      provider/
-      routing/
-      quota/
-      usage/
-      audit/
-      admin/
-      identity/
-      storage/
-    migrations/
-  frontend/
-    app/
-    components/
-    features/
-    lib/
-  doc/
-  deploy/
-    docker-compose/
-    helm/
-  README.md
-```
-
 ## Documentation
 
-- [Product planning overview](doc/README.md)
-- [Product positioning and boundaries](doc/01-product-positioning.md)
-- [System architecture plan](doc/02-architecture.md)
-- [Capabilities and roadmap](doc/03-capabilities-roadmap.md)
-- [API design](doc/04-api-design.md)
-- [Data model plan](doc/05-data-model.md)
-- [Admin console plan](doc/06-admin-console.md)
-- [Deployment and operations plan](doc/07-deployment-ops.md)
-- [Security and compliance plan](doc/08-security-compliance.md)
+- [Documentation home](docs/README.md)
+- [Quick start](docs/quick-start.md)
+- [Model API](docs/model-api.md)
+- [Admin console](docs/admin-console.md)
+- [Model catalog](docs/model-catalog.md)
+- [Deployment](docs/deployment.md)
+- [Security](docs/security.md)
+- Other languages: [简体中文](docs/zh-CN/README.md) | [日本語](docs/ja/README.md)
 
 ## Compliance Boundary
 
@@ -179,6 +149,12 @@ TOKENHUB_DATABASE_URL=sqlite:///absolute/path/tokenhub.db go run ./cmd/tokenhub
 ```
 
 The default backup directory is `backend/data/backups`. Override it with `TOKENHUB_SQLITE_BACKUP_DIR`.
+
+Model catalog:
+
+The standard model catalog is maintained in `data/model-catalog.yaml`. TokenHub imports this YAML file into SQLite on backend startup and updates existing catalog rows by model name. When public model lists change, update the YAML file instead of editing Go seed code.
+
+You can override the catalog path with `TOKENHUB_MODEL_CATALOG_FILE`. Docker images copy the catalog to `/app/catalog/model-catalog.yaml` so it is not hidden by the `/app/data` SQLite volume.
 
 Frontend:
 

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -151,6 +152,7 @@ func TestGatewayEmbeddings(t *testing.T) {
 }
 
 func TestBootstrapSeedsStandardModelCatalog(t *testing.T) {
+	t.Setenv("TOKENHUB_MODEL_CATALOG_FILE", "../../../data/model-catalog.yaml")
 	store := NewMemoryStore()
 	if err := BootstrapBaseData(store); err != nil {
 		t.Fatal(err)
@@ -198,6 +200,37 @@ func TestBootstrapSeedsStandardModelCatalog(t *testing.T) {
 	}
 	if byName["step-tts-mini"].Modality != "audio" {
 		t.Fatalf("expected step-tts-mini audio modality, got %s", byName["step-tts-mini"].Modality)
+	}
+}
+
+func TestDefaultModelCatalogLoadsYAMLFile(t *testing.T) {
+	catalogPath := filepath.Join(t.TempDir(), "model-catalog.yaml")
+	content := []byte(`
+version: 1
+models:
+  - name: "test-chat-128k"
+    category: "custom"
+  - name: "test-embedding"
+    category: "custom"
+    modality: "embedding"
+    embedding_price_usd_per_1m: 0.01
+`)
+	if err := os.WriteFile(catalogPath, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	models, err := defaultModelCatalog(catalogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 2 {
+		t.Fatalf("expected 2 models, got %d", len(models))
+	}
+	if models[0].Name != "test-chat-128k" || models[0].ContextWindow != 128000 {
+		t.Fatalf("unexpected chat model: %+v", models[0])
+	}
+	if models[1].Modality != "embedding" || models[1].EmbeddingPriceUSDPer1M != 0.01 {
+		t.Fatalf("unexpected embedding model: %+v", models[1])
 	}
 }
 

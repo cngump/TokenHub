@@ -91,46 +91,16 @@ flowchart LR
     AdminAPI --> DB
 ```
 
-## 推奨ディレクトリ構成
-
-```text
-tokenhub/
-  backend/
-    cmd/tokenhub/
-    internal/
-      gateway/
-      provider/
-      routing/
-      quota/
-      usage/
-      audit/
-      admin/
-      identity/
-      storage/
-    migrations/
-  frontend/
-    app/
-    components/
-    features/
-    lib/
-  doc/
-  deploy/
-    docker-compose/
-    helm/
-  README.md
-```
-
 ## ドキュメント
 
-- [プロダクト計画の概要](doc/README.md)
-- [プロダクトポジショニングと境界](doc/01-product-positioning.md)
-- [システムアーキテクチャ計画](doc/02-architecture.md)
-- [機能とロードマップ](doc/03-capabilities-roadmap.md)
-- [API 設計](doc/04-api-design.md)
-- [データモデル計画](doc/05-data-model.md)
-- [管理コンソール計画](doc/06-admin-console.md)
-- [デプロイと運用計画](doc/07-deployment-ops.md)
-- [セキュリティとコンプライアンス計画](doc/08-security-compliance.md)
+- [ドキュメントホーム](docs/ja/README.md)
+- [クイックスタート](docs/ja/quick-start.md)
+- [モデル API](docs/ja/model-api.md)
+- [管理コンソール](docs/ja/admin-console.md)
+- [モデルカタログ](docs/ja/model-catalog.md)
+- [デプロイ](docs/ja/deployment.md)
+- [セキュリティ](docs/ja/security.md)
+- Other languages: [English](docs/README.md) | [简体中文](docs/zh-CN/README.md)
 
 ## コンプライアンス境界
 
@@ -179,6 +149,12 @@ TOKENHUB_DATABASE_URL=sqlite:///absolute/path/tokenhub.db go run ./cmd/tokenhub
 ```
 
 デフォルトのバックアップディレクトリは `backend/data/backups` です。`TOKENHUB_SQLITE_BACKUP_DIR` で上書きできます。
+
+モデルカタログ:
+
+標準モデルカタログは `data/model-catalog.yaml` で管理します。バックエンド起動時にこの YAML を SQLite に取り込み、モデル名をキーに既存のカタログ行を更新します。公開モデル一覧が変わった場合は、Go の seed コードではなくこの YAML を更新します。
+
+カタログパスは `TOKENHUB_MODEL_CATALOG_FILE` で上書きできます。Docker イメージでは `/app/data` の SQLite volume に隠されないよう、カタログを `/app/catalog/model-catalog.yaml` にコピーします。
 
 フロントエンド:
 

@@ -91,46 +91,16 @@ flowchart LR
     AdminAPI --> DB
 ```
 
-## 建议目录结构
-
-```text
-tokenhub/
-  backend/
-    cmd/tokenhub/
-    internal/
-      gateway/
-      provider/
-      routing/
-      quota/
-      usage/
-      audit/
-      admin/
-      identity/
-      storage/
-    migrations/
-  frontend/
-    app/
-    components/
-    features/
-    lib/
-  doc/
-  deploy/
-    docker-compose/
-    helm/
-  README.md
-```
-
 ## 文档
 
-- [产品规划总览](doc/README.md)
-- [产品定位与边界](doc/01-product-positioning.md)
-- [系统架构规划](doc/02-architecture.md)
-- [能力与路线图](doc/03-capabilities-roadmap.md)
-- [API 设计](doc/04-api-design.md)
-- [数据模型规划](doc/05-data-model.md)
-- [管理后台规划](doc/06-admin-console.md)
-- [部署与运维规划](doc/07-deployment-ops.md)
-- [安全与合规规划](doc/08-security-compliance.md)
+- [文档首页](docs/zh-CN/README.md)
+- [快速开始](docs/zh-CN/quick-start.md)
+- [模型 API](docs/zh-CN/model-api.md)
+- [管理后台](docs/zh-CN/admin-console.md)
+- [模型目录](docs/zh-CN/model-catalog.md)
+- [部署](docs/zh-CN/deployment.md)
+- [安全](docs/zh-CN/security.md)
+- 其他语言：[English](docs/README.md) | [日本語](docs/ja/README.md)
 
 ## 合规边界
 
@@ -179,6 +149,12 @@ TOKENHUB_DATABASE_URL=sqlite:///absolute/path/tokenhub.db go run ./cmd/tokenhub
 ```
 
 默认备份目录为 `backend/data/backups`。可通过 `TOKENHUB_SQLITE_BACKUP_DIR` 覆盖。
+
+模型目录：
+
+标准模型目录维护在 `data/model-catalog.yaml`。后端启动时会把这个 YAML 导入 SQLite，并按模型名更新已有目录数据。未来公开模型列表变化时，直接改这个 YAML 文件，不需要再改 Go seed 代码。
+
+可通过 `TOKENHUB_MODEL_CATALOG_FILE` 覆盖目录文件路径。Docker 镜像内会把目录复制到 `/app/catalog/model-catalog.yaml`，避免被 `/app/data` 这个 SQLite volume 覆盖。
 
 前端：
 

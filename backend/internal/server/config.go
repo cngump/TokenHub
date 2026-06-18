@@ -6,6 +6,7 @@ type Config struct {
 	AdminToken               string
 	DatabaseURL              string
 	SQLiteBackupDir          string
+	ModelCatalogFile         string
 	SecretKey                string
 	SeedDemo                 bool
 	ResourceFailureThreshold int
@@ -17,6 +18,7 @@ func ConfigFromEnv() Config {
 		AdminToken:               getenv("TOKENHUB_ADMIN_TOKEN", "dev_admin_token"),
 		DatabaseURL:              getenv("TOKENHUB_DATABASE_URL", defaultConfigDatabaseURL()),
 		SQLiteBackupDir:          getenv("TOKENHUB_SQLITE_BACKUP_DIR", defaultSQLiteBackupDir()),
+		ModelCatalogFile:         getenv("TOKENHUB_MODEL_CATALOG_FILE", defaultModelCatalogFile()),
 		SecretKey:                getenv("TOKENHUB_SECRET_KEY", "dev_tokenhub_secret_key"),
 		SeedDemo:                 getenvBool("TOKENHUB_SEED_DEMO", false),
 		ResourceFailureThreshold: getenvInt("TOKENHUB_RESOURCE_FAILURE_THRESHOLD", 3),
@@ -36,6 +38,22 @@ func defaultSQLiteBackupDir() string {
 		return "backend/data/backups"
 	}
 	return "data/backups"
+}
+
+func defaultModelCatalogFile() string {
+	for _, path := range []string{
+		"data/model-catalog.yaml",
+		"../data/model-catalog.yaml",
+		"../../data/model-catalog.yaml",
+		"../../../data/model-catalog.yaml",
+		"/app/catalog/model-catalog.yaml",
+		"/app/data/model-catalog.yaml",
+	} {
+		if pathExists(path) {
+			return path
+		}
+	}
+	return "data/model-catalog.yaml"
 }
 
 func pathExists(path string) bool {

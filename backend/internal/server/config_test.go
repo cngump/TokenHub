@@ -11,9 +11,16 @@ func TestConfigDefaultDatabaseURLPrefersBackendDataFromRepoRoot(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(tmp, "backend", "data"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(tmp, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "data", "model-catalog.yaml"), []byte("version: 1\nmodels:\n  - name: test-model\n    category: test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	withWorkingDir(t, tmp)
 	t.Setenv("TOKENHUB_DATABASE_URL", "")
 	t.Setenv("TOKENHUB_SQLITE_BACKUP_DIR", "")
+	t.Setenv("TOKENHUB_MODEL_CATALOG_FILE", "")
 
 	config := ConfigFromEnv()
 	if config.DatabaseURL != "sqlite://backend/data/tokenhub.db" {
@@ -21,6 +28,9 @@ func TestConfigDefaultDatabaseURLPrefersBackendDataFromRepoRoot(t *testing.T) {
 	}
 	if config.SQLiteBackupDir != "backend/data/backups" {
 		t.Fatalf("expected backend data backup dir, got %q", config.SQLiteBackupDir)
+	}
+	if config.ModelCatalogFile != "data/model-catalog.yaml" {
+		t.Fatalf("expected root model catalog, got %q", config.ModelCatalogFile)
 	}
 }
 
@@ -30,9 +40,16 @@ func TestConfigDefaultDatabaseURLUsesLocalDataFromBackendDir(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(backendDir, "data"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(tmp, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "data", "model-catalog.yaml"), []byte("version: 1\nmodels:\n  - name: test-model\n    category: test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	withWorkingDir(t, backendDir)
 	t.Setenv("TOKENHUB_DATABASE_URL", "")
 	t.Setenv("TOKENHUB_SQLITE_BACKUP_DIR", "")
+	t.Setenv("TOKENHUB_MODEL_CATALOG_FILE", "")
 
 	config := ConfigFromEnv()
 	if config.DatabaseURL != defaultSQLiteDatabaseURL {
@@ -40,6 +57,9 @@ func TestConfigDefaultDatabaseURLUsesLocalDataFromBackendDir(t *testing.T) {
 	}
 	if config.SQLiteBackupDir != "data/backups" {
 		t.Fatalf("expected local backup dir, got %q", config.SQLiteBackupDir)
+	}
+	if config.ModelCatalogFile != "../data/model-catalog.yaml" {
+		t.Fatalf("expected parent model catalog, got %q", config.ModelCatalogFile)
 	}
 }
 

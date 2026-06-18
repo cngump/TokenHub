@@ -132,7 +132,9 @@ func BootstrapBaseData(store Store) error {
 	seedDefaultOrgResources(store)
 	seedDefaultProject(store)
 	pruneProviderImportedModelCatalog(store)
-	seedDefaultModelCatalog(store)
+	if err := seedDefaultModelCatalog(store, ConfigFromEnv().ModelCatalogFile); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -158,10 +160,15 @@ func pruneProviderImportedModelCatalog(store Store) {
 	}
 }
 
-func seedDefaultModelCatalog(store Store) {
-	for _, model := range defaultModelCatalog() {
+func seedDefaultModelCatalog(store Store, catalogFile string) error {
+	models, err := defaultModelCatalog(catalogFile)
+	if err != nil {
+		return err
+	}
+	for _, model := range models {
 		store.AddModel(model)
 	}
+	return nil
 }
 
 func seedDefaultOrgResources(store Store) {

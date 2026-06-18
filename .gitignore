@@ -10,6 +10,10 @@ out/
 tmp/
 output/
 
+# Internal design notes
+design/
+doc/
+
 # Go
 bin/
 .tmp/
@@ -17,7 +21,9 @@ bin/
 coverage.out
 
 # Local runtime data
-data/
+data/*
+!data/
+!data/model-catalog.yaml
 backend/data/
 
 # Environment
