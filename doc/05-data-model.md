@@ -63,7 +63,7 @@ erDiagram
 | team_id | 所属团队 |
 | email | 邮箱 |
 | name | 姓名 |
-| role | system_admin、security_admin、project_admin、viewer |
+| role | admin、security、team_leader、user |
 | external_id | OIDC/LDAP 外部身份 ID |
 | status | active、disabled |
 
@@ -79,6 +79,8 @@ erDiagram
 | name | 项目名称 |
 | code | 项目编码 |
 | owner_user_id | 负责人 |
+| cost_center | 成本中心 |
+| default_quota_ref | 默认项目额度资源 ID |
 | status | active、disabled、archived |
 
 ### api_keys
@@ -115,7 +117,7 @@ erDiagram
 
 ### provider_resources
 
-高级扩展表，不作为 MVP 主流程。MVP 中 Provider 本身就是可调用上游渠道实例，直接保存 Base URL、API Key、健康状态和标准模型路由映射；企业需要多个上游备份时，创建多个 Provider 并在同一个对外模型下配置多条路由。
+高级扩展表，不作为默认后台主入口。Provider 本身就是可调用上游渠道实例，直接保存 Base URL、API Key、健康状态和标准模型路由映射；企业需要多个上游备份时，创建多个 Provider 并在同一个对外模型下配置多条 Provider 候选。
 
 当后续企业场景需要在同一个 Provider 下管理多区域、多 Key、多本地集群时，可以启用该表作为 Provider 内部资源池。
 
@@ -163,7 +165,7 @@ TokenHub 对外暴露的统一模型目录。
 | id | 主键 |
 | model_id | 统一模型 ID |
 | provider_id | Provider ID |
-| provider_resource_id | 高级扩展字段，MVP 不使用 |
+| provider_resource_id | 高级扩展字段，默认可为空 |
 | provider_model | Provider 模型名或 deployment |
 | weight | 权重 |
 | priority | 优先级 |
@@ -171,7 +173,7 @@ TokenHub 对外暴露的统一模型目录。
 
 ### quota_policies
 
-额度策略，可绑定项目或 Key。
+额度策略，默认在项目空间中配置，也可扩展绑定 Key、团队或全局范围。
 
 | 字段 | 说明 |
 | --- | --- |
@@ -195,11 +197,14 @@ TokenHub 对外暴露的统一模型目录。
 | --- | --- |
 | id | 主键 |
 | name | 规则名称 |
-| model_id | 作用模型 |
+| model_name | 统一模型名 |
 | project_id | 可选，项目级规则 |
-| strategy | priority、cost、latency、weighted |
-| fallback_enabled | 是否启用 fallback |
-| retry_policy | 重试策略 JSON |
+| provider_id | 上游 Provider ID |
+| provider_model | 上游模型名或 deployment |
+| priority | Provider 候选顺序 |
+| weight | 同优先级下的权重 |
+| strategy | balanced、quality、cost、priority_weighted、priority_only |
+| sticky_session | 是否按 Key/项目做粘性路由 |
 | status | active、disabled |
 
 ### request_logs
@@ -215,7 +220,7 @@ TokenHub 对外暴露的统一模型目录。
 | api_key_id | Key ID |
 | model_id | 统一模型 ID |
 | provider_id | Provider ID |
-| provider_resource_id | 高级扩展字段，MVP 可为空 |
+| provider_resource_id | 高级扩展字段，默认可为空 |
 | provider_model | 实际模型 |
 | status_code | HTTP 状态 |
 | error_code | 错误码 |
@@ -223,6 +228,8 @@ TokenHub 对外暴露的统一模型目录。
 | client_ip | 调用方 IP |
 | user_agent | 调用方 UA |
 | prompt_hash | Prompt 哈希，可空 |
+| request_body | 脱敏或截断后的请求内容，可配置 |
+| response_body | 脱敏或截断后的响应内容，可配置 |
 | redaction_status | 脱敏状态 |
 | created_at | 请求时间 |
 
@@ -238,7 +245,7 @@ TokenHub 对外暴露的统一模型目录。
 | api_key_id | Key ID |
 | model_id | 模型 ID |
 | provider_id | Provider ID |
-| provider_resource_id | 高级扩展字段，MVP 可为空 |
+| provider_resource_id | 高级扩展字段，默认可为空 |
 | input_tokens | 输入 Token |
 | output_tokens | 输出 Token |
 | total_tokens | 总 Token |
@@ -299,6 +306,36 @@ TokenHub 对外暴露的统一模型目录。
 | threshold | 阈值 |
 | channels | 通知渠道 |
 | status | active、disabled |
+
+### approval_requests
+
+审批申请与处理结果，当前主线用于额度提升、Key 发放和模型访问等治理动作。
+
+| 字段 | 说明 |
+| --- | --- |
+| id | 主键 |
+| trigger | quota_increase、api_key_create、model_access |
+| resource_type | quota-policies、api_key、model |
+| resource_id | 资源 ID |
+| requester_id | 申请人 |
+| approver_role | 审批角色 |
+| status | pending、approved、rejected |
+| payload | 申请内容 JSON |
+| decided_by | 处理人 |
+| decided_at | 处理时间 |
+
+### notification_channels / alert_deliveries
+
+通知渠道和通知发送记录。
+
+| 字段 | 说明 |
+| --- | --- |
+| id | 主键 |
+| type | webhook、feishu、dingtalk、wecom、slack、email |
+| target | Webhook URL 或邮件收件人 |
+| encrypted_secret | 签名密钥或 SMTP 密码 |
+| status | active、disabled |
+| last_error | 最近失败原因 |
 
 ## SQLite 运行时状态规划
 

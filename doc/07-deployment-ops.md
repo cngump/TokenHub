@@ -11,7 +11,7 @@
 
 ## Docker Compose 组件
 
-MVP 建议包含：
+默认包含：
 
 ```text
 tokenhub-backend
@@ -19,7 +19,7 @@ tokenhub-frontend
 sqlite-data-volume
 ```
 
-后续增强：
+观测增强：
 
 ```text
 prometheus
@@ -134,7 +134,7 @@ tokenhub migrate status
 
 ## 高可用部署
 
-企业版本建议：
+企业私有化部署建议：
 
 - Backend 多副本。
 - Frontend 多副本或静态化部署。

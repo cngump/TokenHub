@@ -126,11 +126,11 @@ backend/
 | API Keys | Key 创建、轮换、禁用、模型白名单、并发限制 |
 | Providers | Provider 列表、凭证、模型映射、健康检查 |
 | Models | 统一模型目录、别名、成本单价、上下文长度 |
-| Routing | 路由规则、优先级、降级、灰度 |
+| Routing | 模型目录式路由、Provider 候选、优先级、权重、失败切换 |
 | Usage | 用量趋势、成本分析、项目/模型/用户维度报表 |
-| Audit | 请求审计、管理操作日志、安全事件 |
-| Alerts | 告警规则、告警历史、通知渠道 |
-| Settings | SSO、LDAP、企业集成、系统配置 |
+| Audit | 请求日志、请求详情、管理操作日志、安全事件 |
+| Alerts | 健康检测、告警规则、告警事件、通知渠道、通知记录 |
+| Settings | 安全策略、代理出口、数据备份、公告通知、系统配置、身份源 |
 
 ## 请求链路
 
@@ -178,25 +178,25 @@ Provider Adapter 只负责协议转换，不负责额度、鉴权、审计和成
 
 ## 路由策略
 
-MVP 阶段支持以下策略：
+当前支持以下策略：
 
-- 精确模型映射：`gpt-4.1-mini` -> OpenAI 或 Azure OpenAI。
-- 优先级路由：先按管理员配置的优先级选择候选 Provider。
+- 精确模型映射：`gpt-4.1-mini` -> OpenAI、Azure OpenAI 或其他 OpenAI-Compatible Provider。
+- 模型目录式路由：一个统一模型下挂多个 Provider 候选。
+- 优先级路由：先按管理员配置的顺序和优先级选择候选 Provider。
 - 加权路由：同一优先级内可按权重分配请求。
 - 健康检查跳过：Provider 不可用时自动跳过。
 - Provider failover：非流式请求遇到 429、502、503、504 或 5xx 时尝试下一个候选。
 
-后续版本增加：
+增强方向：
 
 - 成本优先。
 - 延迟优先。
 - 区域优先。
 - 质量评分。
 - 灰度路由。
-- 多 Provider 预算均衡。
 - Provider 内部多区域、多 Key、多集群资源池调度、粘性会话、资源级熔断和冷却。
 
-MVP 阶段不把 Provider 资源池暴露为独立管理入口。Provider 本身就是可调用的上游渠道实例，包含 Base URL、API Key、健康状态和标准模型路由映射；多上游备份通过创建多个 Provider 并在同一个对外模型下配置多条路由实现。
+默认产品模型不把 Provider 资源池作为主入口。Provider 本身就是可调用的上游渠道实例，包含 Base URL、API Key、健康状态和标准模型路由映射；多上游备份通过创建多个 Provider，并在同一个对外模型下配置多个 Provider 候选实现。
 
 ## 数据流
 
@@ -210,7 +210,7 @@ MVP 阶段不把 Provider 资源池暴露为独立管理入口。Provider 本身
 
 ## 高可用规划
 
-MVP 和后续私有化版本以 SQLite-only 为基础，优先保证单机/内网部署简单可靠：
+私有化版本以 SQLite-only 为基础，优先保证单机/内网部署简单可靠：
 
 - Go Gateway 通过 Admin API 访问 SQLite，不要求外部数据库服务。
 - API Key、Project、Policy、额度计数、Provider 健康状态都以 SQLite 为唯一持久化来源。

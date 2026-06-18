@@ -1,6 +1,6 @@
 # TokenHub 产品规划总览
 
-本文档目录用于规划 TokenHub 的产品、架构、能力路线图、数据模型、管理后台、安全合规和部署运维。
+本文档目录用于说明 TokenHub 的产品定位、当前功能地图、系统架构、接口、数据模型、管理后台、安全合规和部署运维。
 
 ## 产品一句话
 
@@ -19,11 +19,12 @@ TokenHub 是面向企业私有化部署的 AI API Gateway 与 Token 治理平台
 | [07-deployment-ops.md](07-deployment-ops.md) | Docker、Helm、离线部署、观测、备份、升级 |
 | [08-security-compliance.md](08-security-compliance.md) | 认证授权、密钥安全、审计、脱敏、企业集成 |
 | [09-implementation-status.md](09-implementation-status.md) | 当前实现记录、运行方式、验证结果、已知限制 |
+| [10-feature-map.md](10-feature-map.md) | 当前后台菜单、功能闭环、角色范围和后续优先级 |
 
 ## 设计原则
 
 1. 企业治理优先
-   - 产品价值来自权限、成本、审计、稳定性和私有化能力，而不是非授权转售或订阅分发。
+   - 产品价值来自权限、成本、审计、稳定性和私有化能力，而不是非授权转售或非授权分发。
 
 2. API 兼容优先
    - 首先兼容 OpenAI API 的核心路径，降低内部应用迁移成本。
@@ -43,11 +44,9 @@ TokenHub 是面向企业私有化部署的 AI API Gateway 与 Token 治理平台
 
 ## 建议交付顺序
 
-1. 确认产品定位、能力范围与合规边界。
-2. 搭建 Go 后端基础工程：配置、日志、数据库迁移、健康检查。
-3. 搭建 Next.js 管理后台基础工程：登录、布局、权限壳。
-4. 实现 OpenAI-Compatible Gateway 的最小调用链。
-5. 接入首批 Provider Adapter。
-6. 完成 Project、API Key、Quota、Usage、Audit 的闭环。
-7. 增加 Docker Compose 与 Helm 部署。
-8. 做企业集成、策略引擎、告警、报表和高可用增强。
+1. 先保证模型 API、Provider、模型目录、路由策略和请求日志闭环稳定。
+2. 完成项目空间、API Key、项目额度、团队、用户和审批记录的治理闭环。
+3. 打磨用量统计、成本账单、成本中心和导出报表。
+4. 完善健康检测、告警规则、告警事件、通知渠道和通知记录。
+5. 补齐安全策略、代理出口、数据备份、公告通知和系统设置。
+6. 做生产化增强：RBAC 数据范围、SSO、凭证加密、定时备份、OpenAPI、Helm 和观测。
