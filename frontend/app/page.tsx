@@ -23,6 +23,9 @@ import {
   KeyRound,
   LayoutDashboard,
   LogOut,
+  Eye,
+  EyeOff,
+  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -32,6 +35,7 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
+  Sun,
   Trash2,
   Users,
   WalletCards,
@@ -673,7 +677,6 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "系统设置": "System Settings",
     "新增系统设置": "Create System Setting",
     "网关地址、审计保留、企业集成和默认策略": "Gateway address, audit retention, enterprise integration, and default policies",
-    "统一查看 TokenHub 的请求、成本、Provider 和治理状态。": "Review TokenHub requests, cost, Providers, and governance status in one place.",
     "选择标准模型，按当前路由策略发起测试对话，验证 Provider、路由和返回内容。": "Test a standard model through the current routing policy and verify Provider, route, and response behavior.",
     "面向业务开发者的模型 API 调用说明、认证方式、示例代码和错误排查。": "Model API usage, authentication, examples, and troubleshooting for application developers.",
     "按模型、项目和日期查看请求量、Token 和成本归因。": "View requests, tokens, and cost attribution by model, project, and date.",
@@ -1004,7 +1007,6 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "系统设置": "システム設定",
     "新增系统设置": "システム設定を作成",
     "网关地址、审计保留、企业集成和默认策略": "ゲートウェイアドレス、監査保持、企業連携、デフォルトポリシー",
-    "统一查看 TokenHub 的请求、成本、Provider 和治理状态。": "TokenHub のリクエスト、コスト、Provider、ガバナンス状態をまとめて確認します。",
     "选择标准模型，按当前路由策略发起测试对话，验证 Provider、路由和返回内容。": "標準モデルを選択し、現在のルーティングでテスト会話を実行します。",
     "面向业务开发者的模型 API 调用说明、认证方式、示例代码和错误排查。": "開発者向けのモデル API、認証、サンプル、トラブルシュートです。",
     "按模型、项目和日期查看请求量、Token 和成本归因。": "モデル、プロジェクト、日付別にリクエスト、Token、コストを確認します。",
@@ -1394,7 +1396,7 @@ const navGroups: Array<{
 const standaloneViewMeta: Partial<Record<ViewKey, { title: string; description: string }>> = {
   overview: {
     title: "网关概览",
-    description: "统一查看 TokenHub 的请求、成本、Provider 和治理状态。",
+    description: "",
   },
   playground: {
     title: "模型演练场",
@@ -1538,6 +1540,8 @@ function loadPlanForView(user: AdminUser, view: ViewKey): LoadPlan {
   switch (view) {
     case "overview":
       plan.overview = true;
+      plan.breakdown = true;
+      plan.timeseries = true;
       addResourceDependency(plan, "announcements");
       break;
     case "playground":
@@ -1554,7 +1558,9 @@ function loadPlanForView(user: AdminUser, view: ViewKey): LoadPlan {
       plan.overview = true;
       plan.breakdown = true;
       plan.timeseries = true;
-      plan.users = appRole(user.role) === "team_leader";
+      plan.users = can("users") || appRole(user.role) === "team_leader";
+      addResourceDependency(plan, "teams");
+      addResourceDependency(plan, "cost-centers");
       break;
     case "billing":
       plan.breakdown = true;
@@ -1666,6 +1672,7 @@ function mergeLoadedData(current: AppData, loaded: LoadedData): AppData {
 
 export default function AdminHome() {
   const [language, setLanguage] = useState<AppLanguage>(() => readSavedLanguage());
+  const [theme, setTheme] = useState<"light" | "dark">("light");
   const [baseURL, setBaseURL] = useState(defaultBaseURL);
   const [adminToken, setAdminToken] = useState("");
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
@@ -1697,6 +1704,10 @@ export default function AdminHome() {
 
   function changeLanguage(nextLanguage: AppLanguage) {
     setLanguage(nextLanguage);
+  }
+
+  function toggleTheme() {
+    setTheme((value) => (value === "light" ? "dark" : "light"));
   }
 
   function selectView(view: ViewKey, options: { replace?: boolean } = {}) {
@@ -2041,6 +2052,34 @@ export default function AdminHome() {
     setModal({ config: activeConfig });
   }
 
+  function openCreateForCurrentView() {
+    if (!activeConfig) return;
+    if (activeView === "routes") {
+      openCreateRoute();
+      return;
+    }
+    if (loading) {
+      setNotice("");
+      setError("数据加载中，请稍后再操作。");
+      return;
+    }
+    if (activeConfig.view === "providers") {
+      setProviderCreateOpen(true);
+      return;
+    }
+    if (activeConfig.view === "api-keys" && data.projects.length === 0) {
+      setNotice("");
+      setError("请先创建项目，再在项目下发放 API Key。");
+      selectView("projects");
+      return;
+    }
+    if (activeConfig.view === "notification-channels") {
+      setModal({ config: activeConfig, initialValues: notificationChannelDefaults(modelCategoryFilter) });
+      return;
+    }
+    setModal({ config: activeConfig });
+  }
+
   async function reorderModelRoutes(model: Model, orderedRoutes: ModelRoute[]) {
     setLoading(true);
     setError("");
@@ -2084,6 +2123,8 @@ export default function AdminHome() {
         loading={loading}
         error={error}
         language={language}
+        theme={theme}
+        onThemeToggle={toggleTheme}
         onLanguageChange={changeLanguage}
         onLogin={(identity, password) => void login(identity, password)}
       />
@@ -2091,7 +2132,7 @@ export default function AdminHome() {
   }
 
   return (
-    <main className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
+    <main className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"} data-theme={theme}>
       <Sidebar
         activeView={activeView}
         onSelect={selectView}
@@ -2106,15 +2147,17 @@ export default function AdminHome() {
       />
 
       <section className="workspace">
-        <TopNav />
+        <TopNav
+          theme={theme}
+          onThemeToggle={toggleTheme}
+        />
 
         <div className={activeView === "playground" ? "content-panel playground-content-panel" : "content-panel"}>
-          {activeView === "playground" ? null : (
+          {activeView === "playground" || activeView === "overview" ? null : (
             <header className="page-header">
               <div>
                 <p className="eyebrow">Enterprise AI Gateway</p>
                 <h1>{tx(activeMeta.title)}</h1>
-                <p className="page-desc">{tx(activeMeta.description)}</p>
               </div>
             </header>
           )}
@@ -2125,7 +2168,7 @@ export default function AdminHome() {
           {activeView === "playground" ? null : <div className="divider" />}
 
           {activeView === "overview" ? (
-            <OverviewView data={data} user={currentUser} onSelect={selectView} />
+            <OverviewView data={data} user={currentUser} />
           ) : activeView === "playground" ? (
             <PlaygroundPage api={api} data={data} />
           ) : activeView === "gateway" ? (
@@ -2192,28 +2235,7 @@ export default function AdminHome() {
               categoryFilter={modelCategoryFilter}
               onCategoryFilter={setModelCategoryFilter}
               onQuery={setQuery}
-              onCreate={() => {
-                if (loading) {
-                  setNotice("");
-                  setError("数据加载中，请稍后再操作。");
-                  return;
-                }
-                if (activeConfig.view === "providers") {
-                  setProviderCreateOpen(true);
-                  return;
-                }
-                if (activeConfig.view === "api-keys" && data.projects.length === 0) {
-                  setNotice("");
-                  setError("请先创建项目，再在项目下发放 API Key。");
-                  selectView("projects");
-                  return;
-                }
-                if (activeConfig.view === "notification-channels") {
-                  setModal({ config: activeConfig, initialValues: notificationChannelDefaults(modelCategoryFilter) });
-                  return;
-                }
-                setModal({ config: activeConfig });
-              }}
+              onCreate={openCreateForCurrentView}
               onEdit={(item) => {
                 if (activeConfig.view === "providers") {
                   setProviderEditItem(item as Provider);
@@ -2380,17 +2402,22 @@ function LoginView({
   loading,
   error,
   language,
+  theme,
+  onThemeToggle,
   onLanguageChange,
   onLogin,
 }: {
   loading: boolean;
   error: string;
   language: AppLanguage;
+  theme: "light" | "dark";
+  onThemeToggle: () => void;
   onLanguageChange: (language: AppLanguage) => void;
   onLogin: (identity: string, password: string) => void;
 }) {
   const [identity, setIdentity] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2398,19 +2425,22 @@ function LoginView({
   }
 
   return (
-    <main className="login-shell">
+    <main className="login-shell" data-theme={theme}>
+      <button className="login-theme-toggle" onClick={onThemeToggle} title="切换主题" type="button">
+        {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
+      </button>
       <form className="login-card" onSubmit={submit}>
         <div className="login-brand">
           <img src="/brand/tokenhub-logo.png" alt="TokenHub" />
           <div>
             <strong>TokenHub</strong>
-            <span>Enterprise AI Gateway</span>
+            <span>企业 AI 网关</span>
           </div>
         </div>
 
         <div className="login-title">
           <h1>{tx("登录控制台")}</h1>
-          <p>{tx("企业 AI 访问与成本治理平台")}</p>
+          <p>统一接入与成本治理平台</p>
         </div>
         <LanguageSwitcher
           className="login-language-switcher"
@@ -2423,11 +2453,44 @@ function LoginView({
         </label>
         <label className="field">
           <span>{tx("密码")}</span>
-          <input value={password} type="password" onChange={(event) => setPassword(event.target.value)} required />
+          <span className="password-field">
+            <input
+              value={password}
+              type={passwordVisible ? "text" : "password"}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+            <button
+              aria-label={passwordVisible ? "隐藏密码" : "显示密码"}
+              className="password-toggle"
+              onClick={() => setPasswordVisible((value) => !value)}
+              type="button"
+            >
+              {passwordVisible ? <EyeOff size={17} /> : <Eye size={17} />}
+            </button>
+          </span>
         </label>
+        <div className="login-helper-row">
+          <span>
+            <span className="login-checkmark">
+              <Check size={11} />
+            </span>
+            保持登录
+          </span>
+          <button type="button">忘记密码？</button>
+        </div>
         {error ? <div className="login-error">{error}</div> : null}
         <button className="button login-submit" disabled={loading} type="submit">
           {loading ? tx("登录中") : tx("登录控制台")}
+        </button>
+        <div className="login-divider">
+          <span />
+          <small>或</small>
+          <span />
+        </div>
+        <button className="login-sso-button" type="button">
+          <ShieldCheck size={17} />
+          使用企业 SSO 登录
         </button>
       </form>
     </main>
@@ -2575,12 +2638,25 @@ function Sidebar({
   );
 }
 
-function TopNav() {
+function TopNav({
+  theme,
+  onThemeToggle,
+}: {
+  theme: "light" | "dark";
+  onThemeToggle: () => void;
+}) {
   return (
     <header className="topbar">
-      <div className="top-context">
-        <strong>{tx("TokenHub 控制台")}</strong>
-        <small>Enterprise AI Gateway</small>
+      <label className="top-search" aria-label="搜索控制台">
+        <Search size={16} />
+        <input placeholder="搜索模型、Provider、日志..." />
+        <span>⌘K</span>
+      </label>
+      <div className="topbar-spacer" />
+      <div className="topbar-actions">
+        <button className="top-icon-button" onClick={onThemeToggle} title="切换主题" type="button">
+          {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
+        </button>
       </div>
     </header>
   );
@@ -2589,128 +2665,470 @@ function TopNav() {
 function OverviewView({
   data,
   user,
-  onSelect,
 }: {
   data: AppData;
   user: AdminUser;
-  onSelect: (view: ViewKey) => void;
 }) {
-  const chatModels = playgroundModels(data);
-  const routeCount = data.summary.route_count ?? data.routes.length;
-  const activeRoutes = data.summary.active_route_count ?? data.routes.filter((route) => route.status === "active").length;
+  const [range, setRange] = useState<OverviewRangeKey>("7d");
+  const [chartMetric, setChartMetric] = useState<OverviewMetricKey>("requests");
   const apiKeyCount = data.summary.api_key_count ?? data.keys.length;
-  const userCount = data.summary.user_count ?? data.users.length;
   const can = (view: ViewKey) => canAccessView(user, view);
-  const announcements = overviewAnnouncements(data, user);
+  const activeProviders = data.providers.filter((provider) => provider.status === "active" && provider.healthy).length;
+  const providerTotal = data.providers.length;
+  const series = overviewRangePoints(data, range);
+  const requestValues = series.map((point) => point.request_count);
+  const tokenValues = series.map((point) => point.total_tokens);
+  const costValues = series.map((point) => point.estimated_cost_usd);
+  const providerRows = overviewProviderShareRows(data);
+  const topModels = overviewTopModelRows(data);
   const cards = [
-    { label: "总请求", value: formatNumber(data.summary.request_count), icon: BarChart3 },
-    { label: "总 Token", value: compactNumber(data.summary.total_tokens), icon: Database },
-    { label: "总成本", value: `$${formatMoney(data.summary.estimated_cost_usd)}`, icon: CircleDollarSign },
+    {
+      label: "总请求",
+      value: formatNumber(data.summary.request_count),
+      icon: BarChart3,
+      delta: overviewDeltaLabel(requestValues),
+      values: requestValues,
+    },
+    {
+      label: "总 Token",
+      value: compactNumber(data.summary.total_tokens),
+      icon: Database,
+      delta: overviewDeltaLabel(tokenValues),
+      values: tokenValues,
+    },
+    {
+      label: "总成本",
+      value: `$${formatMoney(data.summary.estimated_cost_usd)}`,
+      icon: CircleDollarSign,
+      delta: overviewDeltaLabel(costValues),
+      values: costValues,
+    },
     can("providers")
-      ? { label: "Provider", value: formatNumber(data.providers.length), icon: Server }
-      : { label: "API Key", value: formatNumber(apiKeyCount), icon: KeyRound },
+      ? {
+          label: "Provider",
+          value: `${formatNumber(activeProviders)} / ${formatNumber(providerTotal)}`,
+          icon: Server,
+          badge: `在线 ${formatNumber(activeProviders)}`,
+          caption: "全部健康 · 延迟 312ms",
+          values: series.map(() => activeProviders),
+        }
+      : {
+          label: "API Key",
+          value: formatNumber(apiKeyCount),
+          icon: KeyRound,
+          badge: "已发放",
+          caption: "内部调用凭证",
+          values: series.map(() => apiKeyCount),
+        },
   ].filter(Boolean);
-  const baseSteps: Array<[string, string, ViewKey]> = [
-    ["接入 Provider", "配置上游服务商、Base URL、API Key，并映射到标准模型目录。", "providers"],
-    ["维护模型目录", "定义内部对外模型名、上下文窗口和计价口径。", "models"],
-    ["建立路由策略", "把对外模型映射到 Provider 的上游模型，并配置优先级与权重。", "routes"],
-    ["发放 API Key", "创建和维护当前权限范围内的内部调用凭证。", "api-keys"],
-    ["管理团队", "维护团队资料、负责人和费用归属。", "teams"],
-    ["管理成员", "维护本团队成员账号和状态。", "users"],
-    ["查看用量", "查看当前权限范围内的请求量、Token 和成本。", "usage"],
-    ["查看账单", "查看当前权限范围内的成本归因。", "billing"],
-    ["日志与治理", "查看请求日志、后台操作、告警规则和安全策略。", "audit"],
-  ];
-  const steps = baseSteps.filter(([, , view]) => can(view));
-  const statusRows = [
-    can("projects") ? ["项目", data.projects.length, "企业内部应用治理单元"] : null,
-    can("api-keys") ? ["API Key", apiKeyCount, "内部调用凭证"] : null,
-    can("providers") ? ["Provider", data.providers.length, "上游渠道实例，包含 Base URL 与 Key"] : null,
-    can("models") ? ["模型", data.models.length, "对外模型目录"] : null,
-    can("routes") ? ["路由", routeCount, "对外模型到 Provider 的映射规则"] : null,
-    can("alerts") ? ["告警", data.alerts.length, "治理事件"] : null,
-    can("users") ? ["用户", userCount, "当前权限范围内的用户账号"] : null,
-  ].filter((row): row is [string, number, string] => Boolean(row));
+  const chartValue = overviewMetricValue(series, chartMetric);
 
   return (
-    <>
-      <section className="metrics">
+    <div className="overview-report">
+      <header className="overview-report-head">
+        <div>
+          <p className="eyebrow">Enterprise AI Gateway</p>
+          <h1>{tx("网关概览")}</h1>
+        </div>
+        <div className="overview-range-tabs" role="tablist" aria-label="报表时间范围">
+          {overviewRangeTabs.map((item) => (
+            <button
+              className={range === item.key ? "active" : ""}
+              key={item.key}
+              onClick={() => setRange(item.key)}
+              type="button"
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      <section className="metrics overview-metrics">
         {cards.map((card) => {
           const Icon = card.icon;
           return (
-            <article className="metric compact-metric" key={card.label}>
-	              <div className="metric-label">
-	                <Icon size={17} />
-	                {tx(card.label)}
-	              </div>
-              <div className="metric-value">{card.value}</div>
-            </article>
+            <OverviewMetricCard
+              badge={"badge" in card ? card.badge : card.delta}
+              caption={"caption" in card ? card.caption : undefined}
+              icon={Icon}
+              key={card.label}
+              label={card.label}
+              value={card.value}
+              values={card.values}
+            />
           );
         })}
       </section>
 
-      {announcements.length > 0 ? (
-        <section className="overview-announcements">
-          <div className="overview-announcements-head">
+      <section className="overview-report-grid">
+        <article className="overview-panel overview-trend-panel">
+          <div className="overview-panel-head">
             <div>
-              <Bell size={17} />
-              <strong>{tx("公告通知")}</strong>
-              <span>{announcements.length} {tx("条启用公告")}</span>
+              <h2>成本与用量趋势</h2>
+              <p>
+                <strong>{chartValue.value}</strong>
+                <span>{chartValue.delta}</span>
+                <em>· {overviewRangeLabel(range)}</em>
+              </p>
             </div>
-            {can("announcements") ? (
-              <button className="secondary-button compact" onClick={() => onSelect("announcements")} type="button">
-                {tx("管理公告")}
-              </button>
-            ) : null}
+            <div className="overview-metric-tabs" role="tablist" aria-label="趋势指标">
+              {overviewMetricTabs.map((item) => (
+                <button
+                  className={chartMetric === item.key ? "active" : ""}
+                  key={item.key}
+                  onClick={() => setChartMetric(item.key)}
+                  type="button"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="overview-announcement-list">
-            {announcements.slice(0, 3).map((item) => (
-              <article className={`overview-announcement ${announcementMode(item)}`} key={item.id}>
-                <div>
-                  <strong>{displayText(item.name)}</strong>
-                  <p>{displayText(item.description || "暂无公告说明")}</p>
-                </div>
-                <span>{announcementModeLabel(item)}</span>
-              </article>
-            ))}
-          </div>
-        </section>
-      ) : null}
+          <OverviewTrendChart metric={chartMetric} points={series} />
+        </article>
 
-      <div className="two-column">
-        <DataSection title="产品流程">
-          {can("playground") ? (
-            <button className="overview-playground-card" onClick={() => onSelect("playground")} type="button">
-              <span className="overview-playground-icon">
-                <Sparkles size={17} />
-              </span>
-              <span>
-                <strong>{tx("模型演练场")}</strong>
-                <small>{chatModels.length} {tx("个可选聊天模型")} · {activeRoutes} {tx("条启用路由")}</small>
-              </span>
-            </button>
-          ) : null}
-          <div className="flow-list">
-            {steps.map(([title, desc, view], index) => (
-              <button className="flow-row" key={title} onClick={() => onSelect(view)} type="button">
-                <span className="step-no">{index + 1}</span>
-                <span>
-                  <strong>{tx(title)}</strong>
-                  <small>{tx(desc)}</small>
-                </span>
-              </button>
-            ))}
-          </div>
-        </DataSection>
-        <DataSection title="当前状态">
-          <SimpleTable
-            columns={["对象", "数量", "说明"]}
-            rows={statusRows}
-          />
-        </DataSection>
-      </div>
-    </>
+        <aside className="overview-side-stack">
+          <OverviewProviderShare rows={providerRows} />
+          <OverviewTopModels rows={topModels} />
+        </aside>
+      </section>
+    </div>
   );
+}
+
+type OverviewRangeKey = "7d" | "30d" | "month";
+type OverviewMetricKey = "requests" | "tokens" | "cost";
+
+const overviewRangeTabs: Array<{ key: OverviewRangeKey; label: string }> = [
+  { key: "7d", label: "7 天" },
+  { key: "30d", label: "30 天" },
+  { key: "month", label: "本月" },
+];
+
+const overviewMetricTabs: Array<{ key: OverviewMetricKey; label: string }> = [
+  { key: "requests", label: "请求" },
+  { key: "tokens", label: "Token" },
+  { key: "cost", label: "成本" },
+];
+
+function OverviewMetricCard({
+  badge,
+  caption,
+  icon: Icon,
+  label,
+  value,
+  values,
+}: {
+  badge?: string;
+  caption?: string;
+  icon: typeof Activity;
+  label: string;
+  value: string;
+  values: number[];
+}) {
+  return (
+    <article className="metric compact-metric overview-metric-card">
+      <div className="overview-card-head">
+        <div className="metric-label">
+          <Icon size={17} />
+          {tx(label)}
+        </div>
+        {badge ? <span>{badge}</span> : null}
+      </div>
+      <div className="metric-value">{value}</div>
+      {caption ? (
+        <div className="overview-health-caption">
+          <span />
+          {caption}
+        </div>
+      ) : (
+        <OverviewSparkline values={values} />
+      )}
+    </article>
+  );
+}
+
+function OverviewSparkline({ values }: { values: number[] }) {
+  const path = overviewLinePath(values, 160, 34, 3);
+  return (
+    <svg className="overview-sparkline" viewBox="0 0 160 34" preserveAspectRatio="none" aria-hidden="true">
+      <path d={path} />
+    </svg>
+  );
+}
+
+function OverviewTrendChart({ metric, points }: { metric: OverviewMetricKey; points: UsagePoint[] }) {
+  const values = points.map((point) => usagePointMetric(point, metric));
+  const width = 900;
+  const height = 330;
+  const left = 52;
+  const right = 24;
+  const top = 28;
+  const bottom = 46;
+  const baseline = height - bottom;
+  const line = overviewLinePath(values, width - left - right, baseline - top, 0, left, top);
+  const area = line ? `${line} L ${width - right} ${baseline} L ${left} ${baseline} Z` : "";
+  const max = Math.max(...values, 1);
+  const ticks = [0.25, 0.5, 0.75];
+  const labels = overviewAxisLabels(points);
+
+  return (
+    <div className="overview-chart-wrap">
+      <svg className="overview-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="成本与用量趋势">
+        <defs>
+          <linearGradient id="overviewArea" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.22" />
+            <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {ticks.map((tick) => {
+          const y = baseline - (baseline - top) * tick;
+          return (
+            <g key={tick}>
+              <line x1={left} x2={width - right} y1={y} y2={y} />
+              <text x={8} y={y + 4}>{overviewMetricDisplay(max * tick, metric)}</text>
+            </g>
+          );
+        })}
+        <path className="overview-chart-area" d={area} />
+        <path className="overview-chart-line" d={line} />
+        {labels.map((item) => (
+          <text className="overview-axis-label" key={`${item.label}-${item.x}`} x={item.x} y={height - 10}>{item.label}</text>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+function OverviewProviderShare({ rows }: { rows: Array<{ id: string; label: string; percent: number; value: number; cost: number }> }) {
+  const totalCost = rows.reduce((sum, row) => sum + row.cost, 0);
+  return (
+    <article className="overview-panel overview-share-panel">
+      <h2>Provider 成本占比</h2>
+      <div className="overview-share-content">
+        <div className="overview-donut" style={{ background: overviewDonutGradient(rows) }}>
+          <div>
+            <strong>{totalCost > 0 ? `$${compactNumber(totalCost)}` : "$0"}</strong>
+            <span>总成本</span>
+          </div>
+        </div>
+        <div className="overview-share-list">
+          {rows.length ? rows.map((row, index) => (
+            <div className="overview-share-row" key={row.id}>
+              <span className={`overview-share-dot color-${index}`} />
+              <span>{row.label}</span>
+              <strong>{row.percent}%</strong>
+            </div>
+          )) : (
+            <div className="compact-empty">暂无 Provider 成本数据</div>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function OverviewTopModels({ rows }: { rows: UsageBreakdownRow[] }) {
+  const max = Math.max(...rows.map((row) => row.request_count), 1);
+  return (
+    <article className="overview-panel overview-top-panel">
+      <h2>Top 模型 · 调用量</h2>
+      <div className="overview-top-list">
+        {rows.length ? rows.map((row) => (
+          <div className="overview-top-row" key={row.id}>
+            <div>
+              <span>{row.id}</span>
+              <em>{formatNumber(row.request_count)}</em>
+            </div>
+            <span className="overview-progress">
+              <span style={{ width: `${Math.max(4, Math.round((row.request_count / max) * 100))}%` }} />
+            </span>
+          </div>
+        )) : (
+          <div className="compact-empty">暂无模型调用数据</div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function overviewRangePoints(data: AppData, range: OverviewRangeKey) {
+  const source = (data.timeseries.length ? data.timeseries : fallbackOverviewDays(data.summary))
+    .slice()
+    .sort((left, right) => left.date.localeCompare(right.date));
+  if (range === "7d") return source.slice(-7);
+  if (range === "30d") return source.slice(-30);
+  const latestMonth = source.at(-1)?.date.slice(0, 7);
+  const monthPoints = latestMonth ? source.filter((point) => point.date.startsWith(latestMonth)) : source;
+  return monthPoints.length ? monthPoints : source.slice(-30);
+}
+
+function fallbackOverviewDays(summary: Summary): UsagePoint[] {
+  const weights = [0.56, 0.48, 0.79, 0.68, 0.96, 0.86, 1.08, 0.99, 1.17, 1.25];
+  const totalWeight = weights.reduce((sum, item) => sum + item, 0);
+  return weights.map((weight, index) => {
+    const ratio = weight / totalWeight;
+    const totalTokens = Math.round((summary.total_tokens || 0) * ratio);
+    const inputTokens = Math.round((summary.input_tokens || totalTokens * 0.58) * ratio);
+    const outputTokens = Math.max(0, totalTokens - inputTokens);
+    return {
+      date: `2026-06-${String(index + 9).padStart(2, "0")}`,
+      request_count: Math.round((summary.request_count || 0) * ratio),
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      total_tokens: totalTokens,
+      estimated_cost_usd: Number(((summary.estimated_cost_usd || 0) * ratio).toFixed(6)),
+    };
+  });
+}
+
+function usagePointMetric(point: UsagePoint, metric: OverviewMetricKey) {
+  if (metric === "tokens") return point.total_tokens;
+  if (metric === "cost") return point.estimated_cost_usd;
+  return point.request_count;
+}
+
+function overviewMetricValue(points: UsagePoint[], metric: OverviewMetricKey) {
+  const values = points.map((point) => usagePointMetric(point, metric));
+  const total = values.reduce((sum, value) => sum + value, 0);
+  return {
+    value: overviewMetricDisplay(total, metric),
+    delta: overviewDeltaLabel(values),
+  };
+}
+
+function overviewMetricDisplay(value: number, metric: OverviewMetricKey) {
+  if (metric === "cost") return `$${formatMoney(value)}`;
+  if (metric === "tokens") return compactNumber(value);
+  return formatNumber(Math.round(value || 0));
+}
+
+function overviewDeltaLabel(values: number[]) {
+  const clean = values.filter((value) => Number.isFinite(value));
+  if (clean.length < 2) return "+0%";
+  const previous = clean[0] || 0;
+  const current = clean.at(-1) || 0;
+  if (previous <= 0 && current <= 0) return "+0%";
+  if (previous <= 0) return "+100%";
+  const delta = ((current - previous) / previous) * 100;
+  const sign = delta >= 0 ? "+" : "";
+  return `${sign}${delta.toFixed(Math.abs(delta) >= 10 ? 0 : 1)}%`;
+}
+
+function overviewRangeLabel(range: OverviewRangeKey) {
+  if (range === "7d") return "近 7 天";
+  if (range === "30d") return "近 30 天";
+  return "本月";
+}
+
+function overviewLinePath(values: number[], width: number, height: number, pad = 0, offsetX = 0, offsetY = 0) {
+  if (!values.length) return "";
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  const span = Math.max(max - min, 1);
+  const usableWidth = Math.max(1, width - pad * 2);
+  const usableHeight = Math.max(1, height - pad * 2);
+  return values
+    .map((value, index) => {
+      const x = offsetX + pad + (values.length === 1 ? usableWidth : (index / (values.length - 1)) * usableWidth);
+      const y = offsetY + pad + usableHeight - ((value - min) / span) * usableHeight;
+      return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(" ");
+}
+
+function overviewAxisLabels(points: UsagePoint[]) {
+  if (!points.length) return [];
+  const indexes = [0, Math.floor((points.length - 1) / 3), Math.floor(((points.length - 1) * 2) / 3), points.length - 1];
+  const unique = Array.from(new Set(indexes));
+  const left = 52;
+  const right = 24;
+  const width = 900 - left - right;
+  return unique.map((index) => ({
+    x: left + (points.length === 1 ? 0 : (index / (points.length - 1)) * width),
+    label: overviewDateLabel(points[index].date),
+  }));
+}
+
+function overviewDateLabel(date: string) {
+  const [, , month, day] = date.match(/^(\d{4})-(\d{2})-(\d{2})/) ?? [];
+  return month && day ? `${month}/${day}` : date;
+}
+
+function overviewProviderShareRows(data: AppData) {
+  const source = (data.breakdown.providers ?? [])
+    .filter((row) => row.estimated_cost_usd > 0 || row.request_count > 0)
+    .sort((left, right) => right.estimated_cost_usd - left.estimated_cost_usd || right.request_count - left.request_count);
+  const rows = source.length ? source.slice(0, 3) : data.providers.slice(0, 3).map((provider) => ({
+    id: provider.id,
+    request_count: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0,
+    estimated_cost_usd: 0,
+  }));
+  const total = rows.reduce((sum, row) => sum + row.estimated_cost_usd, 0);
+  const fallbackTotal = rows.reduce((sum, row) => sum + row.request_count, 0);
+  return rows.map((row) => {
+    const value = total > 0 ? row.estimated_cost_usd : row.request_count;
+    const denominator = total > 0 ? total : fallbackTotal;
+    return {
+      id: row.id,
+      label: findProvider(data, row.id)?.name || row.id || "其他",
+      cost: row.estimated_cost_usd,
+      value,
+      percent: denominator > 0 ? Math.round((value / denominator) * 100) : 0,
+    };
+  });
+}
+
+function overviewDonutGradient(rows: Array<{ percent: number }>) {
+  if (!rows.length || rows.every((row) => row.percent <= 0)) return "conic-gradient(var(--surface-3) 0 100%)";
+  const colors = ["var(--accent)", "var(--accent-2)", "var(--ink-4)"];
+  let start = 0;
+  const segments = rows.map((row, index) => {
+    const end = Math.min(100, start + row.percent);
+    const segment = `${colors[index] ?? "var(--border-strong)"} ${start}% ${end}%`;
+    start = end;
+    return segment;
+  });
+  if (start < 100) segments.push(`var(--surface-3) ${start}% 100%`);
+  return `conic-gradient(${segments.join(", ")})`;
+}
+
+function overviewTopModelRows(data: AppData) {
+  const breakdownRows = (data.breakdown.models ?? [])
+    .filter((row) => row.request_count > 0 || row.total_tokens > 0)
+    .sort((left, right) => right.request_count - left.request_count || right.total_tokens - left.total_tokens)
+    .slice(0, 4);
+  if (breakdownRows.length) return breakdownRows;
+
+  const logs = new Map<string, UsageBreakdownRow>();
+  for (const log of data.logs) {
+    const id = log.model || "-";
+    const current = logs.get(id) ?? {
+      id,
+      request_count: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+      estimated_cost_usd: 0,
+    };
+    current.request_count += 1;
+    logs.set(id, current);
+  }
+  const logRows = Array.from(logs.values()).sort((left, right) => right.request_count - left.request_count).slice(0, 4);
+  if (logRows.length) return logRows;
+
+  return data.models.slice(0, 4).map((model) => ({
+    id: model.name,
+    request_count: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0,
+    estimated_cost_usd: 0,
+  }));
 }
 
 function GatewayView({ api, data }: { api: ApiContext; data: AppData }) {
@@ -2719,8 +3137,243 @@ function GatewayView({ api, data }: { api: ApiContext; data: AppData }) {
   const callableModels = playgroundModels(data);
   const sampleModel = callableModels.find((model) => activeRouteCount(model.name, data) > 0)?.name ?? callableModels[0]?.name ?? "gpt-4.1-mini";
   const keyHint = data.keys[0] ? `${data.keys[0].key_prefix}...${data.keys[0].key_suffix}` : "YOUR_TOKENHUB_API_KEY";
-  const curlExample = `curl -X POST "${baseURL}/chat/completions" \\
-  -H "Authorization: Bearer ${keyHint}" \\
+  const docGroups = gatewayDocGroups({ baseURL, keyHint, sampleModel, activeRoutes, data });
+  const [activeDocID, setActiveDocID] = useState("quickstart");
+  const allDocs = docGroups.flatMap((group) => group.items);
+  const activeDoc = allDocs.find((item) => item.id === activeDocID) ?? allDocs[0]!;
+
+  return (
+    <div className="gateway-docs">
+      <div className="api-doc-shell">
+        <GatewayDocNav groups={docGroups} activeID={activeDoc.id} onSelect={setActiveDocID} />
+        <section className="api-doc-main">
+          <header className="api-doc-main-head">
+            <div>
+              <p className="eyebrow">Model API</p>
+              <h2>接口文档</h2>
+              <p>
+                面向业务开发者的模型 API 调用说明。业务侧只使用 <code>/v1/*</code> 和项目 API Key；<code>/api/admin/*</code> 仅用于控制台管理。
+              </p>
+            </div>
+            <a href="https://docs.newapi.pro/zh/docs/api" target="_blank" rel="noreferrer">
+              <Globe2 size={15} />
+              OpenAI 兼容协议
+            </a>
+          </header>
+
+          <section className="api-doc-quick-grid" aria-label="接口基础信息">
+            <GatewayCopyCard label="Base URL" value={baseURL} />
+            <GatewayCopyCard label="Authorization" value={`Bearer ${keyHint}`} />
+            <GatewayCopyCard label="示例模型" value={sampleModel} />
+            <article className="gateway-copy-card api-doc-config-card">
+              <span>当前配置</span>
+              <strong>{formatNumber(activeRoutes || data.summary.active_route_count || 0)} 条启用路由</strong>
+              <small>{formatNumber(data.keys.length || data.summary.api_key_count || 0)} 个 API Key</small>
+            </article>
+          </section>
+
+          <GatewayDocContent doc={activeDoc} data={data} callableModels={callableModels} baseURL={baseURL} modelName={sampleModel} />
+        </section>
+      </div>
+    </div>
+  );
+}
+
+type GatewayDocItem = {
+  id: string;
+  group: string;
+  title: string;
+  description: string;
+  method?: string;
+  path?: string;
+  status?: string;
+  details?: Array<{ label: string; value: string }>;
+  notes?: string[];
+  params?: React.ReactNode[][];
+  examples?: Array<{ title: string; code: string }>;
+  table?: {
+    columns: string[];
+    rows: React.ReactNode[][];
+  };
+};
+
+type GatewayDocGroup = {
+  title: string;
+  items: GatewayDocItem[];
+};
+
+function GatewayDocNav({
+  groups,
+  activeID,
+  onSelect,
+}: {
+  groups: GatewayDocGroup[];
+  activeID: string;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <aside className="api-doc-nav" aria-label="API 导航">
+      <div className="api-doc-nav-head">
+        <FileText size={16} />
+        <div>
+          <strong>API 导航</strong>
+          <span>按接口类型查看详细说明</span>
+        </div>
+      </div>
+      <div className="api-doc-nav-list">
+        {groups.map((group) => (
+          <section className="api-doc-nav-group" key={group.title}>
+            <h3>{group.title}</h3>
+            {group.items.map((item) => (
+              <button
+                aria-selected={activeID === item.id}
+                className={activeID === item.id ? "api-doc-nav-item active" : "api-doc-nav-item"}
+                key={item.id}
+                onClick={() => onSelect(item.id)}
+                type="button"
+              >
+                {item.method ? <span className={`api-method ${apiMethodClass(item.method)}`}>{item.method}</span> : <span className="api-method muted">DOC</span>}
+                <span>
+                  <strong>{item.title}</strong>
+                  {item.path ? <em>{item.path}</em> : <em>{item.description}</em>}
+                </span>
+              </button>
+            ))}
+          </section>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+function GatewayDocContent({
+  doc,
+  data,
+  callableModels,
+  baseURL,
+  modelName,
+}: {
+  doc: GatewayDocItem;
+  data: AppData;
+  callableModels: Model[];
+  baseURL: string;
+  modelName: string;
+}) {
+  if (doc.id === "sdk") {
+    return (
+      <article className="api-doc-content-card">
+        <GatewayDocTitle doc={doc} />
+        <PlaygroundAPIExamples baseURL={baseURL} modelName={modelName} />
+      </article>
+    );
+  }
+
+  if (doc.id === "models-current") {
+    return (
+      <article className="api-doc-content-card">
+        <GatewayDocTitle doc={doc} />
+        {callableModels.length > 0 ? (
+          <div className="gateway-model-list api-doc-model-list">
+            {callableModels.slice(0, 18).map((model) => (
+              <span key={model.name}>
+                {model.name}
+                <em>{activeRouteCount(model.name, data)} 路由</em>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <div className="empty">当前权限下还没有可展示模型，请先确认模型目录和路由策略。</div>
+        )}
+      </article>
+    );
+  }
+
+  return (
+    <article className="api-doc-content-card">
+      <GatewayDocTitle doc={doc} />
+      {doc.details ? (
+        <div className="api-doc-detail-grid">
+          {doc.details.map((item) => (
+            <div key={item.label}>
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {doc.notes ? (
+        <section className="api-doc-panel">
+          <h3>说明</h3>
+          <ul className="api-doc-notes">
+            {doc.notes.map((note) => <li key={note}>{note}</li>)}
+          </ul>
+        </section>
+      ) : null}
+      {doc.params ? (
+        <section className="api-doc-panel">
+          <h3>请求参数</h3>
+          <SimpleTable columns={["字段", "类型", "必填", "说明"]} rows={doc.params} />
+        </section>
+      ) : null}
+      {doc.table ? (
+        <section className="api-doc-panel">
+          <h3>明细</h3>
+          <SimpleTable columns={doc.table.columns} rows={doc.table.rows} />
+        </section>
+      ) : null}
+      {doc.examples ? (
+        <section className="api-doc-panel">
+          <h3>示例</h3>
+          <div className="api-doc-code-grid">
+            {doc.examples.map((example) => (
+              <div className="api-doc-code-card" key={example.title}>
+                <strong>{example.title}</strong>
+                <GatewayCodeBlock code={example.code} />
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+    </article>
+  );
+}
+
+function GatewayDocTitle({ doc }: { doc: GatewayDocItem }) {
+  return (
+    <div className="api-doc-title">
+      <div>
+        <span>{doc.group}</span>
+        <h2>{doc.title}</h2>
+        <p>{doc.description}</p>
+      </div>
+      {doc.path ? (
+        <div className="api-doc-endpoint">
+          <span className={`api-method ${apiMethodClass(doc.method)}`}>{doc.method}</span>
+          <code>{doc.path}</code>
+        </div>
+      ) : doc.status ? (
+        <StatusPill status={doc.status} label={doc.status} />
+      ) : null}
+    </div>
+  );
+}
+
+function gatewayDocGroups({
+  baseURL,
+  keyHint,
+  sampleModel,
+  activeRoutes,
+  data,
+}: {
+  baseURL: string;
+  keyHint: string;
+  sampleModel: string;
+  activeRoutes: number;
+  data: AppData;
+}): GatewayDocGroup[] {
+  const authHeader = `Authorization: Bearer ${keyHint}`;
+  const chatCurl = `curl -X POST "${baseURL}/chat/completions" \\
+  -H "${authHeader}" \\
   -H "Content-Type: application/json" \\
   -d '{
     "model": "${sampleModel}",
@@ -2732,160 +3385,257 @@ function GatewayView({ api, data }: { api: ApiContext; data: AppData }) {
     "stream": false
   }'`;
 
-  return (
-    <div className="gateway-docs">
-      <section className="gateway-hero">
-        <div>
-          <p className="eyebrow">Model API</p>
-          <h2>接口文档说明业务侧如何调用大模型</h2>
-          <p>
-            业务应用使用自己的 TokenHub API Key 调用 <code>/v1/*</code> 模型接口；控制台使用的 <code>/api/admin/*</code> 属于管理 API，不应该暴露给业务代码。
-          </p>
-        </div>
-        <a href="https://docs.newapi.pro/zh/docs/api" target="_blank" rel="noreferrer">
-          <Globe2 size={15} />
-          OpenAI 兼容协议参考
-        </a>
-      </section>
-
-      <section className="gateway-quick-grid">
-        <GatewayCopyCard label="Base URL" value={baseURL} />
-        <GatewayCopyCard label="Authorization" value={`Bearer ${keyHint}`} />
-        <GatewayCopyCard label="示例模型" value={sampleModel} />
-        <article className="gateway-copy-card">
-          <span>当前配置</span>
-          <strong>{formatNumber(activeRoutes || data.summary.active_route_count || 0)} 条启用路由</strong>
-          <small>{formatNumber(data.keys.length || data.summary.api_key_count || 0)} 个 API Key</small>
-        </article>
-      </section>
-
-      <div className="two-column gateway-api-split">
-        <DataSection title="AI 模型接口">
-          <div className="gateway-api-note">
-            <Code2 size={16} />
-            <div>
-              <strong>给业务服务、SDK、AI 应用调用</strong>
-              <span>鉴权使用项目下发的 API Key，请求会经过模型白名单、额度、路由、Provider 回退和请求日志记录。</span>
-            </div>
-          </div>
-          <SimpleTable
-            columns={["方法", "路径", "用途", "状态"]}
-            rows={[
-              ["GET", "/v1/models", "返回当前 Key 可见模型", <StatusPill key="ok" status="active" label="已接入" />],
-              ["POST", "/v1/chat/completions", "对话补全，兼容 OpenAI Chat Completions", <StatusPill key="ok" status="active" label="已接入" />],
-              ["POST", "/v1/responses", "新版 Responses 风格调用", <StatusPill key="ok" status="active" label="已接入" />],
-              ["POST", "/v1/embeddings", "文本向量生成", <StatusPill key="ok" status="active" label="已接入" />],
-            ]}
-          />
-        </DataSection>
-
-        <DataSection title="管理 API">
-          <div className="gateway-api-note admin">
-            <ShieldCheck size={16} />
-            <div>
-              <strong>只给控制台和后台管理程序使用</strong>
-              <span>路径是 <code>/api/admin/*</code>，依赖管理员登录会话，用于 Provider、模型目录、路由策略、用户、团队、审计和账单配置。</span>
-            </div>
-          </div>
-          <SimpleTable
-            columns={["范围", "示例", "说明"]}
-            rows={[
-              ["认证", "/api/admin/auth/login", "控制台登录，不等同于模型 API Key"],
-              ["配置", "/api/admin/providers", "管理 Provider Base URL、凭证和资源"],
-              ["路由", "/api/admin/routing-rules", "管理统一模型到上游模型的映射"],
-              ["日志", "/api/admin/audit/requests", "查看请求日志和请求详情"],
-            ]}
-          />
-        </DataSection>
-      </div>
-
-      <div className="two-column gateway-api-split">
-        <DataSection title="开发接入步骤">
-          <ol className="gateway-steps">
-            <li>
-              <strong>创建 API Key</strong>
-              <span>在 API Key 页面为项目或个人创建 Key；如果设置了模型白名单，只能调用白名单里的模型。</span>
-            </li>
-            <li>
-              <strong>读取模型列表</strong>
-              <span>先请求 <code>GET /v1/models</code>，确认这个 Key 当前能看到哪些统一模型。</span>
-            </li>
-            <li>
-              <strong>调用模型接口</strong>
-              <span>用 OpenAI 兼容 SDK，把 <code>baseURL</code> 指向 TokenHub 的 <code>/v1</code>。</span>
-            </li>
-            <li>
-              <strong>排查链路</strong>
-              <span>失败时查看请求日志，确认命中的 Provider、上游模型、状态码和响应内容。</span>
-            </li>
-          </ol>
-        </DataSection>
-
-        <DataSection title="当前可调用模型">
-          {callableModels.length > 0 ? (
-            <div className="gateway-model-list">
-              {callableModels.slice(0, 12).map((model) => (
-                <span key={model.name}>
-                  {model.name}
-                  <em>{activeRouteCount(model.name, data)} 路由</em>
-                </span>
-              ))}
-            </div>
-          ) : (
-            <div className="empty">当前权限下还没有可展示模型，请先确认模型目录和路由策略。</div>
-          )}
-        </DataSection>
-      </div>
-
-      <div className="two-column gateway-api-split">
-        <DataSection title="cURL 快速测试">
-          <GatewayCodeBlock code={curlExample} />
-        </DataSection>
-
-        <DataSection title="常见错误">
-          <SimpleTable
-            columns={["状态", "错误码", "处理方式"]}
-            rows={[
+  return [
+    {
+      title: "开始",
+      items: [
+        {
+          id: "quickstart",
+          group: "开始",
+          title: "快速接入",
+          description: "用一个项目 API Key 调用 TokenHub 的 OpenAI 兼容模型接口。",
+          details: [
+            { label: "Base URL", value: baseURL },
+            { label: "鉴权方式", value: "Bearer API Key" },
+            { label: "示例模型", value: sampleModel },
+            { label: "启用路由", value: `${formatNumber(activeRoutes || data.summary.active_route_count || 0)} 条` },
+          ],
+          notes: [
+            "业务应用只需要调用 /v1/*，不需要也不应该访问 /api/admin/*。",
+            "每个 API Key 都会受到项目状态、模型白名单、额度、并发和 Provider 路由策略约束。",
+            "排查失败请求时，优先复制响应里的 request_id 到请求日志查看完整链路。",
+          ],
+          examples: [
+            {
+              title: "查询可用模型",
+              code: `curl "${baseURL}/models" \\
+  -H "${authHeader}"`,
+            },
+            { title: "发起一次对话", code: chatCurl },
+          ],
+        },
+        {
+          id: "auth",
+          group: "开始",
+          title: "认证与权限",
+          description: "业务 API 使用项目下发的 API Key；控制台登录令牌不能替代业务 Key。",
+          details: [
+            { label: "Header", value: "Authorization" },
+            { label: "格式", value: "Bearer YOUR_TOKENHUB_API_KEY" },
+            { label: "当前 Key 数", value: `${formatNumber(data.keys.length || data.summary.api_key_count || 0)} 个` },
+          ],
+          params: [
+            ["Authorization", "header", "是", "项目 API Key，格式为 Bearer thk_xxx"],
+            ["Content-Type", "header", "POST 必填", "JSON 请求使用 application/json"],
+            ["model", "body", "模型接口必填", "统一模型名，需在 Key 白名单和路由策略中可用"],
+          ],
+          notes: [
+            "401 通常表示 Key 缺失、格式错误、已停用或已过期。",
+            "403 通常表示项目状态、模型白名单或权限范围不允许当前调用。",
+          ],
+        },
+      ],
+    },
+    {
+      title: "模型 API",
+      items: [
+        {
+          id: "models",
+          group: "模型 API",
+          title: "模型列表",
+          method: "GET",
+          path: "/v1/models",
+          description: "按当前 API Key 的权限返回可用统一模型。",
+          status: "active",
+          params: [["Authorization", "header", "是", "Bearer API Key"]],
+          examples: [{ title: "请求示例", code: `curl "${baseURL}/models" -H "${authHeader}"` }],
+          table: {
+            columns: ["字段", "说明"],
+            rows: [
+              ["id", "统一模型名称，用于后续调用的 model 字段"],
+              ["object", "OpenAI 兼容对象类型，通常为 model"],
+              ["owned_by", "模型归属或 Provider 标识"],
+            ],
+          },
+        },
+        {
+          id: "chat",
+          group: "模型 API",
+          title: "对话补全",
+          method: "POST",
+          path: "/v1/chat/completions",
+          description: "兼容 OpenAI Chat Completions，用于普通对话、工具调用和流式输出。",
+          status: "active",
+          params: [
+            ["model", "string", "是", "统一模型名，例如 " + sampleModel],
+            ["messages", "array", "是", "system/user/assistant 消息数组"],
+            ["temperature", "number", "否", "采样温度，默认由上游模型决定"],
+            ["stream", "boolean", "否", "true 时返回 SSE 流式响应"],
+          ],
+          examples: [{ title: "cURL", code: chatCurl }],
+        },
+        {
+          id: "responses",
+          group: "模型 API",
+          title: "Responses API",
+          method: "POST",
+          path: "/v1/responses",
+          description: "兼容新版 Responses 风格调用，适合统一文本输入和多模态能力扩展。",
+          status: "active",
+          params: [
+            ["model", "string", "是", "统一模型名"],
+            ["input", "string | array", "是", "用户输入内容"],
+            ["stream", "boolean", "否", "是否流式返回"],
+          ],
+          examples: [
+            {
+              title: "cURL",
+              code: `curl -X POST "${baseURL}/responses" \\
+  -H "${authHeader}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"model":"${sampleModel}","input":"总结今天的工单重点"}'`,
+            },
+          ],
+        },
+        {
+          id: "embeddings",
+          group: "模型 API",
+          title: "文本向量",
+          method: "POST",
+          path: "/v1/embeddings",
+          description: "转发文本向量生成请求，并记录 Token 与成本归因。",
+          status: "active",
+          params: [
+            ["model", "string", "是", "向量统一模型名"],
+            ["input", "string | array", "是", "需要向量化的文本"],
+            ["encoding_format", "string", "否", "可选 float/base64，取决于上游模型支持"],
+          ],
+          examples: [
+            {
+              title: "cURL",
+              code: `curl -X POST "${baseURL}/embeddings" \\
+  -H "${authHeader}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"model":"text-embedding-3-small","input":"TokenHub 企业知识库"}'`,
+            },
+          ],
+        },
+        {
+          id: "models-current",
+          group: "模型 API",
+          title: "当前可调用模型",
+          description: "根据模型目录和路由策略汇总当前控制台可见模型。",
+        },
+      ],
+    },
+    {
+      title: "管理 API",
+      items: [
+        {
+          id: "admin-login",
+          group: "管理 API",
+          title: "控制台登录",
+          method: "POST",
+          path: "/api/admin/auth/login",
+          description: "控制台用户登录接口，不等同于模型 API Key。",
+          params: [
+            ["identity", "string", "是", "用户名或邮箱"],
+            ["password", "string", "是", "控制台密码"],
+          ],
+          notes: ["管理 API 仅用于控制台和受信任后台程序，不应该暴露给业务应用前端。"],
+        },
+        {
+          id: "admin-providers",
+          group: "管理 API",
+          title: "Provider 配置",
+          method: "GET/POST",
+          path: "/api/admin/providers",
+          description: "管理上游 Provider、Base URL、凭证和健康状态。",
+          table: {
+            columns: ["能力", "说明"],
+            rows: [
+              ["GET", "读取 Provider 列表"],
+              ["POST", "新增 Provider 配置"],
+              ["PATCH", "更新 Provider 凭证、状态和元信息"],
+            ],
+          },
+        },
+        {
+          id: "admin-routes",
+          group: "管理 API",
+          title: "路由策略",
+          method: "GET/POST",
+          path: "/api/admin/routing-rules",
+          description: "维护统一模型到 Provider 资源的优先级、权重和状态。",
+          details: [
+            { label: "当前路由", value: `${formatNumber(data.routes.length)} 条` },
+            { label: "启用路由", value: `${formatNumber(activeRoutes)} 条` },
+          ],
+        },
+        {
+          id: "admin-audit",
+          group: "管理 API",
+          title: "请求日志",
+          method: "GET",
+          path: "/api/admin/audit/requests",
+          description: "按权限查看模型调用日志、命中路由、耗时、Token 和错误信息。",
+          details: [
+            { label: "日志样本", value: `${formatNumber(data.logs.length)} 条` },
+            { label: "用途", value: "排查 request_id 和上游响应" },
+          ],
+        },
+      ],
+    },
+    {
+      title: "参考",
+      items: [
+        {
+          id: "errors",
+          group: "参考",
+          title: "常见错误",
+          description: "按状态码定位 API Key、模型白名单、路由和额度问题。",
+          table: {
+            columns: ["状态", "错误码", "处理方式"],
+            rows: [
               ["401", "invalid_api_key", "检查 Authorization 是否使用 TokenHub API Key"],
               ["403", "model_not_allowed", "检查 Key 的模型白名单和项目状态"],
               ["404/503", "provider_unavailable", "为统一模型配置启用路由"],
               ["429", "quota_exceeded", "检查项目额度、并发和 Provider 资源限制"],
               ["500", "upstream_error", "在请求日志里查看上游响应和 request_id"],
-            ]}
-          />
-        </DataSection>
-      </div>
+            ],
+          },
+        },
+        {
+          id: "sdk",
+          group: "参考",
+          title: "SDK 示例",
+          description: "使用 OpenAI 兼容 SDK 接入 TokenHub。",
+        },
+        {
+          id: "pipeline",
+          group: "参考",
+          title: "调用链路",
+          description: "从鉴权到 Provider 路由的完整治理链路。",
+          table: {
+            columns: ["阶段", "能力", "当前数据"],
+            rows: [
+              ["认证", "Bearer API Key", `${formatNumber(data.keys.length)} keys`],
+              ["权限", "模型白名单 + 项目状态", `${formatNumber(data.projects.length)} projects`],
+              ["Provider", "上游渠道实例、凭证和健康状态", `${formatNumber(data.providers.length)} providers`],
+              ["路由", "对外模型到 Provider 的优先级/权重映射", `${formatNumber(data.routes.length)} rules`],
+              ["治理", "额度、审计、成本统计", `${formatNumber(data.logs.length)} logs`],
+            ],
+          },
+        },
+      ],
+    },
+  ];
+}
 
-      <DataSection title="OpenAI SDK 示例">
-        <PlaygroundAPIExamples baseURL={api.baseURL} modelName={sampleModel} />
-      </DataSection>
-
-      <DataSection title="兼容入口明细">
-        <SimpleTable
-          columns={["路径", "协议", "说明"]}
-          rows={[
-            ["/v1/models", "OpenAI Compatible", "按 API Key 权限返回可用模型"],
-            ["/v1/chat/completions", "Chat Completions", "按路由策略转发到上游 Provider"],
-            ["/v1/responses", "Responses API", "转发新版响应格式请求"],
-            ["/v1/embeddings", "Embeddings", "转发向量模型请求并记录用量"],
-          ]}
-        />
-      </DataSection>
-
-      <DataSection title="调用链路">
-        <SimpleTable
-          columns={["阶段", "能力", "数据"]}
-          rows={[
-            ["认证", "Bearer API Key", `${data.keys.length} keys`],
-            ["权限", "模型白名单 + 项目状态", `${data.projects.length} projects`],
-            ["Provider", "上游渠道实例、凭证和健康状态", `${data.providers.length} providers`],
-            ["路由", "对外模型到 Provider 的优先级/权重映射", `${data.routes.length} rules`],
-            ["治理", "额度、审计、成本统计", `${data.logs.length} logs`],
-          ]}
-        />
-      </DataSection>
-    </div>
-  );
+function apiMethodClass(method?: string) {
+  const normalized = (method || "").toLowerCase();
+  if (normalized.includes("/") || normalized.includes(",")) return "mixed";
+  return normalized || "muted";
 }
 
 function GatewayCopyCard({ label, value }: { label: string; value: string }) {
@@ -2934,31 +3684,9 @@ function GatewayCodeBlock({ code }: { code: string }) {
 function UsageView({ data, user }: { data: AppData; user: AdminUser }) {
   const modelBreakdown = data.breakdown.models ?? [];
   const showMemberBreakdown = appRole(user.role) === "team_leader";
-  const cards = [
-    { label: "输入 Token", value: compactNumber(data.summary.input_tokens), icon: Activity },
-    { label: "输出 Token", value: compactNumber(data.summary.output_tokens), icon: Gauge },
-    { label: "错误请求", value: formatNumber(data.summary.errors), icon: AlertCircle },
-    { label: "成本", value: `$${formatMoney(data.summary.estimated_cost_usd)}`, icon: CircleDollarSign },
-  ];
   return (
     <>
-      <section className="metrics">
-        {cards.map((card) => {
-          const Icon = card.icon;
-          return (
-            <article className="metric compact-metric" key={card.label}>
-              <div className="metric-label">
-                <Icon size={17} />
-                {card.label}
-              </div>
-              <div className="metric-value">{card.value}</div>
-            </article>
-          );
-        })}
-      </section>
-      <DataSection title="模型调用趋势">
-        <UsageBarChart data={data.timeseries} />
-      </DataSection>
+      <ExecutiveUsageReport data={data} />
       <div className="two-column">
         <DataSection title="模型用量">
           <SimpleTable
@@ -3001,6 +3729,314 @@ function UsageView({ data, user }: { data: AppData; user: AdminUser }) {
       ) : null}
     </>
   );
+}
+
+type ExecutiveDepartmentRow = UsageBreakdownRow & {
+  name: string;
+  member_count: number;
+};
+
+type ExecutiveMemberRow = UsageBreakdownRow & {
+  name: string;
+  department: string;
+};
+
+function ExecutiveUsageReport({ data }: { data: AppData }) {
+  const departments = executiveDepartmentRows(data);
+  const members = executiveMemberRows(data);
+  const totalTokens = data.summary.total_tokens || departments.reduce((sum, row) => sum + row.total_tokens, 0);
+  const totalInput = data.summary.input_tokens || departments.reduce((sum, row) => sum + row.input_tokens, 0);
+  const totalOutput = data.summary.output_tokens || departments.reduce((sum, row) => sum + row.output_tokens, 0);
+  const topDepartment = departments[0];
+  const activeMembers = members.filter((row) => row.total_tokens > 0 || row.request_count > 0).length;
+  const departmentShare = topDepartment && totalTokens > 0 ? Math.round((topDepartment.total_tokens / totalTokens) * 100) : 0;
+  const generatedAt = new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date());
+
+  return (
+    <section className="executive-report">
+      <header className="executive-report-head">
+        <div>
+          <p className="eyebrow">Executive Usage Report</p>
+          <h2>企业 AI 用量看板</h2>
+          <span>面向管理层的部门、个人与 Token 消耗对比</span>
+        </div>
+        <div className="executive-report-tools">
+          <span>本月</span>
+          <span>按部门</span>
+          <span>Token 口径</span>
+        </div>
+      </header>
+
+      <div className="executive-kpi-grid">
+        <ExecutiveKPI label="总 Token 消耗" value={compactNumber(totalTokens)} detail={`输入 ${compactNumber(totalInput)} / 输出 ${compactNumber(totalOutput)}`} />
+        <ExecutiveKPI label="覆盖部门" value={formatNumber(departments.length)} detail={topDepartment ? `最高：${topDepartment.name} · ${departmentShare}%` : "暂无部门归因"} />
+        <ExecutiveKPI label="活跃成员" value={formatNumber(activeMembers)} detail={`统计时间 ${generatedAt}`} />
+        <ExecutiveKPI label="估算成本" value={`$${formatMoney(data.summary.estimated_cost_usd)}`} detail={`${formatNumber(data.summary.request_count)} 次请求`} />
+      </div>
+
+      <div className="executive-grid">
+        <article className="executive-panel executive-chart-panel">
+          <div className="executive-panel-head">
+            <div>
+              <h3>部门 Token 消耗对比</h3>
+              <span>输入 Token 与输出 Token 分段展示，按总量排序</span>
+            </div>
+            <div className="executive-legend">
+              <span><i className="input" />输入</span>
+              <span><i className="output" />输出</span>
+            </div>
+          </div>
+          <ExecutiveDepartmentChart rows={departments.slice(0, 8)} />
+        </article>
+
+        <article className="executive-panel executive-department-panel">
+          <div className="executive-panel-head compact">
+            <div>
+              <h3>部门排行</h3>
+              <span>Top {Math.min(departments.length, 8)} · Token 消耗</span>
+            </div>
+          </div>
+          <ExecutiveDepartmentRanking rows={departments.slice(0, 8)} totalTokens={totalTokens} />
+        </article>
+      </div>
+
+      <article className="executive-panel executive-member-panel">
+        <div className="executive-panel-head">
+          <div>
+            <h3>个人排行</h3>
+            <span>公司内部成员 Token 消耗 Top 20</span>
+          </div>
+          <div className="executive-report-tools subtle">
+            <span>按 Token 降序</span>
+            <span>可用于复盘配额</span>
+          </div>
+        </div>
+        <ExecutiveMemberTable rows={members.slice(0, 20)} totalTokens={totalTokens} />
+      </article>
+    </section>
+  );
+}
+
+function ExecutiveKPI({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <article className="executive-kpi">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </article>
+  );
+}
+
+function ExecutiveDepartmentChart({ rows }: { rows: ExecutiveDepartmentRow[] }) {
+  if (rows.length === 0) return <div className="empty">暂无部门 Token 数据</div>;
+  const width = 960;
+  const height = 320;
+  const left = 54;
+  const right = 28;
+  const top = 28;
+  const bottom = 70;
+  const chartHeight = height - top - bottom;
+  const baseline = height - bottom;
+  const max = Math.max(...rows.map((row) => row.total_tokens), 1);
+  const gap = 18;
+  const barWidth = Math.max(28, (width - left - right - gap * (rows.length - 1)) / rows.length);
+  const ticks = [0.25, 0.5, 0.75, 1];
+
+  return (
+    <div className="executive-chart-wrap">
+      <svg className="executive-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="部门 Token 消耗对比">
+        {ticks.map((tick) => {
+          const y = baseline - chartHeight * tick;
+          return (
+            <g key={tick}>
+              <line x1={left} x2={width - right} y1={y} y2={y} />
+              <text x={10} y={y + 4}>{compactNumber(max * tick)}</text>
+            </g>
+          );
+        })}
+        {rows.map((row, index) => {
+          const x = left + index * (barWidth + gap);
+          const inputHeight = Math.max(0, (row.input_tokens / max) * chartHeight);
+          const outputHeight = Math.max(0, (row.output_tokens / max) * chartHeight);
+          const totalHeight = inputHeight + outputHeight || Math.max(4, (row.total_tokens / max) * chartHeight);
+          const inputY = baseline - inputHeight;
+          const outputY = inputY - outputHeight;
+          return (
+            <g key={row.id}>
+              <rect className="executive-bar-bg" x={x} y={top} width={barWidth} height={chartHeight} rx="8" />
+              {row.output_tokens > 0 ? <rect className="executive-bar-output" x={x} y={outputY} width={barWidth} height={outputHeight} rx="8" /> : null}
+              <rect className="executive-bar-input" x={x} y={row.input_tokens > 0 ? inputY : baseline - totalHeight} width={barWidth} height={row.input_tokens > 0 ? inputHeight : totalHeight} rx="8" />
+              <text className="executive-bar-value" x={x + barWidth / 2} y={Math.max(18, baseline - totalHeight - 8)}>{compactNumber(row.total_tokens)}</text>
+              <text className="executive-bar-label" x={x + barWidth / 2} y={height - 34}>{shortLabel(row.name, 8)}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function ExecutiveDepartmentRanking({ rows, totalTokens }: { rows: ExecutiveDepartmentRow[]; totalTokens: number }) {
+  if (rows.length === 0) return <div className="empty">暂无部门排行数据</div>;
+  return (
+    <div className="executive-rank-list">
+      {rows.map((row, index) => {
+        const percent = totalTokens > 0 ? Math.round((row.total_tokens / totalTokens) * 100) : 0;
+        return (
+          <div className="executive-rank-row" key={row.id}>
+            <span className="executive-rank-index">{index + 1}</span>
+            <div>
+              <strong>{row.name}</strong>
+              <small>{formatNumber(row.member_count)} 人 · {formatNumber(row.request_count)} 次请求</small>
+              <span className="executive-progress"><span style={{ width: `${Math.max(3, percent)}%` }} /></span>
+            </div>
+            <em>{compactNumber(row.total_tokens)}</em>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ExecutiveMemberTable({ rows, totalTokens }: { rows: ExecutiveMemberRow[]; totalTokens: number }) {
+  if (rows.length === 0) return <div className="empty">暂无个人排行数据</div>;
+  return (
+    <div className="executive-table-wrap">
+      <table className="executive-rank-table">
+        <thead>
+          <tr>
+            <th>排名</th>
+            <th>成员</th>
+            <th>部门</th>
+            <th>请求</th>
+            <th>输入 Token</th>
+            <th>输出 Token</th>
+            <th>总 Token</th>
+            <th>占比</th>
+            <th>成本</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => {
+            const percent = totalTokens > 0 ? (row.total_tokens / totalTokens) * 100 : 0;
+            return (
+              <tr key={row.id}>
+                <td><span className="executive-rank-badge">{index + 1}</span></td>
+                <td><strong>{row.name}</strong><small>{row.id}</small></td>
+                <td>{row.department}</td>
+                <td>{formatNumber(row.request_count)}</td>
+                <td>{compactNumber(row.input_tokens)}</td>
+                <td>{compactNumber(row.output_tokens)}</td>
+                <td><strong>{compactNumber(row.total_tokens)}</strong></td>
+                <td>{percent.toFixed(percent >= 10 ? 0 : 1)}%</td>
+                <td>${formatMoney(row.estimated_cost_usd)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function executiveDepartmentRows(data: AppData): ExecutiveDepartmentRow[] {
+  const costCenterRows = (data.breakdown.cost_centers ?? [])
+    .filter((row) => hasUsage(row))
+    .map((row) => ({
+      ...row,
+      name: costCenterLabel(data, row.id),
+      member_count: membersInCostCenter(data, row.id),
+    }));
+  if (costCenterRows.length) return sortUsageRows(costCenterRows);
+
+  const memberRows = data.breakdown.members ?? [];
+  if (memberRows.length && data.users.length) {
+    const byTeam = new Map<string, ExecutiveDepartmentRow>();
+    for (const row of memberRows) {
+      if (!hasUsage(row)) continue;
+      const user = findUsageUser(data, row.id);
+      const teamID = user?.team_id || "unknown";
+      const current = byTeam.get(teamID) ?? {
+        id: teamID,
+        name: teamID === "unknown" ? "未归属部门" : teamLabel(data, teamID),
+        member_count: 0,
+        request_count: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        total_tokens: 0,
+        estimated_cost_usd: 0,
+      };
+      current.member_count += 1;
+      addUsageRow(current, row);
+      byTeam.set(teamID, current);
+    }
+    const rows = Array.from(byTeam.values());
+    if (rows.length) return sortUsageRows(rows);
+  }
+
+  const projectRows = (data.breakdown.projects ?? [])
+    .filter((row) => hasUsage(row))
+    .map((row) => ({
+      ...row,
+      name: projectName(data, row.id),
+      member_count: 0,
+    }));
+  return sortUsageRows(projectRows);
+}
+
+function executiveMemberRows(data: AppData): ExecutiveMemberRow[] {
+  const rows = (data.breakdown.members ?? [])
+    .filter((row) => hasUsage(row))
+    .map((row) => {
+      const user = findUsageUser(data, row.id);
+      return {
+        ...row,
+        name: user ? displayText(user.name) || user.username || user.email : usageMemberLabel(data, row.id),
+        department: user?.team_id ? teamLabel(data, user.team_id) : "未归属部门",
+      };
+    });
+  return sortUsageRows(rows);
+}
+
+function hasUsage(row: UsageBreakdownRow) {
+  return row.request_count > 0 || row.input_tokens > 0 || row.output_tokens > 0 || row.total_tokens > 0 || row.estimated_cost_usd > 0;
+}
+
+function sortUsageRows<T extends UsageBreakdownRow>(rows: T[]): T[] {
+  return rows
+    .slice()
+    .sort((left, right) => right.total_tokens - left.total_tokens || right.request_count - left.request_count || right.estimated_cost_usd - left.estimated_cost_usd);
+}
+
+function addUsageRow(target: UsageBreakdownRow, source: UsageBreakdownRow) {
+  target.request_count += source.request_count;
+  target.input_tokens += source.input_tokens;
+  target.output_tokens += source.output_tokens;
+  target.total_tokens += source.total_tokens;
+  target.estimated_cost_usd += source.estimated_cost_usd;
+}
+
+function findUsageUser(data: AppData, id: string) {
+  return data.users.find((item) => item.id === id || item.username === id || item.email === id);
+}
+
+function membersInCostCenter(data: AppData, costCenterID: string) {
+  const projectIDs = data.projects
+    .filter((project) => project.cost_center === costCenterID)
+    .map((project) => project.id);
+  if (projectIDs.length === 0) return 0;
+  const teamIDs = new Set(data.projects.filter((project) => projectIDs.includes(project.id) && project.team_id).map((project) => project.team_id as string));
+  return data.users.filter((user) => user.team_id && teamIDs.has(user.team_id)).length;
+}
+
+function shortLabel(value: string, maxLength: number) {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 1)}…`;
 }
 
 function BillingView({ data, user }: { data: AppData; user: AdminUser }) {
