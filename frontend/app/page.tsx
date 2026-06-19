@@ -685,7 +685,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "查看运行时触发的额度、成本和 Provider 健康告警。": "Review quota, cost, and Provider health alerts triggered at runtime.",
     "查看告警 Webhook 发送结果、目标和失败原因。": "Review alert delivery results, targets, and failure reasons.",
     "处理 Key 发放、额度提升和模型开通等治理审批。": "Handle governance approvals such as key issuance, quota increases, and model access.",
-    "登录控制台": "Sign in to Console",
+    "登录控制台": "Login console",
     "企业 AI 访问与成本治理平台": "Enterprise AI Access and Cost Governance",
     "账号 / 邮箱": "Account / Email",
     "密码": "Password",
@@ -1552,7 +1552,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "查看运行时触发的额度、成本和 Provider 健康告警。": "実行時に発生したクォータ、コスト、Provider ヘルスのアラートを確認します。",
     "查看告警 Webhook 发送结果、目标和失败原因。": "アラート通知の送信結果、宛先、失敗理由を確認します。",
     "处理 Key 发放、额度提升和模型开通等治理审批。": "Key 発行、クォータ増額、モデル開通などの承認を処理します。",
-    "登录控制台": "コンソールにログイン",
+    "登录控制台": "ログインコンソール",
     "企业 AI 访问与成本治理平台": "企業向け AI アクセス・コストガバナンス",
     "账号 / 邮箱": "アカウント / メール",
     "密码": "パスワード",
@@ -3304,10 +3304,8 @@ export default function AdminHome() {
       <LoginView
         loading={loading}
         error={error}
-        language={language}
         theme={theme}
         onThemeToggle={toggleTheme}
-        onLanguageChange={changeLanguage}
         onLogin={(identity, password) => void login(identity, password)}
       />
     );
@@ -3583,18 +3581,14 @@ export default function AdminHome() {
 function LoginView({
   loading,
   error,
-  language,
   theme,
   onThemeToggle,
-  onLanguageChange,
   onLogin,
 }: {
   loading: boolean;
   error: string;
-  language: AppLanguage;
   theme: "light" | "dark";
   onThemeToggle: () => void;
-  onLanguageChange: (language: AppLanguage) => void;
   onLogin: (identity: string, password: string) => void;
 }) {
   const [identity, setIdentity] = useState("");
@@ -3611,70 +3605,143 @@ function LoginView({
       <button className="login-theme-toggle" onClick={onThemeToggle} title={tx("切换主题")} type="button">
         {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
       </button>
-      <form className="login-card" onSubmit={submit}>
-        <div className="login-brand">
-          <img src="/brand/tokenhub-logo.png" alt="TokenHub" />
-          <div>
-            <strong>TokenHub</strong>
-            <span>{tx("企业 AI 网关")}</span>
-          </div>
-        </div>
+      <section className="login-stage">
+        <aside className="login-hero-panel" aria-label="TokenHub">
+          <div className="login-hero-orbit" aria-hidden="true" />
+          <div className="login-flow-scene">
+            <svg className="login-flow-svg" viewBox="0 0 460 320" aria-hidden="true">
+              <path id="login-key-flow-one" className="login-flow-link" d="M 92 84 C 150 84 165 138 208 151" />
+              <path id="login-key-flow-two" className="login-flow-link" d="M 92 160 C 142 160 166 160 208 160" />
+              <path id="login-key-flow-three" className="login-flow-link" d="M 92 236 C 150 236 165 182 208 169" />
+              <path id="login-provider-flow-one" className="login-flow-link login-provider-flow" d="M 260 150 C 298 116 318 82 362 82" />
+              <path id="login-provider-flow-two" className="login-flow-link login-provider-flow" d="M 260 160 C 302 160 320 160 362 160" />
+              <path id="login-provider-flow-three" className="login-flow-link login-provider-flow" d="M 260 170 C 298 204 318 238 362 238" />
+              {[
+                ["#login-key-flow-one", "0s"],
+                ["#login-key-flow-one", "-1.25s"],
+                ["#login-key-flow-two", "-0.35s"],
+                ["#login-key-flow-two", "-1.7s"],
+                ["#login-key-flow-three", "-0.7s"],
+                ["#login-key-flow-three", "-2.05s"],
+                ["#login-provider-flow-one", "-0.1s"],
+                ["#login-provider-flow-one", "-1.45s"],
+                ["#login-provider-flow-two", "-0.65s"],
+                ["#login-provider-flow-two", "-2s"],
+                ["#login-provider-flow-three", "-1.1s"],
+                ["#login-provider-flow-three", "-2.45s"],
+              ].map(([path, begin], index) => (
+                <circle className="login-flow-token" key={`${path}-${begin}-${index}`} r={4}>
+                  <animateMotion dur="3.1s" begin={begin} repeatCount="indefinite">
+                    <mpath href={path} />
+                  </animateMotion>
+                </circle>
+              ))}
+            </svg>
 
-        <div className="login-title">
-          <h1>{tx("登录控制台")}</h1>
-          <p>{tx("统一接入与成本治理平台")}</p>
-        </div>
-        <LanguageSwitcher
-          className="login-language-switcher"
-          language={language}
-          onChange={onLanguageChange}
-        />
-        <label className="field">
-          <span>{tx("账号 / 邮箱")}</span>
-          <input value={identity} onChange={(event) => setIdentity(event.target.value)} required />
-        </label>
-        <label className="field">
-          <span>{tx("密码")}</span>
-          <span className="password-field">
-            <input
-              value={password}
-              type={passwordVisible ? "text" : "password"}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-            />
-            <button
-              aria-label={passwordVisible ? tx("隐藏密码") : tx("显示密码")}
-              className="password-toggle"
-              onClick={() => setPasswordVisible((value) => !value)}
-              type="button"
-            >
-              {passwordVisible ? <EyeOff size={17} /> : <Eye size={17} />}
-            </button>
-          </span>
-        </label>
-        <div className="login-helper-row">
-          <span>
-            <span className="login-checkmark">
-              <Check size={11} />
+            <div className="login-key-stack" aria-hidden="true">
+              <span className="login-key-chip key-one">
+                <span className="login-key-icon" />
+                Key 01
+              </span>
+              <span className="login-key-chip key-two">
+                <span className="login-key-icon" />
+                Key 02
+              </span>
+              <span className="login-key-chip key-three">
+                <span className="login-key-icon" />
+                Key 03
+              </span>
+            </div>
+
+            <div className="login-hub-node">
+              <span className="login-logo-tile">
+                <img src="/brand/tokenhub-logo.png" alt="" />
+              </span>
+              <span className="login-hub-copy">
+                <strong>TokenHub</strong>
+                <small>Gateway</small>
+              </span>
+            </div>
+
+            <div className="login-provider-stack" aria-hidden="true">
+              <span className="login-provider-node provider-one">
+                <span className="login-provider-orb" />
+                <strong>Provider A</strong>
+                <span className="login-provider-bars">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+              </span>
+              <span className="login-provider-node provider-two">
+                <span className="login-provider-orb" />
+                <strong>Provider B</strong>
+                <span className="login-provider-bars">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+              </span>
+              <span className="login-provider-node provider-three">
+                <span className="login-provider-orb" />
+                <strong>Provider C</strong>
+                <span className="login-provider-bars">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+              </span>
+            </div>
+          </div>
+          <div className="login-signal-strip" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+        </aside>
+
+        <form className="login-card" onSubmit={submit}>
+          <div className="login-card-head">
+            <h1>{tx("登录控制台")}</h1>
+          </div>
+          <label className="field">
+            <span>{tx("账号 / 邮箱")}</span>
+            <input value={identity} onChange={(event) => setIdentity(event.target.value)} required />
+          </label>
+          <label className="field">
+            <span>{tx("密码")}</span>
+            <span className="password-field">
+              <input
+                value={password}
+                type={passwordVisible ? "text" : "password"}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+              />
+              <button
+                aria-label={passwordVisible ? tx("隐藏密码") : tx("显示密码")}
+                className="password-toggle"
+                onClick={() => setPasswordVisible((value) => !value)}
+                type="button"
+              >
+                {passwordVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
             </span>
-            {tx("保持登录")}
-          </span>
-          <button type="button">{tx("忘记密码？")}</button>
-        </div>
-        {error ? <div className="login-error">{error}</div> : null}
-        <button className="button login-submit" disabled={loading} type="submit">
-          {loading ? tx("登录中") : tx("登录控制台")}
-        </button>
-        <div className="login-divider">
-          <span />
-          <small>{tx("或")}</small>
-          <span />
-        </div>
-        <button className="login-sso-button" type="button">
-          <ShieldCheck size={17} />
-          {tx("使用企业 SSO 登录")}
-        </button>
-      </form>
+          </label>
+          <div className="login-helper-row">
+            <span>
+              <span className="login-checkmark">
+                <Check size={13} />
+              </span>
+              {tx("保持登录")}
+            </span>
+            <button type="button">{tx("忘记密码？")}</button>
+          </div>
+          {error ? <div className="login-error">{error}</div> : null}
+          <button className="button login-submit" disabled={loading} type="submit">
+            {loading ? tx("登录中") : tx("登录控制台")}
+          </button>
+        </form>
+      </section>
     </main>
   );
 }
