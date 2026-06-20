@@ -1,18 +1,29 @@
 # TokenHub
 
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-16.2.9-black?logo=nextdotjs)
+![React](https://img.shields.io/badge/React-19.2.7-61DAFB?logo=react&logoColor=111111)
+![SQLite](https://img.shields.io/badge/SQLite-first-003B57?logo=sqlite&logoColor=white)
+![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![OpenAI Compatible](https://img.shields.io/badge/OpenAI-Compatible-10A37F)
+![i18n](https://img.shields.io/badge/i18n-ZH%20%7C%20EN%20%7C%20JA-6f42c1)
+
 Language: English | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
 
-TokenHub is an open-source AI gateway for private deployments. It gives teams one OpenAI-compatible endpoint for model access, Provider routing, API keys, quotas, request logs, usage analytics, cost governance, and alerts.
-
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+TokenHub is an open-source AI gateway for private deployments. It gives teams one OpenAI-compatible endpoint for model access, Provider routing, API keys, quotas, request logs, usage analytics, cost governance, alerts, and a clean enterprise console for operations and leadership reporting.
 
 ## Screenshots
 
-| Gateway Overview | Model Catalog |
+| Login Console | Gateway Overview |
 | --- | --- |
-| ![Gateway Overview](docs/assets/screenshots/overview-en.png) | ![Model Catalog](docs/assets/screenshots/models-en.png) |
-| Routing Policies | System Settings |
-| ![Routing Policies](docs/assets/screenshots/routes-en.png) | ![System Settings](docs/assets/screenshots/settings-en.png) |
+| ![Login Console](docs/assets/screenshots/login-en.png) | ![Gateway Overview](docs/assets/screenshots/overview-en.png) |
+| API Documentation | Provider Channels |
+| ![API Documentation](docs/assets/screenshots/gateway-en.png) | ![Provider Channels](docs/assets/screenshots/providers-en.png) |
+| Model Catalog | Routing Policies |
+| ![Model Catalog](docs/assets/screenshots/models-en.png) | ![Routing Policies](docs/assets/screenshots/routes-en.png) |
+| Usage Analytics | System Settings |
+| ![Usage Analytics](docs/assets/screenshots/usage-en.png) | ![System Settings](docs/assets/screenshots/settings-en.png) |
 
 ## What You Get
 
@@ -21,6 +32,8 @@ TokenHub is an open-source AI gateway for private deployments. It gives teams on
 - Model catalog, routing priorities, route weights, and failover order.
 - API keys, projects, teams, model allowlists, quotas, and concurrency limits.
 - Request logs, usage analytics, cost billing, approvals, health checks, alerts, and notification channels.
+- Executive usage dashboards with department rankings, member rankings, token comparisons, and Provider cost share.
+- Clean admin console with compact navigation, global search, light/dark mode, and split-view API documentation.
 - SQLite-first private deployment with Docker Compose support.
 - Admin console language switching for Chinese, English, and Japanese.
 
