@@ -1,17 +1,27 @@
-# TokenHub
+<p align="center">
+  <img src="frontend/public/brand/tokenhub-logo.png" alt="TokenHub" width="96" />
+</p>
 
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)
-![Next.js](https://img.shields.io/badge/Next.js-16.2.9-black?logo=nextdotjs)
-![React](https://img.shields.io/badge/React-19.2.7-61DAFB?logo=react&logoColor=111111)
-![SQLite](https://img.shields.io/badge/SQLite-first-003B57?logo=sqlite&logoColor=white)
-![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
-![OpenAI Compatible](https://img.shields.io/badge/OpenAI-Compatible-10A37F)
-![i18n](https://img.shields.io/badge/i18n-ZH%20%7C%20EN%20%7C%20JA-6f42c1)
+<h1 align="center">TokenHub</h1>
 
-Language: English | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
+<p align="center">
+  TokenHub is a private AI gateway that unifies OpenAI-compatible APIs, Provider routing, API keys, usage analytics, and cost governance in one clean console.
+</p>
 
-TokenHub is an open-source AI gateway for private deployments. It gives teams one OpenAI-compatible endpoint for model access, Provider routing, API keys, quotas, request logs, usage analytics, cost governance, alerts, and a clean enterprise console for operations and leadership reporting.
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License" /></a>
+  <img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white" alt="Go 1.26" />
+  <img src="https://img.shields.io/badge/Next.js-16.2.9-black?logo=nextdotjs" alt="Next.js 16.2.9" />
+  <img src="https://img.shields.io/badge/React-19.2.7-61DAFB?logo=react&logoColor=111111" alt="React 19.2.7" />
+  <img src="https://img.shields.io/badge/SQLite-first-003B57?logo=sqlite&logoColor=white" alt="SQLite first" />
+  <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose" />
+  <img src="https://img.shields.io/badge/OpenAI-Compatible-10A37F" alt="OpenAI Compatible" />
+  <img src="https://img.shields.io/badge/i18n-ZH%20%7C%20EN%20%7C%20JA-6f42c1" alt="i18n ZH EN JA" />
+</p>
+
+<p align="center">
+  Language: English | <a href="README.zh-CN.md">简体中文</a> | <a href="README.ja.md">日本語</a>
+</p>
 
 ## Screenshots
 

@@ -1,17 +1,27 @@
-# TokenHub
+<p align="center">
+  <img src="frontend/public/brand/tokenhub-logo.png" alt="TokenHub" width="96" />
+</p>
 
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)
-![Next.js](https://img.shields.io/badge/Next.js-16.2.9-black?logo=nextdotjs)
-![React](https://img.shields.io/badge/React-19.2.7-61DAFB?logo=react&logoColor=111111)
-![SQLite](https://img.shields.io/badge/SQLite-first-003B57?logo=sqlite&logoColor=white)
-![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
-![OpenAI Compatible](https://img.shields.io/badge/OpenAI-Compatible-10A37F)
-![i18n](https://img.shields.io/badge/i18n-ZH%20%7C%20EN%20%7C%20JA-6f42c1)
+<h1 align="center">TokenHub</h1>
 
-Language: [English](README.md) | 简体中文 | [日本語](README.ja.md)
+<p align="center">
+  TokenHub 是一个私有化 AI 网关，把 OpenAI-Compatible 模型 API、Provider 路由、API Key、用量统计和成本治理统一到一个简洁控制台。
+</p>
 
-TokenHub 是一个面向私有化部署的开源 AI 网关。它为团队提供统一的 OpenAI-Compatible 模型入口，并集中管理 Provider 路由、API Key、额度、请求日志、用量统计、成本治理和告警，同时提供简洁的企业控制台用于运维管理和领导报表。
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License" /></a>
+  <img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white" alt="Go 1.26" />
+  <img src="https://img.shields.io/badge/Next.js-16.2.9-black?logo=nextdotjs" alt="Next.js 16.2.9" />
+  <img src="https://img.shields.io/badge/React-19.2.7-61DAFB?logo=react&logoColor=111111" alt="React 19.2.7" />
+  <img src="https://img.shields.io/badge/SQLite-first-003B57?logo=sqlite&logoColor=white" alt="SQLite first" />
+  <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose" />
+  <img src="https://img.shields.io/badge/OpenAI-Compatible-10A37F" alt="OpenAI Compatible" />
+  <img src="https://img.shields.io/badge/i18n-ZH%20%7C%20EN%20%7C%20JA-6f42c1" alt="i18n ZH EN JA" />
+</p>
+
+<p align="center">
+  Language: <a href="README.md">English</a> | 简体中文 | <a href="README.ja.md">日本語</a>
+</p>
 
 ## 产品截图
 

@@ -1,17 +1,27 @@
-# TokenHub
+<p align="center">
+  <img src="frontend/public/brand/tokenhub-logo.png" alt="TokenHub" width="96" />
+</p>
 
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)
-![Next.js](https://img.shields.io/badge/Next.js-16.2.9-black?logo=nextdotjs)
-![React](https://img.shields.io/badge/React-19.2.7-61DAFB?logo=react&logoColor=111111)
-![SQLite](https://img.shields.io/badge/SQLite-first-003B57?logo=sqlite&logoColor=white)
-![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
-![OpenAI Compatible](https://img.shields.io/badge/OpenAI-Compatible-10A37F)
-![i18n](https://img.shields.io/badge/i18n-ZH%20%7C%20EN%20%7C%20JA-6f42c1)
+<h1 align="center">TokenHub</h1>
 
-Language: [English](README.md) | [简体中文](README.zh-CN.md) | 日本語
+<p align="center">
+  TokenHub は、OpenAI-Compatible API、Provider ルーティング、API Key、利用分析、コストガバナンスを一つの管理コンソールにまとめるプライベート AI ゲートウェイです。
+</p>
 
-TokenHub は、プライベートデプロイ向けのオープンソース AI ゲートウェイです。OpenAI-Compatible な単一のモデル入口を提供し、Provider ルーティング、API Key、クォータ、リクエストログ、利用統計、コストガバナンス、アラートに加えて、運用管理と経営レポート向けのクリーンな管理コンソールを備えています。
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License" /></a>
+  <img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white" alt="Go 1.26" />
+  <img src="https://img.shields.io/badge/Next.js-16.2.9-black?logo=nextdotjs" alt="Next.js 16.2.9" />
+  <img src="https://img.shields.io/badge/React-19.2.7-61DAFB?logo=react&logoColor=111111" alt="React 19.2.7" />
+  <img src="https://img.shields.io/badge/SQLite-first-003B57?logo=sqlite&logoColor=white" alt="SQLite first" />
+  <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose" />
+  <img src="https://img.shields.io/badge/OpenAI-Compatible-10A37F" alt="OpenAI Compatible" />
+  <img src="https://img.shields.io/badge/i18n-ZH%20%7C%20EN%20%7C%20JA-6f42c1" alt="i18n ZH EN JA" />
+</p>
+
+<p align="center">
+  Language: <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a> | 日本語
+</p>
 
 ## スクリーンショット
 
