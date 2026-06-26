@@ -400,22 +400,30 @@ func (s *Server) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reques
 	routed.Routes = s.planRouteOrder(routed.Call, routes)
 	resp, route, usage, attempts, err := s.executeRoutedChat(r, routed, req)
 	if err != nil {
+		httpErr := AsHTTPError(err)
+		route = lastAttemptRoute(attempts)
+		s.store.RecordRouteAttempts(requestID, attempts)
+		s.store.RecordPlaygroundRequest(routed.Call, route, httpErr.Status, httpErr.Code, clientIP(r), r.UserAgent())
+		s.recordRequestPayload(requestID, req, auditErrorPayload(err, requestID))
 		s.recordAdminAudit(r, user, "chat_failed", "playground", req.Model, "", map[string]any{
 			"model":    req.Model,
 			"attempts": playgroundRouteAttempts(attempts),
-			"error":    AsHTTPError(err).Code,
+			"error":    httpErr.Code,
 		})
 		writeError(w, r, err)
 		return
 	}
 	s.store.MarkRouteUsed(route.Route.ID)
 	s.store.MarkProviderResourceUsed(routeResourceID(route))
+	s.store.RecordRouteAttempts(requestID, attempts)
+	s.store.RecordPlaygroundRequest(routed.Call, route, http.StatusOK, "", clientIP(r), r.UserAgent())
 	s.recordAdminAudit(r, user, "chat", "playground", req.Model, "", map[string]any{
 		"model":    req.Model,
 		"route":    playgroundRouteSummary(route),
 		"usage":    usage,
 		"attempts": len(attempts),
 	})
+	s.recordRequestPayload(requestID, req, resp)
 	w.Header().Set("x-request-id", requestID)
 	writeJSON(w, http.StatusOK, PlaygroundChatResponse{
 		Response:  resp,
@@ -3988,12 +3996,15 @@ func (s *Server) usageSummaryForUser(user AdminUser) map[string]any {
 		cost += record.CostUSD
 	}
 	for _, log := range logs {
+		if isPlaygroundRequestLog(log) {
+			continue
+		}
 		if log.StatusCode >= 400 {
 			errorsCount++
 		}
 	}
 	return map[string]any{
-		"request_count":      len(logs),
+		"request_count":      billableRequestLogCount(logs),
 		"usage_record_count": len(records),
 		"input_tokens":       input,
 		"output_tokens":      output,

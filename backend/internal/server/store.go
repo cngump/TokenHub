@@ -81,6 +81,7 @@ type Store interface {
 	MarkProviderResourceUsed(resourceID string)
 	StartCall(project Project, key APIKey, modelName string) (CallContext, error)
 	FinishCall(call CallContext, route RouteSelection, usage Usage, statusCode int, errorCode string, clientIP string, userAgent string)
+	RecordPlaygroundRequest(call CallContext, route RouteSelection, statusCode int, errorCode string, clientIP string, userAgent string)
 	RecordRouteAttempts(requestID string, attempts []RouteAttempt)
 	RecordRejectedRequest(project Project, key APIKey, modelName string, statusCode int, errorCode string, clientIP string, userAgent string) string
 	RecordRequestPayload(requestID string, requestBody string, requestTruncated bool, responseBody string, responseTruncated bool)
@@ -1532,6 +1533,28 @@ func (s *GormStore) FinishCall(call CallContext, route RouteSelection, usage Usa
 	})
 }
 
+func (s *GormStore) RecordPlaygroundRequest(call CallContext, route RouteSelection, statusCode int, errorCode string, clientIP string, userAgent string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_ = s.db.Create(&RequestLog{
+		ID:                 NewID("log"),
+		RequestID:          call.RequestID,
+		ProjectID:          call.Project.ID,
+		APIKeyID:           call.Key.ID,
+		ModelName:          call.Model.Name,
+		ProviderID:         route.Provider.ID,
+		ProviderResourceID: routeResourceID(route),
+		ProviderModel:      route.ProviderModel,
+		StatusCode:         statusCode,
+		ErrorCode:          errorCode,
+		LatencyMS:          time.Since(call.StartedAt).Milliseconds(),
+		ClientIP:           clientIP,
+		UserAgent:          userAgent,
+		CreatedAt:          time.Now().UTC(),
+	}).Error
+}
+
 func (s *GormStore) RecordRouteAttempts(requestID string, attempts []RouteAttempt) {
 	if requestID == "" || len(attempts) == 0 {
 		return
@@ -1604,12 +1627,15 @@ func (s *GormStore) UsageSummary() map[string]any {
 		cost += record.CostUSD
 	}
 	for _, log := range logs {
+		if isPlaygroundRequestLog(log) {
+			continue
+		}
 		if log.StatusCode >= 400 {
 			errorsCount++
 		}
 	}
 	return map[string]any{
-		"request_count":      len(logs),
+		"request_count":      billableRequestLogCount(logs),
 		"usage_record_count": len(records),
 		"input_tokens":       input,
 		"output_tokens":      output,
@@ -1617,6 +1643,20 @@ func (s *GormStore) UsageSummary() map[string]any {
 		"estimated_cost_usd": cost,
 		"errors":             errorsCount,
 	}
+}
+
+func billableRequestLogCount(logs []RequestLog) int {
+	count := 0
+	for _, log := range logs {
+		if !isPlaygroundRequestLog(log) {
+			count++
+		}
+	}
+	return count
+}
+
+func isPlaygroundRequestLog(log RequestLog) bool {
+	return log.ProjectID == "admin_playground"
 }
 
 func (s *GormStore) ListUsageRecords() []UsageRecord {

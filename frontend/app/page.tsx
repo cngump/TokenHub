@@ -3774,13 +3774,13 @@ function Sidebar({
         <img src="/brand/tokenhub-logo.png" alt="TokenHub" className="brand-logo" />
         <span className="brand-name">TokenHub</span>
         <span className="version">v0.2.0</span>
-          <button
-            className="sidebar-toggle"
-            aria-label={collapsed ? tx("展开菜单") : tx("折叠菜单")}
-            onClick={onToggleCollapse}
-            title={collapsed ? tx("展开菜单") : tx("折叠菜单")}
-            type="button"
-          >
+        <button
+          className="sidebar-toggle"
+          aria-label={collapsed ? tx("展开菜单") : tx("折叠菜单")}
+          onClick={onToggleCollapse}
+          title={collapsed ? tx("展开菜单") : tx("折叠菜单")}
+          type="button"
+        >
           {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
         </button>
       </div>

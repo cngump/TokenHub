@@ -135,6 +135,30 @@ func TestAdminPlaygroundChatUsesRoutesWithoutProjectBilling(t *testing.T) {
 	if afterSummary.RequestCount != beforeSummary.RequestCount {
 		t.Fatalf("playground should not create project usage records: before=%d after=%d", beforeSummary.RequestCount, afterSummary.RequestCount)
 	}
+
+	var playgroundPayload struct {
+		RequestID string `json:"request_id"`
+	}
+	if err := json.Unmarshal([]byte(resp.Body), &playgroundPayload); err != nil {
+		t.Fatal(err)
+	}
+	if playgroundPayload.RequestID == "" {
+		t.Fatalf("playground response should include request_id: %s", resp.Body)
+	}
+	logs := doJSON(t, app, http.MethodGet, "/api/admin/audit/requests", nil, "")
+	if logs.Code != http.StatusOK {
+		t.Fatalf("request logs failed: %d %s", logs.Code, logs.Body)
+	}
+	if !strings.Contains(logs.Body, playgroundPayload.RequestID) || !strings.Contains(logs.Body, "admin_playground") {
+		t.Fatalf("playground request should be visible in request logs: %s", logs.Body)
+	}
+	detail := doJSON(t, app, http.MethodGet, "/api/admin/audit/requests/"+playgroundPayload.RequestID, nil, "")
+	if detail.Code != http.StatusOK {
+		t.Fatalf("playground request detail failed: %d %s", detail.Code, detail.Body)
+	}
+	if !strings.Contains(detail.Body, `"attempts"`) || !strings.Contains(detail.Body, "playground smoke") {
+		t.Fatalf("playground request detail should include attempts and payload: %s", detail.Body)
+	}
 }
 
 func TestGatewayEmbeddings(t *testing.T) {
