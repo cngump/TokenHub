@@ -50,6 +50,7 @@ type Summary = {
   total_tokens: number;
   estimated_cost_usd: number;
   errors: number;
+  usage_record_count?: number;
   api_key_count?: number;
   route_count?: number;
   active_route_count?: number;
@@ -722,6 +723,11 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "维护本团队成员账号和状态。": "Maintain team member accounts and status.",
     "查看用量": "View Usage",
     "查看当前权限范围内的请求量、Token 和成本。": "View requests, tokens, and cost within the current permission scope.",
+    "我的用量概览": "My Usage Overview",
+    "个人范围": "Personal scope",
+    "可见项目": "Visible Projects",
+    "条用量记录": "usage records",
+    "按当前账号权限汇总": "Summarized by current account permissions",
     "查看账单": "View Billing",
     "查看当前权限范围内的成本归因。": "View cost attribution within the current permission scope.",
     "日志与治理": "Logs and Governance",
@@ -832,6 +838,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "条线路": "routes",
     "未配置线路": "No routes configured",
     "官方资源": "Official resource",
+    "可访问": "Accessible",
     "能力": "Capability",
     "最近路由": "Last Route",
     "待请求": "Not requested",
@@ -1589,6 +1596,11 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "维护本团队成员账号和状态。": "チームメンバーのアカウントと状態を管理します。",
     "查看用量": "利用量確認",
     "查看当前权限范围内的请求量、Token 和成本。": "現在の権限範囲内のリクエスト、Token、コストを確認します。",
+    "我的用量概览": "自分の利用概要",
+    "个人范围": "個人範囲",
+    "可见项目": "表示可能なプロジェクト",
+    "条用量记录": "件の利用記録",
+    "按当前账号权限汇总": "現在のアカウント権限で集計",
     "查看账单": "請求確認",
     "查看当前权限范围内的成本归因。": "現在の権限範囲内のコスト帰属を確認します。",
     "日志与治理": "ログとガバナンス",
@@ -1699,6 +1711,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "条线路": "件のルート",
     "未配置线路": "ルート未設定",
     "官方资源": "公式リソース",
+    "可访问": "アクセス可",
     "能力": "機能",
     "最近路由": "最近のルート",
     "待请求": "未リクエスト",
@@ -2622,7 +2635,7 @@ const roleViewAccess: Record<AppRole, ViewKey[]> = {
   ),
   security: ["overview", "gateway", "usage", "audit", "alerts", "alert-events", "notification-channels", "alert-deliveries", "security-policies", "approvals"],
   team_leader: ["overview", "gateway", "api-keys", "teams", "users", "usage", "billing", "audit"],
-  user: ["overview", "gateway", "api-keys", "usage", "audit"],
+  user: ["overview", "gateway", "models", "api-keys", "usage", "audit"],
 };
 
 function appRole(role: string): AppRole {
@@ -2741,8 +2754,10 @@ function loadPlanForView(user: AdminUser, view: ViewKey): LoadPlan {
       plan.breakdown = true;
       plan.timeseries = true;
       plan.users = can("users") || appRole(user.role) === "team_leader";
-      addResourceDependency(plan, "teams");
-      addResourceDependency(plan, "cost-centers");
+      if (appRole(user.role) !== "user") {
+        addResourceDependency(plan, "teams");
+        addResourceDependency(plan, "cost-centers");
+      }
       break;
     case "billing":
       plan.breakdown = true;
@@ -2762,7 +2777,7 @@ function loadPlanForView(user: AdminUser, view: ViewKey): LoadPlan {
       break;
     case "models":
       plan.overview = true;
-      plan.routes = true;
+      plan.routes = can("routes");
       break;
     case "routes":
       plan.overview = true;
@@ -3386,6 +3401,7 @@ export default function AdminHome() {
             <ModelCatalogView
               config={activeConfig as ResourceConfig<Model>}
               data={data}
+              readOnly={!canAccessView(currentUser, "routes")}
               onCreate={() => setModal({ config: activeConfig })}
               onEdit={(item) => setModal({ config: activeConfig, item })}
               onDelete={(item) => setConfirmDelete({ config: activeConfig, item })}
@@ -4937,9 +4953,10 @@ function GatewayCodeBlock({ code }: { code: string }) {
 function UsageView({ data, user }: { data: AppData; user: AdminUser }) {
   const modelBreakdown = data.breakdown.models ?? [];
   const showMemberBreakdown = appRole(user.role) === "team_leader";
+  const showExecutiveReport = appRole(user.role) !== "user";
   return (
     <>
-      <ExecutiveUsageReport data={data} />
+      {showExecutiveReport ? <ExecutiveUsageReport data={data} /> : <PersonalUsageSummary data={data} />}
       <div className="two-column">
         <DataSection title="模型用量">
           <SimpleTable
@@ -4981,6 +4998,30 @@ function UsageView({ data, user }: { data: AppData; user: AdminUser }) {
         </DataSection>
       ) : null}
     </>
+  );
+}
+
+function PersonalUsageSummary({ data }: { data: AppData }) {
+  return (
+    <section className="executive-report personal-usage-report">
+      <header className="executive-report-head">
+        <div>
+          <p className="eyebrow">Personal Usage</p>
+          <h2>{tx("我的用量概览")}</h2>
+        </div>
+        <div className="executive-report-tools">
+          <span>{tx("个人范围")}</span>
+          <span>{tx("Token 口径")}</span>
+        </div>
+      </header>
+
+      <div className="executive-kpi-grid">
+        <ExecutiveKPI label="总 Token 消耗" value={compactNumber(data.summary.total_tokens)} detail={`${tx("输入")} ${compactNumber(data.summary.input_tokens)} / ${tx("输出")} ${compactNumber(data.summary.output_tokens)}`} />
+        <ExecutiveKPI label="请求数" value={formatNumber(data.summary.request_count)} detail={countWithUnit(data.summary.usage_record_count ?? 0, "条用量记录", "usage record", "件の利用記録")} />
+        <ExecutiveKPI label="估算成本" value={`$${formatMoney(data.summary.estimated_cost_usd)}`} detail={countWithUnit(data.summary.errors, "个错误", "error", "件のエラー")} />
+        <ExecutiveKPI label="可见项目" value={formatNumber(data.projects.length)} detail={tx("按当前账号权限汇总")} />
+      </div>
+    </section>
   );
 }
 
@@ -6306,6 +6347,7 @@ function NotificationChannelTabs({
 function ModelCatalogView({
   config,
   data,
+  readOnly = false,
   onCreate,
   onEdit,
   onDelete,
@@ -6313,6 +6355,7 @@ function ModelCatalogView({
 }: {
   config: ResourceConfig<Model>;
   data: AppData;
+  readOnly?: boolean;
   onCreate: () => void;
   onEdit: (item: Model) => void;
   onDelete: (item: Model) => void;
@@ -6379,10 +6422,12 @@ function ModelCatalogView({
                   placeholder={tx("搜索模型名称或 ID")}
                 />
               </div>
-              <button className="button" onClick={onCreate} type="button">
-                <Plus size={17} />
-                {tx(config.createLabel ?? "新增模型")}
-              </button>
+              {!readOnly ? (
+                <button className="button" onClick={onCreate} type="button">
+                  <Plus size={17} />
+                  {tx(config.createLabel ?? "新增模型")}
+                </button>
+              ) : null}
             </div>
           </div>
 
@@ -6401,10 +6446,11 @@ function ModelCatalogView({
                   key={model.name}
                   model={model}
                   data={data}
-                  actions={config.actions ?? []}
+                  readOnly={readOnly}
+                  actions={readOnly ? [] : config.actions ?? []}
                   onAction={onAction}
-                  onEdit={onEdit}
-                  onDelete={onDelete}
+                  onEdit={readOnly ? undefined : onEdit}
+                  onDelete={readOnly ? undefined : onDelete}
                 />
               ))}
             </div>
@@ -6679,6 +6725,7 @@ function RouteProviderRow({
 function ModelCatalogCard({
   model,
   data,
+  readOnly = false,
   actions,
   onAction,
   onEdit,
@@ -6686,10 +6733,11 @@ function ModelCatalogCard({
 }: {
   model: Model;
   data: AppData;
+  readOnly?: boolean;
   actions: ResourceAction<Model>[];
   onAction: (action: ResourceAction<Model>, item: Model) => void;
-  onEdit: (item: Model) => void;
-  onDelete: (item: Model) => void;
+  onEdit?: (item: Model) => void;
+  onDelete?: (item: Model) => void;
 }) {
   const category = modelCategory(model);
   const routeCount = activeRouteCount(model.name, data);
@@ -6710,8 +6758,14 @@ function ModelCatalogCard({
 
       <div className="model-card-tags">
         <span>{modelCapabilityLabel(model)}</span>
-        <span>{routeCount > 0 ? `${routeCount} ${tx("条线路")}` : tx("未配置线路")}</span>
-        {hasThirdPartyRoute(model, data) ? <span className="third">{tx("三方资源")}</span> : <span className="official">{tx("官方资源")}</span>}
+        {readOnly ? (
+          <span className="official">{tx("可访问")}</span>
+        ) : (
+          <>
+            <span>{routeCount > 0 ? `${routeCount} ${tx("条线路")}` : tx("未配置线路")}</span>
+            {hasThirdPartyRoute(model, data) ? <span className="third">{tx("三方资源")}</span> : <span className="official">{tx("官方资源")}</span>}
+          </>
+        )}
       </div>
 
       <div className="model-card-pricing">
@@ -6721,21 +6775,27 @@ function ModelCatalogCard({
         <ModelMetric label="Embedding" value={priceMetric(model.embedding_price_usd_per_1m)} muted={!model.embedding_price_usd_per_1m} />
       </div>
 
-      <div className="model-card-routes">
-        <ModelRouteProviders model={model} data={data} />
-      </div>
+      {!readOnly ? (
+        <div className="model-card-routes">
+          <ModelRouteProviders model={model} data={data} />
+        </div>
+      ) : null}
 
-      <div className="model-card-actions">
-        {actions.map((action) => (
-          <button className="text-button" key={action.label} onClick={() => onAction(action, model)} type="button">
-            {tx(action.label)}
-          </button>
-        ))}
-        <button className="text-button" onClick={() => onEdit(model)} type="button">{tx("编辑")}</button>
-        <button className="danger-button" onClick={() => onDelete(model)} title={tx("删除")} type="button">
-          <Trash2 size={15} />
-        </button>
-      </div>
+      {actions.length > 0 || onEdit || onDelete ? (
+        <div className="model-card-actions">
+          {actions.map((action) => (
+            <button className="text-button" key={action.label} onClick={() => onAction(action, model)} type="button">
+              {tx(action.label)}
+            </button>
+          ))}
+          {onEdit ? <button className="text-button" onClick={() => onEdit(model)} type="button">{tx("编辑")}</button> : null}
+          {onDelete ? (
+            <button className="danger-button" onClick={() => onDelete(model)} title={tx("删除")} type="button">
+              <Trash2 size={15} />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </article>
   );
 }

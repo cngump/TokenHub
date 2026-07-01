@@ -295,6 +295,72 @@ func TestAdminCreatesAPIKeyUnderDefaultProject(t *testing.T) {
 	}
 }
 
+func TestUserCanReadOwnAccessibleAdminModels(t *testing.T) {
+	store := NewMemoryStore()
+	if err := BootstrapBaseData(store); err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.CreateAdminUser(AdminUser{
+		Username: "model.viewer",
+		Email:    "model.viewer@tokenhub.local",
+		Role:     "user",
+		TeamID:   "team_platform",
+		Status:   StatusActive,
+	}, "viewer123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = store.CreateAPIKey(defaultProjectID, APIKey{
+		Name:    "viewer-key",
+		Allowed: []string{"gpt-4.1-mini"},
+		Limits: QuotaLimits{
+			DailyRequests:  10,
+			MaxConcurrency: 1,
+		},
+		Status: StatusActive,
+		Metadata: map[string]string{
+			"created_by": user.ID,
+		},
+	}, "thk_viewer_models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := New(store).Handler()
+
+	login := doJSON(t, app, http.MethodPost, "/api/admin/auth/login", map[string]any{
+		"identity": "model.viewer@tokenhub.local",
+		"password": "viewer123456",
+	}, "")
+	if login.Code != http.StatusOK {
+		t.Fatalf("expected login 200, got %d: %s", login.Code, login.Body)
+	}
+	var payload struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(login.Body), &payload); err != nil {
+		t.Fatal(err)
+	}
+
+	models := doJSON(t, app, http.MethodGet, "/api/admin/models", nil, payload.Token)
+	if models.Code != http.StatusOK {
+		t.Fatalf("expected user to read accessible models, got %d: %s", models.Code, models.Body)
+	}
+	if !strings.Contains(models.Body, `"name":"gpt-4.1-mini"`) || strings.Contains(models.Body, `"name":"text-embedding-3-small"`) {
+		t.Fatalf("expected only allowed active models: %s", models.Body)
+	}
+	overview := doJSON(t, app, http.MethodGet, "/api/admin/overview", nil, payload.Token)
+	if overview.Code != http.StatusOK || !strings.Contains(overview.Body, `"name":"gpt-4.1-mini"`) {
+		t.Fatalf("expected overview to include accessible models, got %d: %s", overview.Code, overview.Body)
+	}
+	create := doJSON(t, app, http.MethodPost, "/api/admin/models", map[string]any{
+		"name":   "viewer-created-model",
+		"status": StatusActive,
+	}, payload.Token)
+	if create.Code != http.StatusForbidden {
+		t.Fatalf("expected user model create to be forbidden, got %d: %s", create.Code, create.Body)
+	}
+}
+
 func TestBootstrapBaseDataSeedsGovernanceResources(t *testing.T) {
 	store := NewMemoryStore()
 	if err := BootstrapBaseData(store); err != nil {

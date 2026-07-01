@@ -832,9 +832,9 @@ func (s *Server) handleAdminOverview(w http.ResponseWriter, r *http.Request) {
 	if s.canViewGlobalOperations(user) {
 		providers = s.store.ListProviders()
 		providerResources = s.store.ListProviderResources()
-		models = s.store.ListModels()
 		alerts = s.store.ListAlerts()
 	}
+	models = s.accessibleModelsForAdminUser(user)
 	routes := []ModelRoute{}
 	if s.canViewGlobalOperations(user) {
 		routes = s.store.ListRoutes()
@@ -1964,13 +1964,17 @@ func (s *Server) handleAdminProviderResourceImport(w http.ResponseWriter, r *htt
 }
 
 func (s *Server) handleAdminModels(w http.ResponseWriter, r *http.Request) {
-	user, ok := s.requireAdmin(w, r, "model", r.Method)
+	user, ok := s.authorizeAdminUser(w, r)
 	if !ok {
+		return
+	}
+	if !canAdmin(user.Role, "model", r.Method) {
+		writeError(w, r, NewHTTPError(403, "admin_forbidden", "Admin role is not allowed to perform this action"))
 		return
 	}
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListModels()})
+		writeJSON(w, http.StatusOK, map[string]any{"data": s.accessibleModelsForAdminUser(user)})
 	case http.MethodPost:
 		var req struct {
 			Model
@@ -3868,7 +3872,7 @@ func canAdmin(role string, resource string, method string) bool {
 		if write {
 			return resource == "api_key"
 		}
-		return resource == "overview" || resource == "project" || resource == "api_key" || resource == "usage" || resource == "audit"
+		return resource == "overview" || resource == "project" || resource == "api_key" || resource == "usage" || resource == "audit" || resource == "model"
 	default:
 		return !write && resource == "overview"
 	}
@@ -4233,6 +4237,42 @@ func (s *Server) filterAPIKeysForUser(user AdminUser, keys []APIKey) []APIKey {
 	for _, key := range keys {
 		if s.canAccessAPIKey(user, key) {
 			out = append(out, key)
+		}
+	}
+	return out
+}
+
+func (s *Server) accessibleModelsForAdminUser(user AdminUser) []Model {
+	if s.canViewGlobalOperations(user) {
+		return s.store.ListModels()
+	}
+	keys := s.filterAPIKeysForUser(user, s.store.ListAPIKeys())
+	if len(keys) == 0 {
+		return nil
+	}
+	models := s.store.ListModels()
+	allowAll := false
+	allowed := map[string]bool{}
+	for _, key := range keys {
+		if key.Status != StatusActive {
+			continue
+		}
+		hydrated := AllowedModelSet(key.Allowed)
+		if len(hydrated) == 0 {
+			allowAll = true
+			break
+		}
+		for model := range hydrated {
+			allowed[model] = true
+		}
+	}
+	out := make([]Model, 0, len(models))
+	for _, model := range models {
+		if model.Status != StatusActive {
+			continue
+		}
+		if allowAll || allowed[model.Name] || allowed[model.ID] {
+			out = append(out, model)
 		}
 	}
 	return out
