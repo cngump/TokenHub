@@ -657,12 +657,34 @@ const languageOptions: Array<{ value: AppLanguage; label: string; nativeLabel: s
   { value: "ja", label: "Japanese", nativeLabel: "日本語" },
 ];
 
-let activeLanguage: AppLanguage = "zh-CN";
+let activeLanguage: AppLanguage = "en";
 
 const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>> = {
   en: {
     "总览": "Overview",
     "网关概览": "Gateway Overview",
+    "开始使用": "Get Started",
+    "我的资源": "My Resources",
+    "我的用量": "My Usage",
+    "团队工作台": "Team Workspace",
+    "团队总览": "Team Overview",
+    "团队报表": "Team Reports",
+    "成本归因": "Cost Attribution",
+    "项目治理": "Project Governance",
+    "可用模型": "Available Models",
+    "团队管理": "Team Management",
+    "团队成员": "Team Members",
+    "团队信息": "Team Profile",
+    "平台工作台": "Platform Workspace",
+    "平台总览": "Platform Overview",
+    "全局用量": "Global Usage",
+    "AI 资源": "AI Resources",
+    "组织治理": "Organization Governance",
+    "成本治理": "Cost Governance",
+    "安全审计导航": "Security Audit",
+    "安全总览": "Security Overview",
+    "告警导航": "Alerts",
+    "接入参考": "Integration Reference",
     "模型演练场": "Model Playground",
     "接口文档": "API Documentation",
     "AI 接入": "AI Access",
@@ -704,6 +726,8 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "查看告警 Webhook 发送结果、目标和失败原因。": "Review alert delivery results, targets, and failure reasons.",
     "处理 Key 发放、额度提升和模型开通等治理审批。": "Handle governance approvals such as key issuance, quota increases, and model access.",
     "登录控制台": "Login console",
+    "使用": "Use",
+    "登录": "login",
     "企业 AI 访问与成本治理平台": "Enterprise AI Access and Cost Governance",
     "账号 / 邮箱": "Account / Email",
     "密码": "Password",
@@ -1544,6 +1568,28 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
   ja: {
     "总览": "概要",
     "网关概览": "ゲートウェイ概要",
+    "开始使用": "はじめに",
+    "我的资源": "自分のリソース",
+    "我的用量": "自分の利用量",
+    "团队工作台": "チームワークスペース",
+    "团队总览": "チーム概要",
+    "团队报表": "チームレポート",
+    "成本归因": "コスト配賦",
+    "项目治理": "プロジェクトガバナンス",
+    "可用模型": "利用可能モデル",
+    "团队管理": "チーム管理",
+    "团队成员": "チームメンバー",
+    "团队信息": "チーム情報",
+    "平台工作台": "プラットフォームワークスペース",
+    "平台总览": "プラットフォーム概要",
+    "全局用量": "全体利用量",
+    "AI 资源": "AI リソース",
+    "组织治理": "組織ガバナンス",
+    "成本治理": "コストガバナンス",
+    "安全审计导航": "セキュリティ監査",
+    "安全总览": "セキュリティ概要",
+    "告警导航": "アラート",
+    "接入参考": "接続リファレンス",
     "模型演练场": "モデルプレイグラウンド",
     "接口文档": "API ドキュメント",
     "AI 接入": "AI 接続",
@@ -1585,6 +1631,8 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "查看告警 Webhook 发送结果、目标和失败原因。": "アラート通知の送信結果、宛先、失敗理由を確認します。",
     "处理 Key 发放、额度提升和模型开通等治理审批。": "Key 発行、クォータ増額、モデル開通などの承認を処理します。",
     "登录控制台": "ログインコンソール",
+    "使用": "使用",
+    "登录": "ログイン",
     "企业 AI 访问与成本治理平台": "企業向け AI アクセス・コストガバナンス",
     "账号 / 邮箱": "アカウント / メール",
     "密码": "パスワード",
@@ -2425,9 +2473,9 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
 };
 
 function readSavedLanguage(): AppLanguage {
-  if (typeof window === "undefined") return "zh-CN";
+  if (typeof window === "undefined") return "en";
   const saved = window.localStorage.getItem(languageStorageKey);
-  return saved === "en" || saved === "ja" || saved === "zh-CN" ? saved : "zh-CN";
+  return saved === "en" || saved === "ja" || saved === "zh-CN" ? saved : "en";
 }
 
 function setActiveLanguage(language: AppLanguage) {
@@ -2479,6 +2527,12 @@ function translateGeneratedText(value: string, language: Exclude<AppLanguage, "z
   }
   const routeOrderMatch = value.match(/^已更新 (.+) 的 Provider 调用顺序$/);
   if (routeOrderMatch) return language === "ja" ? `${routeOrderMatch[1]} の Provider 呼び出し順を更新しました` : `Updated Provider call order for ${routeOrderMatch[1]}`;
+  const enabledRoutesMatch = value.match(/^(\d+)\/(\d+) 启用 · (.+)$/);
+  if (enabledRoutesMatch) {
+    return language === "ja"
+      ? `${enabledRoutesMatch[1]}/${enabledRoutesMatch[2]} 有効 · ${enabledRoutesMatch[3]}`
+      : `${enabledRoutesMatch[1]}/${enabledRoutesMatch[2]} enabled · ${enabledRoutesMatch[3]}`;
+  }
   return undefined;
 }
 
@@ -2679,7 +2733,7 @@ const adminNavGroups: NavGroup[] = [
 
 const securityNavGroups: NavGroup[] = [
   {
-    title: "安全审计",
+    title: "安全审计导航",
     items: [
       { view: "overview", label: "安全总览", icon: LayoutDashboard },
       { view: "usage", label: "用量统计", icon: BarChart3 },
@@ -2689,7 +2743,7 @@ const securityNavGroups: NavGroup[] = [
     ],
   },
   {
-    title: "告警",
+    title: "告警导航",
     items: [
       { view: "alerts", label: "告警规则", icon: AlertCircle },
       { view: "alert-events", label: "告警事件", icon: AlertCircle },
@@ -3595,7 +3649,7 @@ export default function AdminHome() {
           ) : activeView === "playground" ? (
             <PlaygroundPage api={api} data={data} canViewRoutes={canAccessView(currentUser, "routes")} />
           ) : activeView === "gateway" ? (
-            <GatewayView api={api} data={data} />
+            <GatewayView api={api} data={data} language={language} onLanguageChange={changeLanguage} />
           ) : activeView === "usage" ? (
             <UsageView data={data} user={currentUser} />
           ) : activeView === "billing" ? (
@@ -4814,70 +4868,98 @@ function overviewTopModelRows(data: AppData) {
   }));
 }
 
-function GatewayView({ api, data }: { api: ApiContext; data: AppData }) {
+function GatewayView({
+  api,
+  data,
+  language,
+  onLanguageChange,
+}: {
+  api: ApiContext;
+  data: AppData;
+  language: AppLanguage;
+  onLanguageChange: (language: AppLanguage) => void;
+}) {
   const baseURL = apiGatewayBaseURL(api.baseURL);
   const activeRoutes = data.routes.filter((route) => route.status === "active").length;
   const callableModels = playgroundModels(data);
   const sampleModel = callableModels.find((model) => activeRouteCount(model.name, data) > 0)?.name ?? callableModels[0]?.name ?? "gpt-4.1-mini";
   const keyHint = data.keys[0] ? `${data.keys[0].key_prefix}...${data.keys[0].key_suffix}` : "YOUR_TOKENHUB_API_KEY";
-  const docGroups = gatewayDocGroups({ baseURL, keyHint, sampleModel, activeRoutes, data });
-  const [activeDocID, setActiveDocID] = useState("quickstart");
-  const allDocs = docGroups.flatMap((group) => group.items);
+  const docBundle = gatewayDocBundle({ language, baseURL, keyHint, sampleModel, activeRoutes, data, callableModels });
+  const [activeDocID, setActiveDocID] = useState("user-guide");
+  const allDocs = docBundle.groups.flatMap((group) => group.items);
   const activeDoc = allDocs.find((item) => item.id === activeDocID) ?? allDocs[0]!;
+
+  useEffect(() => {
+    if (!allDocs.some((item) => item.id === activeDocID)) {
+      setActiveDocID(allDocs[0]?.id ?? "user-guide");
+    }
+  }, [activeDocID, allDocs]);
 
   return (
     <div className="gateway-docs">
       <div className="api-doc-shell">
-        <GatewayDocNav groups={docGroups} activeID={activeDoc.id} onSelect={setActiveDocID} />
+        <GatewayDocNav groups={docBundle.groups} activeID={activeDoc.id} onSelect={setActiveDocID} ui={docBundle.nav} />
         <section className="api-doc-main">
           <header className="api-doc-main-head">
             <div>
-              <p className="eyebrow">Model API</p>
-              <h2>{tx("接口文档")}</h2>
-              <p>
-                {tx("面向业务开发者的模型 API 调用说明。业务侧只使用 ")}<code>/v1/*</code>{tx(" 和项目 API Key；")}<code>/api/admin/*</code>{tx(" 仅用于控制台管理。")}
-              </p>
+              <p className="eyebrow">{docBundle.eyebrow}</p>
+              <h2>{docBundle.title}</h2>
+              <p>{docBundle.description}</p>
             </div>
-            <a href="https://docs.newapi.pro/zh/docs/api" target="_blank" rel="noreferrer">
-              <Globe2 size={15} />
-              {tx("OpenAI 兼容协议")}
-            </a>
+            <div className="api-doc-language-switcher" aria-label={docBundle.languageLabel}>
+              {languageOptions.map((option) => (
+                <button
+                  aria-pressed={language === option.value}
+                  className={language === option.value ? "active" : ""}
+                  key={option.value}
+                  onClick={() => onLanguageChange(option.value)}
+                  type="button"
+                >
+                  {gatewayLanguageLabel(option.value)}
+                </button>
+              ))}
+            </div>
           </header>
 
-          <section className="api-doc-quick-grid" aria-label={tx("接口基础信息")}>
-            <GatewayCopyCard label="Base URL" value={baseURL} />
-            <GatewayCopyCard label="Authorization" value={`Bearer ${keyHint}`} />
-            <GatewayCopyCard label="示例模型" value={sampleModel} />
+          <section className="api-doc-quick-grid" aria-label={docBundle.quickInfoLabel}>
+            <GatewayCopyCard label={docBundle.quickCards.baseURL} value={baseURL} />
+            <GatewayCopyCard label={docBundle.quickCards.authorization} value={`Bearer ${keyHint}`} />
+            <GatewayCopyCard label={docBundle.quickCards.sampleModel} value={sampleModel} />
             <article className="gateway-copy-card api-doc-config-card">
-              <span>{tx("当前配置")}</span>
-              <strong>{countWithUnit(activeRoutes || data.summary.active_route_count || 0, "条启用路由", "active route", "件の有効ルート")}</strong>
-              <small>{countWithUnit(data.keys.length || data.summary.api_key_count || 0, "个 API Key", "API Key", "件の API Key")}</small>
+              <span>{docBundle.quickCards.currentConfig}</span>
+              <strong>{docBundle.quickCards.activeRoutes}</strong>
+              <small>{docBundle.quickCards.apiKeys}</small>
             </article>
           </section>
 
-          <GatewayDocContent doc={activeDoc} data={data} callableModels={callableModels} baseURL={baseURL} modelName={sampleModel} />
+          <GatewayDocContent doc={activeDoc} />
         </section>
       </div>
     </div>
   );
 }
 
+type GatewayDocTable = {
+  title: string;
+  columns: string[];
+  rows: React.ReactNode[][];
+};
+
 type GatewayDocItem = {
   id: string;
   group: string;
   title: string;
   description: string;
+  badge?: string;
   method?: string;
   path?: string;
-  status?: string;
   details?: Array<{ label: string; value: string }>;
+  notesTitle?: string;
   notes?: string[];
-  params?: React.ReactNode[][];
+  params?: GatewayDocTable;
+  table?: GatewayDocTable;
+  examplesTitle?: string;
   examples?: Array<{ title: string; code: string }>;
-  table?: {
-    columns: string[];
-    rows: React.ReactNode[][];
-  };
 };
 
 type GatewayDocGroup = {
@@ -4885,28 +4967,80 @@ type GatewayDocGroup = {
   items: GatewayDocItem[];
 };
 
+type GatewayDocNavCopy = {
+  title: string;
+  subtitle: string;
+  searchPlaceholder: string;
+  noResults: string;
+};
+
+type GatewayDocBundle = {
+  nav: GatewayDocNavCopy;
+  eyebrow: string;
+  title: string;
+  description: string;
+  languageLabel: string;
+  quickInfoLabel: string;
+  quickCards: {
+    baseURL: string;
+    authorization: string;
+    sampleModel: string;
+    currentConfig: string;
+    activeRoutes: string;
+    apiKeys: string;
+  };
+  groups: GatewayDocGroup[];
+};
+
 function GatewayDocNav({
   groups,
   activeID,
   onSelect,
+  ui,
 }: {
   groups: GatewayDocGroup[];
   activeID: string;
   onSelect: (id: string) => void;
+  ui: GatewayDocNavCopy;
 }) {
+  const [searchText, setSearchText] = useState("");
+  const normalizedSearch = searchText.trim().toLowerCase();
+  const visibleGroups = normalizedSearch
+    ? groups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) =>
+          [group.title, item.title, item.description, item.path, item.badge, item.group]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(normalizedSearch),
+        ),
+      }))
+      .filter((group) => group.items.length > 0)
+    : groups;
+
   return (
-    <aside className="api-doc-nav" aria-label={tx("API 导航")}>
+    <aside className="api-doc-nav" aria-label={ui.title}>
       <div className="api-doc-nav-head">
         <FileText size={16} />
         <div>
-          <strong>{tx("API 导航")}</strong>
-          <span>{tx("按接口类型查看详细说明")}</span>
+          <strong>{ui.title}</strong>
+          <span>{ui.subtitle}</span>
         </div>
       </div>
+      <label className="api-doc-search">
+        <Search size={15} />
+        <input
+          value={searchText}
+          onChange={(event) => setSearchText(event.target.value)}
+          placeholder={ui.searchPlaceholder}
+        />
+      </label>
       <div className="api-doc-nav-list">
-        {groups.map((group) => (
+        {visibleGroups.length ? visibleGroups.map((group) => (
           <section className="api-doc-nav-group" key={group.title}>
-            <h3>{tx(group.title)}</h3>
+            <h3>{group.title}</h3>
             {group.items.map((item) => (
               <button
                 aria-selected={activeID === item.id}
@@ -4915,62 +5049,21 @@ function GatewayDocNav({
                 onClick={() => onSelect(item.id)}
                 type="button"
               >
-                {item.method ? <span className={`api-method ${apiMethodClass(item.method)}`}>{item.method}</span> : <span className="api-method muted">DOC</span>}
+                {item.method ? <span className={`api-method ${apiMethodClass(item.method)}`}>{item.method}</span> : <span className="api-method muted">{item.badge ?? "DOC"}</span>}
                 <span>
-                  <strong>{tx(item.title)}</strong>
-                  {item.path ? <em>{item.path}</em> : <em>{tx(item.description)}</em>}
+                  <strong>{item.title}</strong>
+                  {item.path ? <em>{item.path}</em> : <em>{item.description}</em>}
                 </span>
               </button>
             ))}
           </section>
-        ))}
+        )) : <div className="api-doc-empty">{ui.noResults}</div>}
       </div>
     </aside>
   );
 }
 
-function GatewayDocContent({
-  doc,
-  data,
-  callableModels,
-  baseURL,
-  modelName,
-}: {
-  doc: GatewayDocItem;
-  data: AppData;
-  callableModels: Model[];
-  baseURL: string;
-  modelName: string;
-}) {
-  if (doc.id === "sdk") {
-    return (
-      <article className="api-doc-content-card">
-        <GatewayDocTitle doc={doc} />
-        <PlaygroundAPIExamples baseURL={baseURL} modelName={modelName} />
-      </article>
-    );
-  }
-
-  if (doc.id === "models-current") {
-    return (
-      <article className="api-doc-content-card">
-        <GatewayDocTitle doc={doc} />
-        {callableModels.length > 0 ? (
-          <div className="gateway-model-list api-doc-model-list">
-            {callableModels.slice(0, 18).map((model) => (
-              <span key={model.name}>
-                {model.name}
-                <em>{countWithUnit(activeRouteCount(model.name, data), "条路由", "route", "件のルート")}</em>
-              </span>
-            ))}
-          </div>
-        ) : (
-          <div className="empty">{tx("当前后台还没有启用可用模型路由，请让管理员在路由策略里启用模型。")}</div>
-        )}
-      </article>
-    );
-  }
-
+function GatewayDocContent({ doc }: { doc: GatewayDocItem }) {
   return (
     <article className="api-doc-content-card">
       <GatewayDocTitle doc={doc} />
@@ -4978,39 +5071,39 @@ function GatewayDocContent({
         <div className="api-doc-detail-grid">
           {doc.details.map((item) => (
             <div key={item.label}>
-              <span>{tx(item.label)}</span>
-              <strong>{tx(item.value)}</strong>
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
             </div>
           ))}
         </div>
       ) : null}
       {doc.notes ? (
         <section className="api-doc-panel">
-          <h3>{tx("说明")}</h3>
+          <h3>{doc.notesTitle ?? "Notes"}</h3>
           <ul className="api-doc-notes">
-            {doc.notes.map((note) => <li key={note}>{tx(note)}</li>)}
+            {doc.notes.map((note) => <li key={note}>{note}</li>)}
           </ul>
         </section>
       ) : null}
       {doc.params ? (
         <section className="api-doc-panel">
-          <h3>{tx("请求参数")}</h3>
-          <SimpleTable columns={["字段", "类型", "必填", "说明"]} rows={doc.params} />
+          <h3>{doc.params.title}</h3>
+          <SimpleTable columns={doc.params.columns} rows={doc.params.rows} />
         </section>
       ) : null}
       {doc.table ? (
         <section className="api-doc-panel">
-          <h3>{tx("明细")}</h3>
+          <h3>{doc.table.title}</h3>
           <SimpleTable columns={doc.table.columns} rows={doc.table.rows} />
         </section>
       ) : null}
       {doc.examples ? (
         <section className="api-doc-panel">
-          <h3>{tx("示例")}</h3>
+          <h3>{doc.examplesTitle ?? "Examples"}</h3>
           <div className="api-doc-code-grid">
             {doc.examples.map((example) => (
               <div className="api-doc-code-card" key={example.title}>
-                <strong>{tx(example.title)}</strong>
+                <strong>{example.title}</strong>
                 <GatewayCodeBlock code={example.code} />
               </div>
             ))}
@@ -5025,20 +5118,701 @@ function GatewayDocTitle({ doc }: { doc: GatewayDocItem }) {
   return (
     <div className="api-doc-title">
       <div>
-        <span>{tx(doc.group)}</span>
-        <h2>{tx(doc.title)}</h2>
-        <p>{tx(doc.description)}</p>
+        <span>{doc.group}</span>
+        <h2>{doc.title}</h2>
+        <p>{doc.description}</p>
       </div>
       {doc.path ? (
         <div className="api-doc-endpoint">
           <span className={`api-method ${apiMethodClass(doc.method)}`}>{doc.method}</span>
           <code>{doc.path}</code>
         </div>
-      ) : doc.status ? (
-        <StatusPill status={doc.status} label={doc.status} />
       ) : null}
     </div>
   );
+}
+
+function gatewayDocBundle({
+  language,
+  baseURL,
+  keyHint,
+  sampleModel,
+  activeRoutes,
+  data,
+  callableModels,
+}: {
+  language: AppLanguage;
+  baseURL: string;
+  keyHint: string;
+  sampleModel: string;
+  activeRoutes: number;
+  data: AppData;
+  callableModels: Model[];
+}): GatewayDocBundle {
+  const authHeader = `Authorization: Bearer ${keyHint}`;
+  const activeRouteCountValue = activeRoutes || data.summary.active_route_count || 0;
+  const apiKeyCount = data.keys.length || data.summary.api_key_count || 0;
+  const projectCount = data.projects.length;
+  const userCount = data.users.length || data.summary.user_count || 0;
+  const providerCount = data.providers.length;
+  const routeCount = data.routes.length;
+  const requestLogCount = data.logs.length;
+  const visibleModelCount = callableModels.length;
+  const chatCurl = `curl -X POST "${baseURL}/chat/completions" \\
+  -H "${authHeader}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "${sampleModel}",
+    "messages": [
+      {"role": "system", "content": "You are an internal enterprise AI assistant."},
+      {"role": "user", "content": "Introduce TokenHub in two concise sentences."}
+    ],
+    "temperature": 0.7,
+    "stream": false
+  }'`;
+
+  const commonEN = gatewayEnglishDocs({
+    baseURL,
+    sampleModel,
+    chatCurl,
+    activeRouteCountValue,
+    apiKeyCount,
+    projectCount,
+    userCount,
+    providerCount,
+    routeCount,
+    requestLogCount,
+    visibleModelCount,
+  });
+  if (language === "zh-CN") return gatewayChineseDocs(commonEN);
+  if (language === "ja") return gatewayJapaneseDocs(commonEN);
+  return commonEN;
+}
+
+type GatewayDocStats = {
+  baseURL: string;
+  sampleModel: string;
+  chatCurl: string;
+  activeRouteCountValue: number;
+  apiKeyCount: number;
+  projectCount: number;
+  userCount: number;
+  providerCount: number;
+  routeCount: number;
+  requestLogCount: number;
+  visibleModelCount: number;
+};
+
+function gatewayEnglishDocs(stats: GatewayDocStats): GatewayDocBundle {
+  return {
+    nav: {
+      title: "Documentation",
+      subtitle: "Role-based guides and API references",
+      searchPlaceholder: "Search guides, APIs, or error codes",
+      noResults: "No matching documents",
+    },
+    eyebrow: "TokenHub Docs",
+    title: "Role-Based Gateway Guides",
+    description: "TokenHub is documented around three enterprise roles: users call approved models, team leaders manage projects and members, and administrators govern providers, routing, identity, audit, and cost.",
+    languageLabel: "Documentation language",
+    quickInfoLabel: "API basics",
+    quickCards: {
+      baseURL: "Base URL",
+      authorization: "Authorization",
+      sampleModel: "Sample model",
+      currentConfig: "Current configuration",
+      activeRoutes: `${formatNumber(stats.activeRouteCountValue)} active route${stats.activeRouteCountValue === 1 ? "" : "s"}`,
+      apiKeys: `${formatNumber(stats.apiKeyCount)} API Key${stats.apiKeyCount === 1 ? "" : "s"}`,
+    },
+    groups: [
+      {
+        title: "Introduction",
+        items: [
+          {
+            id: "overview",
+            group: "Introduction",
+            badge: "DOC",
+            title: "Platform Overview",
+            description: "Understand how TokenHub connects models, projects, keys, routing, audit, and cost attribution into one governed AI access path.",
+            details: [
+              { label: "Primary entry points", value: "Model Playground / Key Management / Usage Analytics" },
+              { label: "Application API", value: "/v1/*" },
+              { label: "Admin API", value: "/api/admin/*" },
+              { label: "Data scope", value: "Personal / Team / Platform" },
+            ],
+            notesTitle: "First steps",
+            notes: [
+              "Users start with available models, key management, personal usage, and request logs; they do not need provider credentials.",
+              "Team leaders work from project spaces and use the project detail panel to manage members, keys, quotas, and attribution.",
+              "Administrators connect providers, publish model catalog entries, enable routing rules, configure identity sources, and monitor audit and cost controls.",
+            ],
+          },
+          {
+            id: "concepts",
+            group: "Introduction",
+            badge: "DOC",
+            title: "Core Concepts",
+            description: "A shared vocabulary for the resource and permission boundaries in the enterprise AI gateway.",
+            table: {
+              title: "Concepts",
+              columns: ["Concept", "Meaning"],
+              rows: [
+                ["Project", "An internal application or business space. It is the basic unit for keys, quota, members, and cost attribution."],
+                ["API Key", "A credential attached to a project and used by applications to call /v1/* model endpoints."],
+                ["Model Catalog", "The standard model list shown to users. A model is callable only when it has an enabled route."],
+                ["Routing Rule", "Maps a standard model to an upstream provider model and defines priority, weight, and strategy."],
+                ["Provider", "An upstream model service or internal model resource with Base URL, credentials, and health state."],
+                ["Usage Attribution", "Requests, tokens, and cost are attributed to users, projects, teams, and cost centers."],
+              ],
+            },
+          },
+        ],
+      },
+      {
+        title: "Role Guides",
+        items: [
+          {
+            id: "user-guide",
+            group: "Role Guides",
+            badge: "USER",
+            title: "User Guide",
+            description: "Users focus on available models, project keys, API examples, personal usage, and request logs.",
+            details: [
+              { label: "Default menu", value: "Overview / API Documentation / Model Playground" },
+              { label: "Resource scope", value: `${formatNumber(stats.visibleModelCount)} visible models` },
+              { label: "Key ownership", value: "Assigned project" },
+              { label: "Report scope", value: "Personal usage" },
+            ],
+            notesTitle: "Daily workflow",
+            notes: [
+              "Open Available Models or Model Playground to confirm which models are callable for your account.",
+              "Open Key Management, choose an assigned project, and create or copy an application API key.",
+              "Applications should call model endpoints such as /v1/chat/completions, /v1/responses, and /v1/embeddings.",
+              "For 401, 403, or 429 responses, copy request_id into Request Logs or ask your team leader to adjust project access.",
+            ],
+            table: {
+              title: "What users can do",
+              columns: ["Task", "Where", "Notes"],
+              rows: [
+                ["Review models", "Available Models", "Shows the models callable by the current account."],
+                ["Test prompts", "Model Playground", "Checks prompts, responses, routing, and estimated cost."],
+                ["Manage keys", "Key Management", "Keys must be created under an assigned project."],
+                ["Review usage", "Usage Analytics", "Shows only requests, tokens, and cost visible to the current account."],
+              ],
+            },
+          },
+          {
+            id: "team-leader-guide",
+            group: "Role Guides",
+            badge: "LEAD",
+            title: "Team Leader Guide",
+            description: "Team leaders manage project spaces, project members, key issuance, team reports, and project-level cost attribution.",
+            details: [
+              { label: "Default menu", value: "Team Overview / Projects / Key Management" },
+              { label: "Projects", value: `${formatNumber(stats.projectCount)} projects` },
+              { label: "Member management", value: "Project detail side panel" },
+              { label: "Report scope", value: "Team and project usage" },
+            ],
+            notesTitle: "Project governance workflow",
+            notes: [
+              "Create or select a project in Project Spaces. A project is the boundary for members, keys, quota, and cost attribution.",
+              "Click a project to open the right-side detail panel, then view, add, edit, or remove project members there.",
+              "When issuing keys, use project membership roles to decide whether a user can create application keys.",
+              "Use Team Reports to compare usage by member, project, model, and cost center.",
+            ],
+            table: {
+              title: "Project membership roles",
+              columns: ["Role", "Default capability"],
+              rows: [
+                ["Owner", "Manages project settings, members, keys, and quota."],
+                ["Maintainer", "Maintains members and keys; suitable for project technical owners."],
+                ["Developer", "Creates and uses project keys; suitable for application developers."],
+                ["Viewer", "Views project data and usage but cannot issue keys."],
+              ],
+            },
+          },
+          {
+            id: "administrator-guide",
+            group: "Role Guides",
+            badge: "ADMIN",
+            title: "Administrator Guide",
+            description: "Administrators govern providers, model catalog, routing policies, identity sources, RBAC, audit, security, and cost controls.",
+            details: [
+              { label: "Default menu", value: "Platform Overview / Providers / Routes / Settings" },
+              { label: "Providers", value: `${formatNumber(stats.providerCount)} providers` },
+              { label: "Routing rules", value: `${formatNumber(stats.routeCount)} rules` },
+              { label: "Users", value: `${formatNumber(stats.userCount)} users` },
+            ],
+            notesTitle: "Production setup order",
+            notes: [
+              "Configure upstream Base URLs, credentials, resource groups, and health checks in Provider Channels.",
+              "Maintain standard public model names, capability tags, context windows, and price units in Model Catalog.",
+              "Create at least one enabled routing rule for every model that should be visible and callable.",
+              "Configure identity providers, role permissions, default policies, audit retention, and enterprise integrations in System Settings.",
+            ],
+            table: {
+              title: "Administrator checklist",
+              columns: ["Area", "Check"],
+              rows: [
+                ["Identity", "Configure at least one enterprise identity source and retain a controlled administrator account."],
+                ["Routing", "Models without configured routes must be visually distinguished in the admin model catalog."],
+                ["Security", "API keys are shown once; rotation and deletion must leave audit records."],
+                ["Cost", "Provider, project, team, and cost center attribution should remain traceable."],
+              ],
+            },
+          },
+        ],
+      },
+      {
+        title: "API Reference",
+        items: [
+          {
+            id: "model-api",
+            group: "API Reference",
+            title: "Model API",
+            method: "POST",
+            path: "/v1/chat/completions",
+            description: "Call OpenAI-compatible model endpoints with a project API key.",
+            params: {
+              title: "Request parameters",
+              columns: ["Field", "Type", "Required", "Description"],
+              rows: [
+                ["Authorization", "header", "Yes", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["model", "string", "Yes", `Standard model name, for example ${stats.sampleModel}`],
+                ["messages", "array", "Yes", "system/user/assistant message array"],
+                ["stream", "boolean", "No", "When true, returns an SSE streaming response"],
+              ],
+            },
+            examplesTitle: "English examples",
+            examples: [{ title: "Chat completion", code: stats.chatCurl }],
+          },
+          {
+            id: "keys-projects",
+            group: "API Reference",
+            badge: "REF",
+            title: "Keys and Projects",
+            description: "Keys always belong to projects. One person can belong to multiple projects and chooses the project when creating a key.",
+            table: {
+              title: "Assignment model",
+              columns: ["Object", "Managed by", "Notes"],
+              rows: [
+                ["Project", "Administrator or team leader", "Contains members, keys, quota, and cost attribution."],
+                ["Membership", "Project Owner or Maintainer", "Controls whether a user can view the project or issue keys."],
+                ["API Key", "Authorized project member", "Can call only models visible to the project and backed by enabled routes."],
+              ],
+            },
+          },
+          {
+            id: "troubleshooting",
+            group: "API Reference",
+            badge: "REF",
+            title: "Troubleshooting",
+            description: "Use status codes to locate API key, project membership, model routing, and quota problems.",
+            table: {
+              title: "Common errors",
+              columns: ["Status", "Code", "Fix"],
+              rows: [
+                ["401", "invalid_api_key", "Check that Authorization uses a TokenHub API key."],
+                ["403", "project_forbidden / model_not_allowed", "Check project membership and whether the model is open to the project."],
+                ["404/503", "provider_unavailable", "Enable a route for the model or check upstream provider health."],
+                ["429", "quota_exceeded", "Check project quota, concurrency limits, and provider resource limits."],
+                ["500", "upstream_error", `Inspect request_id in Request Logs; current log sample is ${formatNumber(stats.requestLogCount)} records.`],
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function gatewayChineseDocs(stats: GatewayDocBundle): GatewayDocBundle {
+  return {
+    nav: {
+      title: "文档导航",
+      subtitle: "按角色和任务查看指南",
+      searchPlaceholder: "搜索指南、API 或错误码",
+      noResults: "没有匹配的文档",
+    },
+    eyebrow: "TokenHub Docs",
+    title: "面向三种角色的网关指南",
+    description: "TokenHub 文档按企业角色组织：普通用户调用已批准模型，团队负责人管理项目和成员，管理员治理 Provider、路由、身份源、审计和成本。",
+    languageLabel: "文档语言",
+    quickInfoLabel: "接口基础信息",
+    quickCards: {
+      ...stats.quickCards,
+      sampleModel: "示例模型",
+      currentConfig: "当前配置",
+      activeRoutes: stats.quickCards.activeRoutes.replace("active routes", "条启用路由").replace("active route", "条启用路由"),
+      apiKeys: stats.quickCards.apiKeys.replace("API Keys", "个 API Key").replace("API Key", "个 API Key"),
+    },
+    groups: [
+      {
+        title: "开始",
+        items: [
+          {
+            id: "overview",
+            group: "开始",
+            badge: "DOC",
+            title: "平台概览",
+            description: "理解 TokenHub 如何把模型、项目、Key、路由、审计和成本归因放在同一条治理链路里。",
+            details: [
+              { label: "主要入口", value: "Model Playground / Key Management / Usage Analytics" },
+              { label: "业务接口", value: "/v1/*" },
+              { label: "管理接口", value: "/api/admin/*" },
+              { label: "数据范围", value: "Personal / Team / Platform" },
+            ],
+            notesTitle: "上手路径",
+            notes: [
+              "普通用户从可用模型、Key 管理、个人用量和请求日志开始，不需要理解 Provider 凭证。",
+              "团队负责人围绕项目空间工作，在项目详情侧边栏维护成员、Key、额度和费用归属。",
+              "管理员接入 Provider，发布模型目录，启用路由策略，配置身份源，并监控审计和成本治理。",
+            ],
+          },
+          {
+            ...stats.groups[0].items[1],
+            group: "开始",
+            title: "核心概念",
+            description: "用统一术语解释企业 AI 网关中的资源边界和权限边界。",
+            table: {
+              title: "概念表",
+              columns: ["概念", "含义"],
+              rows: [
+                ["Project", "企业内部应用或业务空间，是 Key、额度、成员和成本归因的基本单元。"],
+                ["API Key", "绑定到 Project 的调用凭证，用于业务应用访问 /v1/* 模型接口。"],
+                ["Model Catalog", "对用户展示的标准模型目录，只有配置了启用路由的模型才可调用。"],
+                ["Routing Rule", "把标准模型映射到上游 Provider 模型，并定义优先级、权重和策略。"],
+                ["Provider", "上游模型服务商或内部模型服务资源，包含 Base URL、凭证和健康状态。"],
+                ["Usage Attribution", "请求、Token 和成本会归因到个人、Project、Team 和成本中心。"],
+              ],
+            },
+          },
+        ],
+      },
+      {
+        title: "角色指南",
+        items: [
+          {
+            ...stats.groups[1].items[0],
+            group: "角色指南",
+            title: "普通用户指南",
+            description: "普通用户关注可用模型、项目 Key、调用示例、个人用量和请求日志。",
+            notesTitle: "日常流程",
+            notes: [
+              "先在 Available Models 或 Model Playground 确认可调用模型。",
+              "在 Key Management 中选择被分配的 Project，再创建或复制业务 API Key。",
+              "业务应用只调用 /v1/chat/completions、/v1/responses、/v1/embeddings 等模型接口。",
+              "遇到 401/403/429 时，复制 request_id 到 Request Logs 查看原因，或联系团队负责人调整项目权限。",
+            ],
+            table: {
+              title: "普通用户能做什么",
+              columns: ["任务", "位置", "说明"],
+              rows: [
+                ["查看模型", "Available Models", "显示当前账号可调用的模型。"],
+                ["测试模型", "Model Playground", "验证提示词、模型返回、路由和成本估算。"],
+                ["管理 Key", "Key Management", "Key 必须选择已分配的 Project。"],
+                ["查看用量", "Usage Analytics", "只展示当前账号可见的请求、Token 和成本。"],
+              ],
+            },
+          },
+          {
+            ...stats.groups[1].items[1],
+            group: "角色指南",
+            title: "团队负责人指南",
+            description: "团队负责人负责项目空间、项目成员、Key 发放、团队报表和项目级成本归因。",
+            notesTitle: "项目治理流程",
+            notes: [
+              "在 Project Spaces 中创建或选择项目，项目是成员、Key、额度和成本归属的边界。",
+              "点击项目后，在右侧详情栏查看、添加、编辑或移除项目成员。",
+              "为项目发放 Key 时，根据成员角色决定是否允许创建业务 Key。",
+              "用 Team Reports 查看成员、项目、模型和成本中心维度的消费归因。",
+            ],
+            table: {
+              title: "项目成员角色",
+              columns: ["角色", "默认能力"],
+              rows: [
+                ["Owner", "管理项目设置、成员、Key 和额度。"],
+                ["Maintainer", "维护成员和 Key，适合项目技术负责人。"],
+                ["Developer", "可以创建和使用项目 Key，适合应用开发者。"],
+                ["Viewer", "只能查看项目和用量，不能发放 Key。"],
+              ],
+            },
+          },
+          {
+            ...stats.groups[1].items[2],
+            group: "角色指南",
+            title: "管理员指南",
+            description: "管理员负责全局 Provider、模型目录、路由策略、身份源、角色权限、安全审计和成本治理。",
+            notesTitle: "上线顺序",
+            notes: [
+              "先在 Provider Channels 配置上游 Base URL、凭证、资源组和健康检查。",
+              "在 Model Catalog 中维护对业务开放的标准模型名、能力标签和价格口径。",
+              "在 Routing Policies 中为每个可用模型配置至少一条启用路由。",
+              "在 System Settings 中配置身份源、角色权限、默认策略、审计保留和企业集成。",
+            ],
+            table: {
+              title: "管理员检查清单",
+              columns: ["领域", "检查项"],
+              rows: [
+                ["Identity", "至少配置一个企业身份源，并保留可控的管理员账号。"],
+                ["Routing", "未配置路由的模型需要在后台以不同背景色提示。"],
+                ["Security", "API Key 只展示一次，轮换和删除需要审计记录。"],
+                ["Cost", "Provider、Project、Team 和 Cost Center 都需要可追踪。"],
+              ],
+            },
+          },
+        ],
+      },
+      {
+        title: "API 参考",
+        items: [
+          {
+            ...stats.groups[2].items[0],
+            group: "API 参考",
+            title: "模型 API",
+            description: "使用项目 API Key 调用 OpenAI 兼容的模型接口。",
+            params: {
+              title: "请求参数",
+              columns: ["字段", "类型", "必填", "说明"],
+              rows: [
+                ["Authorization", "header", "是", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["model", "string", "是", "统一模型名，例如示例模型卡片中的模型名称"],
+                ["messages", "array", "是", "system/user/assistant 消息数组"],
+                ["stream", "boolean", "否", "true 时返回 SSE 流式响应"],
+              ],
+            },
+            examplesTitle: "英文样例",
+          },
+          {
+            ...stats.groups[2].items[1],
+            group: "API 参考",
+            title: "Key 与项目",
+            description: "Key 始终属于 Project；一个人可以加入多个 Project，并在创建 Key 时选择归属项目。",
+            table: {
+              title: "分配模型",
+              columns: ["对象", "谁来管理", "说明"],
+              rows: [
+                ["Project", "管理员或团队负责人", "承载成员、Key、额度和成本归因。"],
+                ["Membership", "项目 Owner 或 Maintainer", "决定用户是否可查看项目或发放 Key。"],
+                ["API Key", "有权限的项目成员", "只允许调用项目可见且已配置路由的模型。"],
+              ],
+            },
+          },
+          {
+            ...stats.groups[2].items[2],
+            group: "API 参考",
+            title: "错误排查",
+            description: "按状态码定位 API Key、项目成员、模型路由和额度问题。",
+            table: {
+              title: "常见错误",
+              columns: ["状态", "错误码", "处理方式"],
+              rows: [
+                ["401", "invalid_api_key", "检查 Authorization 是否使用 TokenHub API Key。"],
+                ["403", "project_forbidden / model_not_allowed", "检查用户是否在项目中，以及模型是否对项目开放。"],
+                ["404/503", "provider_unavailable", "为模型配置启用路由，或检查上游 Provider 健康状态。"],
+                ["429", "quota_exceeded", "检查项目额度、并发限制和 Provider 资源限制。"],
+                ["500", "upstream_error", "在 Request Logs 中查看 request_id。"],
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function gatewayJapaneseDocs(stats: GatewayDocBundle): GatewayDocBundle {
+  return {
+    ...gatewayChineseDocs(stats),
+    nav: {
+      title: "ドキュメント",
+      subtitle: "ロールとタスク別に確認",
+      searchPlaceholder: "ガイド、API、エラーコードを検索",
+      noResults: "一致するドキュメントはありません",
+    },
+    title: "3 つのロール別ゲートウェイガイド",
+    description: "TokenHub のドキュメントは、利用者、チームリーダー、管理者の 3 つの企業ロールを中心に整理しています。",
+    languageLabel: "ドキュメント言語",
+    quickInfoLabel: "API 基本情報",
+    quickCards: {
+      ...stats.quickCards,
+      sampleModel: "サンプルモデル",
+      currentConfig: "現在の設定",
+      activeRoutes: stats.quickCards.activeRoutes.replace("active routes", "件の有効ルート").replace("active route", "件の有効ルート"),
+      apiKeys: stats.quickCards.apiKeys.replace("API Keys", "件の API Key").replace("API Key", "件の API Key"),
+    },
+    groups: [
+      {
+        title: "はじめに",
+        items: [
+          {
+            ...stats.groups[0].items[0],
+            group: "はじめに",
+            title: "プラットフォーム概要",
+            description: "TokenHub がモデル、プロジェクト、Key、ルーティング、監査、コスト配賦を 1 つの統制フローにまとめる仕組みを説明します。",
+            notesTitle: "開始手順",
+            notes: [
+              "利用者は利用可能モデル、Key 管理、個人利用量から始めます。Provider 認証情報を理解する必要はありません。",
+              "チームリーダーはプロジェクトスペースを中心に、詳細サイドパネルでメンバー、Key、コスト帰属を管理します。",
+              "管理者は Provider、モデルカタログ、ルーティング、ID プロバイダー、監査とコスト統制を設定します。",
+            ],
+          },
+          {
+            ...stats.groups[0].items[1],
+            group: "はじめに",
+            title: "主要概念",
+            description: "企業 AI ゲートウェイのリソース境界と権限境界を共通語彙で整理します。",
+            table: {
+              title: "概念一覧",
+              columns: ["概念", "意味"],
+              rows: [
+                ["Project", "社内アプリケーションまたは業務スペース。Key、クォータ、メンバー、コスト配賦の基本単位です。"],
+                ["API Key", "Project に紐づく呼び出し認証情報。業務アプリが /v1/* を呼び出すために使います。"],
+                ["Model Catalog", "ユーザーに表示する標準モデル一覧。有効なルートがあるモデルだけ呼び出せます。"],
+                ["Routing Rule", "標準モデルを上流 Provider モデルへ割り当て、優先度、重み、戦略を定義します。"],
+                ["Provider", "上流モデルサービスまたは社内モデルリソース。Base URL、認証情報、ヘルス状態を持ちます。"],
+                ["Usage Attribution", "リクエスト、Token、コストを個人、Project、Team、Cost Center に配賦します。"],
+              ],
+            },
+          },
+        ],
+      },
+      {
+        title: "ロールガイド",
+        items: [
+          {
+            ...stats.groups[1].items[0],
+            group: "ロールガイド",
+            title: "利用者ガイド",
+            description: "利用者は利用可能モデル、プロジェクト Key、呼び出し例、個人利用量、リクエストログを確認します。",
+            notesTitle: "日常フロー",
+            notes: [
+              "Available Models または Model Playground で呼び出せるモデルを確認します。",
+              "Key Management で割り当て済み Project を選び、業務 API Key を作成またはコピーします。",
+              "業務アプリは /v1/chat/completions、/v1/responses、/v1/embeddings などのモデル API だけを呼び出します。",
+              "401/403/429 が出た場合は request_id を Request Logs で検索し、必要に応じてチームリーダーに権限調整を依頼します。",
+            ],
+            table: {
+              title: "利用者の操作",
+              columns: ["タスク", "画面", "説明"],
+              rows: [
+                ["モデル確認", "Available Models", "現在のアカウントで呼び出せるモデルを表示します。"],
+                ["モデル検証", "Model Playground", "プロンプト、応答、ルーティング、コスト見積もりを確認します。"],
+                ["Key 管理", "Key Management", "Key 作成時は割り当て済み Project を選択します。"],
+                ["利用量確認", "Usage Analytics", "現在のアカウントに見えるリクエスト、Token、コストだけを表示します。"],
+              ],
+            },
+          },
+          {
+            ...stats.groups[1].items[1],
+            group: "ロールガイド",
+            title: "チームリーダーガイド",
+            description: "チームリーダーはプロジェクト、メンバー、Key 発行、チームレポート、プロジェクト別コスト配賦を管理します。",
+            notesTitle: "プロジェクト統制フロー",
+            notes: [
+              "Project Spaces でプロジェクトを作成または選択します。Project はメンバー、Key、クォータ、コスト帰属の境界です。",
+              "プロジェクトをクリックし、右側の詳細パネルでメンバーの表示、追加、編集、削除を行います。",
+              "プロジェクトに Key を発行するときは、メンバーのロールに応じて Key 作成可否を決めます。",
+              "Team Reports でメンバー、Project、モデル、Cost Center 別の利用量とコストを確認します。",
+            ],
+            table: {
+              title: "プロジェクトメンバーのロール",
+              columns: ["ロール", "既定能力"],
+              rows: [
+                ["Owner", "プロジェクト設定、メンバー、Key、クォータを管理します。"],
+                ["Maintainer", "メンバーと Key を保守します。プロジェクトの技術責任者に適しています。"],
+                ["Developer", "プロジェクト Key を作成、利用できます。アプリ開発者に適しています。"],
+                ["Viewer", "プロジェクトと利用量のみ閲覧でき、Key は発行できません。"],
+              ],
+            },
+          },
+          {
+            ...stats.groups[1].items[2],
+            group: "ロールガイド",
+            title: "管理者ガイド",
+            description: "管理者は Provider、モデルカタログ、ルーティング、ID プロバイダー、権限、監査、コスト統制を管理します。",
+            notesTitle: "公開前チェック",
+            notes: [
+              "Provider Channels で上流 Base URL、認証情報、リソースグループ、ヘルスチェックを設定します。",
+              "Model Catalog で業務に公開する標準モデル名、能力タグ、価格単位を管理します。",
+              "Routing Policies で公開モデルごとに少なくとも 1 つの有効ルートを設定します。",
+              "System Settings で ID プロバイダー、ロール権限、既定ポリシー、監査保持期間、企業連携を設定します。",
+            ],
+            table: {
+              title: "管理者チェックリスト",
+              columns: ["領域", "確認項目"],
+              rows: [
+                ["Identity", "少なくとも 1 つの企業 ID プロバイダーを設定し、管理者アカウントを保持します。"],
+                ["Routing", "ルート未設定モデルは管理画面で異なる背景色で表示します。"],
+                ["Security", "API Key は一度だけ表示し、ローテーションと削除は監査します。"],
+                ["Cost", "Provider、Project、Team、Cost Center を追跡可能にします。"],
+              ],
+            },
+          },
+        ],
+      },
+      {
+        title: "API リファレンス",
+        items: [
+          {
+            ...stats.groups[2].items[0],
+            group: "API リファレンス",
+            title: "モデル API",
+            description: "Project API Key で OpenAI 互換のモデル API を呼び出します。",
+            params: {
+              title: "リクエストパラメーター",
+              columns: ["フィールド", "型", "必須", "説明"],
+              rows: [
+                ["Authorization", "header", "はい", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["model", "string", "はい", "標準モデル名"],
+                ["messages", "array", "はい", "system/user/assistant のメッセージ配列"],
+                ["stream", "boolean", "いいえ", "true の場合は SSE ストリーミングレスポンスを返します"],
+              ],
+            },
+            examplesTitle: "英語サンプル",
+          },
+          {
+            ...stats.groups[2].items[1],
+            group: "API リファレンス",
+            title: "Key と Project",
+            description: "Key は常に Project に属します。1 人のユーザーは複数 Project に参加でき、Key 作成時に所属 Project を選びます。",
+            table: {
+              title: "割り当てモデル",
+              columns: ["対象", "管理者", "説明"],
+              rows: [
+                ["Project", "管理者またはチームリーダー", "メンバー、Key、クォータ、コスト配賦を持ちます。"],
+                ["Membership", "Project Owner または Maintainer", "ユーザーが Project を閲覧できるか、Key を発行できるかを決めます。"],
+                ["API Key", "権限を持つ Project メンバー", "Project に見えて、有効ルートがあるモデルだけ呼び出せます。"],
+              ],
+            },
+          },
+          {
+            ...stats.groups[2].items[2],
+            group: "API リファレンス",
+            title: "トラブルシューティング",
+            description: "ステータスコードから API Key、Project メンバー、モデルルート、クォータの問題を切り分けます。",
+            table: {
+              title: "よくあるエラー",
+              columns: ["ステータス", "エラーコード", "対応"],
+              rows: [
+                ["401", "invalid_api_key", "Authorization に TokenHub API Key を指定しているか確認します。"],
+                ["403", "project_forbidden / model_not_allowed", "ユーザーが Project に所属しているか、モデルが Project に公開されているか確認します。"],
+                ["404/503", "provider_unavailable", "モデルに有効ルートを設定するか、上流 Provider のヘルスを確認します。"],
+                ["429", "quota_exceeded", "Project クォータ、同時実行制限、Provider リソース制限を確認します。"],
+                ["500", "upstream_error", "Request Logs で request_id を確認します。"],
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function gatewayLanguageLabel(language: AppLanguage) {
+  if (language === "zh-CN") return "中文";
+  if (language === "ja") return "日本語";
+  return "English";
 }
 
 function gatewayDocGroups({
@@ -5053,7 +5827,7 @@ function gatewayDocGroups({
   sampleModel: string;
   activeRoutes: number;
   data: AppData;
-}): GatewayDocGroup[] {
+}): any[] {
   const authHeader = `Authorization: Bearer ${keyHint}`;
   const sampleSystemPrompt = tx("你是企业内部 AI 助手。");
   const sampleIntroPrompt = tx("用两句话介绍 TokenHub");
@@ -5338,7 +6112,7 @@ function GatewayCopyCard({ label, value }: { label: string; value: string }) {
   }
   return (
     <article className="gateway-copy-card">
-      <span>{tx(label)}</span>
+      <span>{label}</span>
       <strong>{value}</strong>
       <button className="icon-button subtle" onClick={() => void copyValue()} type="button" title={tx("复制")}>
         {copied ? <Check size={15} /> : <Copy size={15} />}
@@ -6802,7 +7576,7 @@ function ModelCategoryTabs({
           onClick={() => onChange(tab.key)}
           type="button"
         >
-          <span>{tab.label}</span>
+          <span>{tx(tab.label)}</span>
           <em>{tab.count}</em>
         </button>
       ))}

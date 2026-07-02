@@ -2,22 +2,36 @@
 
 Language: [English](../README.md) | 简体中文 | [日本語](../ja/README.md)
 
-这里是 TokenHub 的公开用户文档，面向部署者、管理员和业务开发者，重点说明如何运行、配置和调用 TokenHub。
+TokenHub 文档现在按企业 AI 网关里的三种角色组织。默认文档语言是英文；中文和日文版本复用同一套英文截图和英文样例数据，避免多语言截图不一致。
 
-## 内容
+## 角色指南
 
-| 文档 | 说明 |
+| 指南 | 读者 | 主要工作流 |
+| --- | --- | --- |
+| [普通用户指南](user-guide.md) | 员工和应用开发者 | 查看可用模型、创建项目 Key、调用模型 API、查看个人用量 |
+| [团队负责人指南](team-leader-guide.md) | 团队 Owner 和项目维护者 | 管理项目空间、成员、API Key、团队报表和项目成本归因 |
+| [管理员指南](administrator-guide.md) | 平台管理员和安全运维 | 配置 Provider、模型目录、路由、身份源、RBAC、审计和成本治理 |
+
+## 共享英文样例数据
+
+| 对象 | 样例 |
 | --- | --- |
-| [快速开始](quick-start.md) | 本地启动后端和管理后台，并运行一次链路测试 |
-| [模型 API](model-api.md) | 通过 OpenAI-Compatible 接口调用 TokenHub |
-| [管理后台](admin-console.md) | 配置 Provider、模型路由、API Key、用量、日志和告警 |
-| [模型目录](model-catalog.md) | 通过 YAML 维护平台统一模型目录 |
-| [部署](deployment.md) | 环境变量、Docker Compose、数据目录和备份 |
-| [安全](security.md) | API Key、管理访问、RBAC、审计日志和凭证建议 |
+| Organization | Acme AI Platform |
+| Team | Platform Engineering |
+| Project | Payments Assistant |
+| Cost center | AI Platform Cost Center |
+| Model | gpt-4.1-mini |
+| API key placeholder | YOUR_TOKENHUB_API_KEY |
 
-## 推荐阅读顺序
+## 截图集
 
-1. 先看 [快速开始](quick-start.md)。
-2. 管理员阅读 [管理后台](admin-console.md)，理解配置流程。
-3. 业务开发者阅读 [模型 API](model-api.md)，接入应用或 SDK。
-4. 上生产前阅读 [部署](deployment.md) 和 [安全](security.md)。
+所有截图都来自英文 UI，并被所有语言版本复用。
+
+| 页面 | 文件 |
+| --- | --- |
+| Gateway documentation | `../assets/screenshots/gateway-en.png` |
+| Overview | `../assets/screenshots/overview-en.png` |
+| Models | `../assets/screenshots/models-en.png` |
+| Routes | `../assets/screenshots/routes-en.png` |
+| Usage | `../assets/screenshots/usage-en.png` |
+| Settings | `../assets/screenshots/settings-en.png` |
