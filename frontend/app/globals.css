@@ -6013,6 +6013,19 @@ textarea:focus-visible {
   font-size: 11.5px;
 }
 
+.login-sso-list {
+  display: grid;
+  gap: 10px;
+}
+
+.login-sso-list.multi {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.login-sso-list.multi.count-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .login-sso-button {
   width: 100%;
   height: 44px;
@@ -6027,10 +6040,104 @@ textarea:focus-visible {
   cursor: pointer;
   font-size: 13.5px;
   font-weight: 500;
+  text-decoration: none;
+}
+
+.login-sso-list.multi .login-sso-button {
+  height: 50px;
+  padding: 0 8px;
+  gap: 7px;
+}
+
+.login-sso-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--accent);
+}
+
+.login-sso-list.multi .login-sso-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+}
+
+.login-sso-icon.gitlab {
+  background: #fff2e8;
+  color: #d65a1f;
+}
+
+.login-sso-icon.github {
+  background: #eef2f7;
+  color: #24292f;
+}
+
+.login-sso-icon.google {
+  background: #eef6ff;
+  color: #2472d8;
+}
+
+.login-sso-icon.microsoft {
+  background: #edf7f0;
+  color: #18884f;
+}
+
+.login-sso-icon.okta,
+.login-sso-icon.keycloak,
+.login-sso-icon.oidc {
+  background: #f0efff;
+  color: #5c55d6;
+}
+
+.login-sso-icon.oauth2 {
+  background: #eef8f5;
+  color: #16866f;
+}
+
+.login-sso-icon.saml {
+  background: #fff7df;
+  color: #a96d00;
+}
+
+.login-sso-icon.ldap {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.login-sso-icon svg {
+  display: block;
+}
+
+.login-sso-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.login-sso-list.multi .login-sso-label {
+  font-size: 12.5px;
 }
 
 .login-sso-button:hover {
   border-color: var(--ink-3);
+}
+
+.login-sso-button:disabled,
+.login-sso-button[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+@media (max-width: 360px) {
+  .login-sso-list.multi {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @keyframes login-ambient {

@@ -17,12 +17,14 @@ import {
   Copy,
   Database,
   FileText,
+  Fingerprint,
   Gauge,
   Globe2,
   GripVertical,
   KeyRound,
   LayoutDashboard,
   LogOut,
+  LockKeyhole,
   Eye,
   EyeOff,
   Moon,
@@ -37,6 +39,7 @@ import {
   Sparkles,
   Sun,
   Trash2,
+  UserRoundCheck,
   Users,
   WalletCards,
   X,
@@ -268,6 +271,15 @@ type AdminUser = {
   created_at?: string;
   updated_at?: string;
   last_login_at?: string;
+};
+
+type LoginIdentityProvider = {
+  id: string;
+  name: string;
+  display_name?: string;
+  provider_type: string;
+  issuer_url?: string;
+  icon_key?: string;
 };
 
 type AlertEvent = {
@@ -2873,6 +2885,8 @@ export default function AdminHome() {
   const [baseURL, setBaseURL] = useState(defaultBaseURL);
   const [adminToken, setAdminToken] = useState("");
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
+  const [loginIdentityProviders, setLoginIdentityProviders] = useState<LoginIdentityProvider[]>([]);
+  const [oauthReturnURL, setOAuthReturnURL] = useState(viewRoutes.overview);
   const [bootstrapped, setBootstrapped] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [openNavGroups, setOpenNavGroups] = useState<Record<string, boolean>>(() =>
@@ -2926,14 +2940,82 @@ export default function AdminHome() {
   }
 
   useEffect(() => {
-    const saved = readSavedSession();
-    if (saved) {
-      setBaseURL(saved.baseURL);
-      setAdminToken(saved.token);
-      setCurrentUser(saved.user);
+    let cancelled = false;
+    async function bootstrapSession() {
+      const saved = readSavedSession();
+      const oauth = readOAuthLoginResult();
+      const sessionBaseURL = saved?.baseURL ?? defaultBaseURL;
+      if (oauth?.error) {
+        clearOAuthLoginResult();
+        setError(tx("OAuth 登录失败"));
+      }
+      if (oauth?.token) {
+        setBaseURL(sessionBaseURL);
+        setLoading(true);
+        try {
+          const resp = await fetch(`${sessionBaseURL.replace(/\/$/, "")}/api/admin/auth/me`, {
+            headers: { authorization: `Bearer ${oauth.token}` },
+          });
+          if (!resp.ok) throw new Error(`oauth me ${resp.status}`);
+          const payload = (await resp.json()) as { user: AdminUser };
+          const expiresAt = oauth.expiresAt || new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+          if (cancelled) return;
+          setData(emptyData());
+          setAdminToken(oauth.token);
+          setCurrentUser(payload.user);
+          saveSession({ baseURL: sessionBaseURL, token: oauth.token, user: payload.user, expiresAt });
+          setError("");
+        } catch (err) {
+          if (!cancelled) setError(err instanceof Error ? err.message : tx("OAuth 登录失败"));
+        } finally {
+          clearOAuthLoginResult();
+          if (!cancelled) {
+            setLoading(false);
+            setBootstrapped(true);
+          }
+        }
+        return;
+      }
+      if (saved) {
+        setBaseURL(saved.baseURL);
+        setAdminToken(saved.token);
+        setCurrentUser(saved.user);
+      }
+      setBootstrapped(true);
     }
-    setBootstrapped(true);
+    void bootstrapSession();
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setOAuthReturnURL(`${window.location.origin}${viewRoutes.overview}`);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!bootstrapped || currentUser) return;
+    let cancelled = false;
+    async function loadLoginIdentityProviders() {
+      try {
+        const resp = await fetch(`${baseURL.replace(/\/$/, "")}/api/admin/auth/identity-providers`);
+        if (!resp.ok) {
+          if (!cancelled) setLoginIdentityProviders([]);
+          return;
+        }
+        const payload = (await resp.json()) as { data?: LoginIdentityProvider[] };
+        if (!cancelled) setLoginIdentityProviders(payload.data ?? []);
+      } catch {
+        if (!cancelled) setLoginIdentityProviders([]);
+      }
+    }
+    void loadLoginIdentityProviders();
+    return () => {
+      cancelled = true;
+    };
+  }, [baseURL, bootstrapped, currentUser]);
 
   useEffect(() => {
     setActiveLanguage(language);
@@ -3319,6 +3401,9 @@ export default function AdminHome() {
       <LoginView
         loading={loading}
         error={error}
+        baseURL={baseURL}
+        identityProviders={loginIdentityProviders}
+        oauthReturnURL={oauthReturnURL}
         theme={theme}
         onThemeToggle={toggleTheme}
         onLogin={(identity, password) => void login(identity, password)}
@@ -3594,15 +3679,158 @@ export default function AdminHome() {
   }
 }
 
+const identityProviderIconOptions = [
+  "auto",
+  "gitlab",
+  "github",
+  "google",
+  "microsoft",
+  "okta",
+  "keycloak",
+  "oidc",
+  "oauth2",
+  "saml",
+  "ldap",
+  "sso",
+];
+
+type LoginIdentityProviderIconComponent = React.ComponentType<{ size?: number }>;
+
+function identityProviderLoginURL(baseURL: string, provider: LoginIdentityProvider, returnURL: string) {
+  const target = new URL(`${baseURL.replace(/\/$/, "")}/api/admin/auth/oauth/start`);
+  target.searchParams.set("id", provider.id);
+  target.searchParams.set("return_url", returnURL);
+  return target.toString();
+}
+
+function loginIdentityProviderDisplayName(provider: LoginIdentityProvider) {
+  if (provider.display_name) return provider.display_name;
+  const iconKey = loginIdentityProviderIconKey(provider);
+  const label = identityProviderIconLabel(iconKey);
+  if (label !== "自动" && label !== "SSO" && label !== "OIDC" && label !== "OAuth2" && label !== "SAML" && label !== "LDAP") {
+    return label;
+  }
+  return provider.name;
+}
+
+function LoginIdentityProviderIcon({ provider }: { provider: LoginIdentityProvider }) {
+  const iconKey = loginIdentityProviderIconKey(provider);
+  const iconConfig = loginIdentityProviderIconConfig(iconKey);
+  const Icon = iconConfig.icon;
+  return (
+    <span className={`login-sso-icon ${iconConfig.key}`} aria-hidden="true">
+      <Icon size={15} />
+    </span>
+  );
+}
+
+function loginIdentityProviderIconKey(provider: LoginIdentityProvider) {
+  const configured = normalizedIdentityProviderIconKey(provider.icon_key);
+  if (configured && configured !== "auto") return configured;
+  const providerType = stringifyValue(provider.provider_type).trim().toLowerCase();
+  const fingerprint = `${provider.name} ${provider.issuer_url ?? ""} ${providerType}`.toLowerCase();
+  for (const key of ["gitlab", "github", "google", "microsoft", "azure", "entra", "okta", "keycloak"]) {
+    if (fingerprint.includes(key)) {
+      return key === "azure" || key === "entra" ? "microsoft" : key;
+    }
+  }
+  return normalizedIdentityProviderIconKey(providerType) || "sso";
+}
+
+function normalizedIdentityProviderIconKey(value: string | undefined) {
+  const normalized = stringifyValue(value).trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  return identityProviderIconOptions.includes(normalized) ? normalized : "";
+}
+
+function GoogleBrandIcon({ size = 15 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
+      <path fill="#4285f4" d="M22.6 12.2c0-.8-.1-1.6-.2-2.3H12v4.4h5.9c-.3 1.4-1.1 2.6-2.3 3.4v2.8h3.7c2.1-2 3.3-4.8 3.3-8.3z" />
+      <path fill="#34a853" d="M12 23c3 0 5.5-1 7.3-2.6l-3.7-2.8c-1 .7-2.2 1.1-3.6 1.1-2.8 0-5.2-1.9-6.1-4.5H2.1V17C3.9 20.6 7.6 23 12 23z" />
+      <path fill="#fbbc05" d="M5.9 14.2c-.2-.7-.4-1.4-.4-2.2s.1-1.5.4-2.2V7H2.1C1.4 8.5 1 10.2 1 12s.4 3.5 1.1 5l3.8-2.8z" />
+      <path fill="#ea4335" d="M12 5.3c1.6 0 3.1.6 4.2 1.7l3.2-3.2C17.5 2 15 1 12 1 7.6 1 3.9 3.4 2.1 7l3.8 2.8C6.8 7.2 9.2 5.3 12 5.3z" />
+    </svg>
+  );
+}
+
+function GitLabBrandIcon({ size = 15 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
+      <path fill="#fc6d26" d="M12 22 3.2 8.7h5.3L12 22z" />
+      <path fill="#e24329" d="M3.2 8.7 4.8 3.9c.2-.6 1-.6 1.2 0l2.5 4.8H3.2z" />
+      <path fill="#fca326" d="M12 22 20.8 8.7h-5.3L12 22z" />
+      <path fill="#e24329" d="m20.8 8.7-1.6-4.8c-.2-.6-1-.6-1.2 0l-2.5 4.8h5.3z" />
+      <path fill="#fc6d26" d="M8.5 8.7h7L12 22 8.5 8.7z" />
+    </svg>
+  );
+}
+
+function GitHubBrandIcon({ size = 15 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M12 1.8C6.4 1.8 1.8 6.4 1.8 12c0 4.5 2.9 8.3 7 9.7.5.1.7-.2.7-.5v-1.8c-2.8.6-3.4-1.2-3.4-1.2-.5-1.1-1.1-1.4-1.1-1.4-.9-.6.1-.6.1-.6 1 0 1.6 1.1 1.6 1.1.9 1.6 2.4 1.1 2.9.9.1-.7.4-1.1.7-1.4-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1.1-2.8-.1-.3-.5-1.3.1-2.7 0 0 .9-.3 2.9 1.1.8-.2 1.7-.3 2.6-.3s1.8.1 2.6.3c2-1.4 2.9-1.1 2.9-1.1.6 1.4.2 2.4.1 2.7.7.8 1.1 1.7 1.1 2.8 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.8v2.6c0 .3.2.6.7.5 4.1-1.4 7-5.2 7-9.7C22.2 6.4 17.6 1.8 12 1.8z"
+      />
+    </svg>
+  );
+}
+
+function MicrosoftBrandIcon({ size = 15 }: { size?: number }) {
+  const gap = 1.2;
+  const cell = (24 - gap) / 2;
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
+      <rect x="0" y="0" width={cell} height={cell} fill="#f25022" />
+      <rect x={cell + gap} y="0" width={cell} height={cell} fill="#7fba00" />
+      <rect x="0" y={cell + gap} width={cell} height={cell} fill="#00a4ef" />
+      <rect x={cell + gap} y={cell + gap} width={cell} height={cell} fill="#ffb900" />
+    </svg>
+  );
+}
+
+function loginIdentityProviderIconConfig(key: string): { key: string; icon: LoginIdentityProviderIconComponent } {
+  switch (key) {
+    case "gitlab":
+      return { key, icon: GitLabBrandIcon };
+    case "github":
+      return { key, icon: GitHubBrandIcon };
+    case "google":
+      return { key, icon: GoogleBrandIcon };
+    case "microsoft":
+      return { key, icon: MicrosoftBrandIcon };
+    case "okta":
+      return { key, icon: UserRoundCheck };
+    case "keycloak":
+      return { key, icon: LockKeyhole };
+    case "oidc":
+      return { key, icon: Fingerprint };
+    case "oauth2":
+      return { key, icon: KeyRound };
+    case "saml":
+      return { key, icon: ShieldCheck };
+    case "ldap":
+      return { key, icon: Users };
+    default:
+      return { key: "sso", icon: ShieldCheck };
+  }
+}
+
 function LoginView({
   loading,
   error,
+  baseURL,
+  identityProviders,
+  oauthReturnURL,
   theme,
   onThemeToggle,
   onLogin,
 }: {
   loading: boolean;
   error: string;
+  baseURL: string;
+  identityProviders: LoginIdentityProvider[];
+  oauthReturnURL: string;
   theme: "light" | "dark";
   onThemeToggle: () => void;
   onLogin: (identity: string, password: string) => void;
@@ -3615,6 +3843,12 @@ function LoginView({
     event.preventDefault();
     onLogin(identity, password);
   }
+
+  const ssoListClassName = [
+    "login-sso-list",
+    identityProviders.length > 1 ? "multi" : "",
+    identityProviders.length > 1 ? `count-${Math.min(identityProviders.length, 3)}` : "",
+  ].filter(Boolean).join(" ");
 
   return (
     <main className="login-shell" data-theme={theme}>
@@ -3756,6 +3990,37 @@ function LoginView({
           <button className="button login-submit" disabled={loading} type="submit">
             {loading ? tx("登录中") : tx("登录控制台")}
           </button>
+          {identityProviders.length > 0 ? (
+            <>
+              <div className="login-divider" aria-hidden="true">
+                <span />
+                <small>{tx("或")}</small>
+                <span />
+              </div>
+              <div className={ssoListClassName}>
+                {identityProviders.map((provider) => {
+                  const displayName = loginIdentityProviderDisplayName(provider);
+                  return (
+                    <a
+                      aria-disabled={loading}
+                      aria-label={`${tx("使用")} ${displayName} ${tx("登录")}`}
+                      className="login-sso-button"
+                      href={identityProviderLoginURL(baseURL, provider, oauthReturnURL)}
+                      key={provider.id}
+                      onClick={(event) => {
+                        if (loading) event.preventDefault();
+                      }}
+                    >
+                      <LoginIdentityProviderIcon provider={provider} />
+                      <span className="login-sso-label">
+                        {identityProviders.length > 1 ? displayName : `${tx("使用")} ${displayName} ${tx("登录")}`}
+                      </span>
+                    </a>
+                  );
+                })}
+              </div>
+            </>
+          ) : null}
         </form>
       </section>
     </main>
@@ -8514,12 +8779,15 @@ function systemSettingConfig(): ResourceConfig<AdminResource> {
 function identityProviderConfig(): ResourceConfig<AdminResource> {
   const fields: FieldConfig[] = [
     { key: "provider_type", label: "类型", type: "select", options: ["oidc", "oauth2", "saml", "ldap"], required: true },
+    { key: "icon_key", label: "登录图标", type: "select", options: identityProviderIconOptions, help: "auto 会根据名称、Issuer URL 和类型自动选择登录页图标。" },
+    { key: "login_label", label: "登录显示名称", placeholder: "Google", help: "登录按钮上的名称；留空时按图标、Issuer 或身份源名称自动推断。" },
     { key: "issuer_url", label: "Issuer URL" },
     { key: "client_id", label: "Client ID" },
     { key: "client_secret", label: "Client Secret", type: "password", help: "编辑时留空则不修改已保存密钥。" },
     { key: "authorize_url", label: "Authorize URL" },
     { key: "token_url", label: "Token URL" },
     { key: "userinfo_url", label: "UserInfo URL" },
+    { key: "redirect_uri", label: "Callback URL", help: "必须与 OAuth 应用中登记的 Redirect URI 完全一致；留空时按当前后端访问地址自动生成。" },
     { key: "scopes", label: "Scopes" },
     { key: "username_claim", label: "用户名字段" },
     { key: "email_claim", label: "邮箱字段" },
@@ -8533,6 +8801,8 @@ function identityProviderConfig(): ResourceConfig<AdminResource> {
     columns: [
       { key: "name", label: "名称" },
       { key: "provider_type", label: "类型", render: (item) => identityProviderTypeLabel(stringifyValue(item.fields?.provider_type)) },
+      { key: "icon_key", label: "图标", render: (item) => identityProviderIconLabel(stringifyValue(item.fields?.icon_key)) },
+      { key: "login_label", label: "登录显示", render: (item) => stringifyValue(item.fields?.login_label) || "-" },
       { key: "issuer_url", label: "Issuer", render: (item) => stringifyValue(item.fields?.issuer_url) || "-" },
       { key: "client_id", label: "Client ID", render: (item) => stringifyValue(item.fields?.client_id) || "-" },
       { key: "scopes", label: "Scopes", render: (item) => compactList(item.fields?.scopes) },
@@ -9898,8 +10168,11 @@ function defaultFormValues<T>(config: ResourceConfig<T>, data: AppData) {
     if (field.key === "menu_scopes") values[field.key] = "overview, projects";
     if (field.key === "assignable") values[field.key] = "true";
     if (field.key === "provider_type") values[field.key] = "oidc";
+    if (field.key === "icon_key") values[field.key] = "auto";
+    if (field.key === "login_label") values[field.key] = "";
     if (field.key === "issuer_url") values[field.key] = "https://sso.example.com";
     if (field.key === "client_id") values[field.key] = "tokenhub-admin";
+    if (field.key === "redirect_uri") values[field.key] = "http://localhost:8080/api/admin/auth/oauth/callback";
     if (field.key === "scopes") values[field.key] = "openid, profile, email";
     if (field.key === "username_claim") values[field.key] = "preferred_username";
     if (field.key === "email_claim") values[field.key] = "email";
@@ -11095,6 +11368,25 @@ function identityProviderTypeLabel(type: string) {
   return labels[type] ?? (type || "-");
 }
 
+function identityProviderIconLabel(iconKey: string) {
+  const normalized = normalizedIdentityProviderIconKey(iconKey);
+  const labels: Record<string, string> = {
+    auto: "自动",
+    gitlab: "GitLab",
+    github: "GitHub",
+    google: "Google",
+    microsoft: "Microsoft",
+    okta: "Okta",
+    keycloak: "Keycloak",
+    oidc: "OIDC",
+    oauth2: "OAuth2",
+    saml: "SAML",
+    ldap: "LDAP",
+    sso: "SSO",
+  };
+  return labels[normalized] ?? (iconKey || "-");
+}
+
 function dataScopeLabel(scope: string) {
   const labels: Record<string, string> = {
     global: "全局",
@@ -11200,6 +11492,7 @@ function fieldValueLabel(fieldKey: string, value: unknown): string {
   if (normalizedKey.includes("role")) return roleLabel(text);
   if (normalizedKey.includes("scope")) return dataScopeLabel(text);
   if (normalizedKey.includes("provider_type")) return providerTypeLabel(text);
+  if (normalizedKey === "icon_key") return identityProviderIconLabel(text);
   if (normalizedKey === "status" || normalizedKey.includes("status")) return enumValueLabel(text);
   if (normalizedKey === "strategy") return routeStrategyLabel(text);
   if (normalizedKey === "trigger") return approvalTriggerLabel(text);
@@ -11725,6 +12018,61 @@ type SavedSession = {
   user: AdminUser;
   expiresAt: string;
 };
+
+type OAuthLoginResult = {
+  token?: string;
+  expiresAt?: string;
+  error?: string;
+};
+
+function readOAuthLoginResult(): OAuthLoginResult | null {
+  if (typeof window === "undefined") return null;
+  const sources = [window.location.hash.replace(/^#/, ""), window.location.search.replace(/^\?/, "")];
+  for (const source of sources) {
+    if (!source) continue;
+    const params = new URLSearchParams(source);
+    const token = params.get("oauth_token") ?? "";
+    const error = params.get("oauth_error") ?? "";
+    if (token || error) {
+      return {
+        token,
+        error,
+        expiresAt: params.get("oauth_expires_at") ?? undefined,
+      };
+    }
+  }
+  return null;
+}
+
+function clearOAuthLoginResult() {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  let changed = false;
+  for (const key of ["oauth_token", "oauth_expires_at", "oauth_error"]) {
+    if (url.searchParams.has(key)) {
+      url.searchParams.delete(key);
+      changed = true;
+    }
+  }
+  if (url.hash) {
+    const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+    let hashChanged = false;
+    for (const key of ["oauth_token", "oauth_expires_at", "oauth_error"]) {
+      if (hashParams.has(key)) {
+        hashParams.delete(key);
+        hashChanged = true;
+      }
+    }
+    if (hashChanged) {
+      const nextHash = hashParams.toString();
+      url.hash = nextHash ? `#${nextHash}` : "";
+      changed = true;
+    }
+  }
+  if (changed) {
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+}
 
 function readSavedSession(): SavedSession | null {
   if (typeof window === "undefined") return null;

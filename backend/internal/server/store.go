@@ -113,6 +113,7 @@ type Store interface {
 	UpdateAdminUser(id string, patch AdminUser, password string) (AdminUser, error)
 	DeleteAdminUser(id string) error
 	AuthenticateAdminUser(identity string, password string, ttl time.Duration) (AdminUser, AdminSession, error)
+	CreateAdminSession(userID string, ttl time.Duration) (AdminUser, AdminSession, error)
 	ValidateAdminSession(token string) (AdminUser, bool)
 	RevokeAdminSession(token string)
 	CreateSQLiteBackup(createdBy string, expireDays int) (SQLiteBackupRecord, error)
@@ -2273,6 +2274,38 @@ func (s *GormStore) AuthenticateAdminUser(identity string, password string, ttl 
 	}
 	if user.PasswordHash != HashSecret(password) {
 		return AdminUser{}, AdminSession{}, NewHTTPError(401, "invalid_credentials", "Invalid username or password")
+	}
+	now := time.Now().UTC()
+	session := AdminSession{
+		Token:     GenerateAdminSessionToken(),
+		UserID:    user.ID,
+		CreatedAt: now,
+		ExpiresAt: now.Add(ttl),
+	}
+	user.LastLoginAt = &now
+	user.UpdatedAt = now
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&user).Error; err != nil {
+			return err
+		}
+		return tx.Create(&session).Error
+	})
+	if err != nil {
+		return AdminUser{}, AdminSession{}, err
+	}
+	return publicAdminUser(user), session, nil
+}
+
+func (s *GormStore) CreateAdminSession(userID string, ttl time.Duration) (AdminUser, AdminSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var user AdminUser
+	if err := s.db.First(&user, "id = ?", userID).Error; err != nil {
+		return AdminUser{}, AdminSession{}, notFound(err, "admin_user_not_found", "Admin user not found")
+	}
+	if user.Status != StatusActive {
+		return AdminUser{}, AdminSession{}, NewHTTPError(403, "admin_user_disabled", "Admin user is disabled")
 	}
 	now := time.Now().UTC()
 	session := AdminSession{

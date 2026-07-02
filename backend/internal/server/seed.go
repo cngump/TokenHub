@@ -229,6 +229,7 @@ func seedDefaultOrgResources(store Store) {
 			"authorize_url":  "https://sso.example.com/oauth2/authorize",
 			"token_url":      "https://sso.example.com/oauth2/token",
 			"userinfo_url":   "https://sso.example.com/oauth2/userinfo",
+			"redirect_uri":   "http://localhost:8080/api/admin/auth/oauth/callback",
 			"scopes":         "openid, profile, email",
 			"username_claim": "preferred_username",
 			"email_claim":    "email",

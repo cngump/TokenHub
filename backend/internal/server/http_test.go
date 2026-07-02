@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1416,6 +1417,180 @@ func TestAdminLoginAndUserManagement(t *testing.T) {
 	}
 	if !strings.Contains(users.Body, `"email":"admin@tokenhub.local"`) || strings.Contains(users.Body, "PasswordHash") {
 		t.Fatalf("unexpected users payload: %s", users.Body)
+	}
+}
+
+func TestAdminAuthIdentityProvidersListActiveOAuthSources(t *testing.T) {
+	store := NewMemoryStore()
+	store.CreateResource("identity-providers", AdminResource{
+		ID:     "idp_gitlab",
+		Name:   "GitLab OAuth",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"provider_type": "oauth2",
+			"issuer_url":    "http://gitlab.example.test",
+			"client_id":     "gitlab-client",
+			"client_secret": "secret-value",
+			"authorize_url": "http://gitlab.example.test/oauth/authorize",
+			"token_url":     "http://gitlab.example.test/oauth/token",
+			"userinfo_url":  "http://gitlab.example.test/api/v4/user",
+		},
+	})
+	store.CreateResource("identity-providers", AdminResource{
+		ID:     "idp_disabled",
+		Name:   "Disabled OAuth",
+		Status: StatusDisabled,
+		Fields: map[string]any{
+			"provider_type": "oauth2",
+			"client_id":     "disabled-client",
+			"authorize_url": "http://disabled.example.test/oauth/authorize",
+			"token_url":     "http://disabled.example.test/oauth/token",
+			"userinfo_url":  "http://disabled.example.test/userinfo",
+		},
+	})
+	store.CreateResource("identity-providers", AdminResource{
+		ID:     "idp_google",
+		Name:   "Company SSO",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"provider_type": "oauth2",
+			"icon_key":      "google",
+			"client_id":     "google-client",
+			"authorize_url": "http://accounts.example.test/oauth/authorize",
+			"token_url":     "http://accounts.example.test/oauth/token",
+			"userinfo_url":  "http://accounts.example.test/userinfo",
+		},
+	})
+	app := NewWithConfig(store, Config{AdminToken: "dev_admin_token", SecretKey: "test-secret"}).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/auth/identity-providers", nil)
+	rr := httptest.NewRecorder()
+	app.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected providers 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"id":"idp_gitlab"`) ||
+		!strings.Contains(rr.Body.String(), `"icon_key":"gitlab"`) ||
+		!strings.Contains(rr.Body.String(), `"display_name":"GitLab"`) ||
+		!strings.Contains(rr.Body.String(), `"id":"idp_google"`) ||
+		!strings.Contains(rr.Body.String(), `"icon_key":"google"`) ||
+		!strings.Contains(rr.Body.String(), `"display_name":"Google"`) ||
+		strings.Contains(rr.Body.String(), "secret-value") ||
+		strings.Contains(rr.Body.String(), "idp_disabled") {
+		t.Fatalf("unexpected providers payload: %s", rr.Body.String())
+	}
+}
+
+func TestAdminOAuthLoginCreatesSession(t *testing.T) {
+	var receivedTokenRequest bool
+	var receivedUserInfoRequest bool
+	oauthServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oauth/token":
+			receivedTokenRequest = true
+			if r.Method != http.MethodPost {
+				t.Fatalf("token method = %s", r.Method)
+			}
+			if err := r.ParseForm(); err != nil {
+				t.Fatal(err)
+			}
+			if r.FormValue("grant_type") != "authorization_code" ||
+				r.FormValue("code") != "oauth-code" ||
+				r.FormValue("client_id") != "gitlab-client" ||
+				r.FormValue("client_secret") != "gitlab-secret" ||
+				r.FormValue("redirect_uri") != "http://localhost:8080/api/admin/auth/oauth/callback" {
+				t.Fatalf("unexpected token form: %+v", r.Form)
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"access_token": "gitlab-access-token", "token_type": "Bearer"})
+		case "/api/v4/user":
+			receivedUserInfoRequest = true
+			if r.Header.Get("authorization") != "Bearer gitlab-access-token" {
+				t.Fatalf("unexpected userinfo authorization: %s", r.Header.Get("authorization"))
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"name":       "GitLab User",
+				"email":      "gitlab.user@example.test",
+				"department": "Product",
+			})
+		default:
+			t.Fatalf("unexpected oauth path: %s", r.URL.Path)
+		}
+	}))
+	defer oauthServer.Close()
+
+	store := NewMemoryStore()
+	store.CreateResource("identity-providers", AdminResource{
+		ID:     "idp_gitlab",
+		Name:   "GitLab OAuth",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"provider_type":  "oauth2",
+			"issuer_url":     oauthServer.URL,
+			"client_id":      "gitlab-client",
+			"client_secret":  "gitlab-secret",
+			"authorize_url":  oauthServer.URL + "/oauth/authorize",
+			"token_url":      oauthServer.URL + "/oauth/token",
+			"userinfo_url":   oauthServer.URL + "/api/v4/user",
+			"redirect_uri":   "http://localhost:8080/api/admin/auth/oauth/callback",
+			"scopes":         "openid profile email read_user",
+			"username_claim": "name",
+			"email_claim":    "email",
+			"team_claim":     "department",
+		},
+	})
+	app := NewWithConfig(store, Config{AdminToken: "dev_admin_token", SecretKey: "test-secret"}).Handler()
+
+	startReq := httptest.NewRequest(http.MethodGet, "/api/admin/auth/oauth/start?id=idp_gitlab&return_url=http%3A%2F%2Flocalhost%3A3001%2Foverview", nil)
+	startReq.Host = "127.0.0.1:8080"
+	startResp := httptest.NewRecorder()
+	app.ServeHTTP(startResp, startReq)
+	if startResp.Code != http.StatusFound {
+		t.Fatalf("expected start redirect, got %d: %s", startResp.Code, startResp.Body.String())
+	}
+	authorizeLocation, err := url.Parse(startResp.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authorizeLocation.Path != "/oauth/authorize" {
+		t.Fatalf("unexpected authorize location: %s", authorizeLocation.String())
+	}
+	authorizeQuery := authorizeLocation.Query()
+	if authorizeQuery.Get("client_id") != "gitlab-client" ||
+		authorizeQuery.Get("redirect_uri") != "http://localhost:8080/api/admin/auth/oauth/callback" ||
+		authorizeQuery.Get("scope") != "openid profile email read_user" ||
+		authorizeQuery.Get("response_type") != "code" ||
+		authorizeQuery.Get("state") == "" {
+		t.Fatalf("unexpected authorize query: %s", authorizeLocation.RawQuery)
+	}
+
+	callbackReq := httptest.NewRequest(http.MethodGet, "/api/admin/auth/oauth/callback?code=oauth-code&state="+url.QueryEscape(authorizeQuery.Get("state")), nil)
+	callbackReq.Host = "localhost:8080"
+	callbackResp := httptest.NewRecorder()
+	app.ServeHTTP(callbackResp, callbackReq)
+	if callbackResp.Code != http.StatusFound {
+		t.Fatalf("expected callback redirect, got %d: %s", callbackResp.Code, callbackResp.Body.String())
+	}
+	if !receivedTokenRequest || !receivedUserInfoRequest {
+		t.Fatalf("expected token and userinfo requests, token=%v userinfo=%v", receivedTokenRequest, receivedUserInfoRequest)
+	}
+	returnLocation, err := url.Parse(callbackResp.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if returnLocation.String() == "" || returnLocation.Scheme != "http" || returnLocation.Host != "localhost:3001" || returnLocation.Path != "/overview" {
+		t.Fatalf("unexpected return location: %s", returnLocation.String())
+	}
+	returnParams, err := url.ParseQuery(returnLocation.Fragment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionToken := returnParams.Get("oauth_token")
+	if sessionToken == "" || returnParams.Get("oauth_expires_at") == "" {
+		t.Fatalf("missing oauth session fragment: %s", returnLocation.Fragment)
+	}
+	me := doJSON(t, app, http.MethodGet, "/api/admin/auth/me", nil, sessionToken)
+	if me.Code != http.StatusOK || !strings.Contains(me.Body, `"email":"gitlab.user@example.test"`) || !strings.Contains(me.Body, `"role":"user"`) {
+		t.Fatalf("unexpected me response: %d %s", me.Code, me.Body)
 	}
 }
 
