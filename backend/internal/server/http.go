@@ -67,6 +67,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/admin/auth/login", s.handleAdminLogin)
 	s.mux.HandleFunc("/api/admin/auth/logout", s.handleAdminLogout)
 	s.mux.HandleFunc("/api/admin/auth/me", s.handleAdminMe)
+	s.mux.HandleFunc("/api/admin/auth/reset-password", s.handleAdminResetPassword)
 	s.mux.HandleFunc("/api/admin/overview", s.handleAdminOverview)
 	s.mux.HandleFunc("/api/admin/playground/chat", s.handleAdminPlaygroundChat)
 	s.mux.HandleFunc("/api/admin/projects", s.handleAdminProjects)
@@ -792,6 +793,35 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleAdminResetPassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
+		return
+	}
+	var req struct {
+		Token    string `json:"token"`
+		Password string `json:"password"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, r, NewHTTPError(400, "invalid_request", err.Error()))
+		return
+	}
+	if strings.TrimSpace(req.Token) == "" || strings.TrimSpace(req.Password) == "" {
+		writeError(w, r, NewHTTPError(400, "invalid_reset_request", "token and password are required"))
+		return
+	}
+	if len(req.Password) < 8 {
+		writeError(w, r, NewHTTPError(400, "weak_password", "Password must be at least 8 characters"))
+		return
+	}
+	user, err := s.store.ResetAdminUserPassword(req.Token, req.Password)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": user})
+}
+
 func (s *Server) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
@@ -1101,21 +1131,28 @@ func (s *Server) handleAdminUsersImport(w http.ResponseWriter, r *http.Request) 
 		writeError(w, r, NewHTTPError(400, "invalid_import", "no users to import"))
 		return
 	}
+	mailChannel, err := s.resolvePasswordResetMailChannel()
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
 
 	existing := s.store.ListAdminUsers()
 	result := map[string]any{
-		"source":  strings.TrimSpace(req.Source),
-		"format":  strings.TrimSpace(req.Format),
-		"created": 0,
-		"updated": 0,
-		"skipped": 0,
-		"errors":  []string{},
-		"users":   []AdminUser{},
+		"source":            strings.TrimSpace(req.Source),
+		"format":            strings.TrimSpace(req.Format),
+		"created":           0,
+		"updated":           0,
+		"skipped":           0,
+		"reset_emails_sent": 0,
+		"errors":            []string{},
+		"users":             []AdminUser{},
 	}
 	importedUsers := []AdminUser{}
 	errors := []string{}
 	created := 0
 	updated := 0
+	resetEmailsSent := 0
 	skipped := 0
 
 	for index, item := range users {
@@ -1152,6 +1189,11 @@ func (s *Server) handleAdminUsersImport(w http.ResponseWriter, r *http.Request) 
 			}
 			importedUsers = append(importedUsers, user)
 			updated++
+			if err := s.sendAdminPasswordResetEmail(r, mailChannel, user, actor.ID); err != nil {
+				errors = append(errors, fmt.Sprintf("row %d: reset email failed: %s", index+1, err.Error()))
+			} else {
+				resetEmailsSent++
+			}
 			for i := range existing {
 				if existing[i].ID == user.ID {
 					existing[i] = user
@@ -1170,11 +1212,17 @@ func (s *Server) handleAdminUsersImport(w http.ResponseWriter, r *http.Request) 
 		importedUsers = append(importedUsers, user)
 		existing = append(existing, user)
 		created++
+		if err := s.sendAdminPasswordResetEmail(r, mailChannel, user, actor.ID); err != nil {
+			errors = append(errors, fmt.Sprintf("row %d: reset email failed: %s", index+1, err.Error()))
+		} else {
+			resetEmailsSent++
+		}
 	}
 
 	result["created"] = created
 	result["updated"] = updated
 	result["skipped"] = skipped
+	result["reset_emails_sent"] = resetEmailsSent
 	result["errors"] = errors
 	result["users"] = importedUsers
 	s.recordAdminAudit(r, actor, "import", "admin_user", "", "", result)
@@ -1328,9 +1376,18 @@ func (s *Server) handleAdminUserItem(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	userID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/admin/users/"), "/")
-	if userID == "" || strings.Contains(userID, "/") {
+	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/admin/users/"), "/"), "/")
+	if len(parts) == 0 || parts[0] == "" || len(parts) > 2 {
 		writeError(w, r, NewHTTPError(404, "not_found", "Not found"))
+		return
+	}
+	userID := parts[0]
+	if len(parts) == 2 {
+		if parts[1] != "reset-password-email" || r.Method != http.MethodPost {
+			writeError(w, r, NewHTTPError(404, "not_found", "Not found"))
+			return
+		}
+		s.handleAdminUserResetPasswordEmail(w, r, actor, userID)
 		return
 	}
 	switch r.Method {
@@ -1396,6 +1453,29 @@ func (s *Server) handleAdminUserItem(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
 	}
+}
+
+func (s *Server) handleAdminUserResetPasswordEmail(w http.ResponseWriter, r *http.Request, actor AdminUser, userID string) {
+	target, ok := s.findAdminUser(userID)
+	if !ok {
+		writeError(w, r, NewHTTPError(404, "admin_user_not_found", "Admin user not found"))
+		return
+	}
+	if normalizeAdminRole(actor.Role) == "team_leader" && (target.TeamID != actor.TeamID || normalizeAdminRole(target.Role) != "user") {
+		writeError(w, r, NewHTTPError(403, "team_forbidden", "Team leader can only manage ordinary users in own team"))
+		return
+	}
+	mailChannel, err := s.resolvePasswordResetMailChannel()
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	if err := s.sendAdminPasswordResetEmail(r, mailChannel, target, actor.ID); err != nil {
+		writeError(w, r, err)
+		return
+	}
+	s.recordAdminAudit(r, actor, "send_reset_password_email", "admin_user", userID, "", map[string]any{"email": target.Email})
+	writeJSON(w, http.StatusOK, map[string]any{"sent": true, "user": target})
 }
 
 func (s *Server) handleAdminAPIKeys(w http.ResponseWriter, r *http.Request) {
@@ -3443,6 +3523,15 @@ func notificationChannelTarget(channel AdminResource) string {
 
 func sendEmailAlert(ctx context.Context, channel AdminResource, alert AlertEvent) error {
 	fields := channel.Fields
+	from := strings.TrimSpace(firstStringField(fields, "smtp_from", "from_email", "from"))
+	recipients := splitNotificationRecipients(firstStringField(fields, "email_to", "recipients", "to"))
+	if len(recipients) == 0 {
+		return fmt.Errorf("email_to is required")
+	}
+	return sendEmail(ctx, fields, recipients, emailAlertMessage(from, recipients, alert))
+}
+
+func sendEmail(ctx context.Context, fields map[string]any, recipients []string, message []byte) error {
 	host := strings.TrimSpace(stringField(fields, "smtp_host"))
 	if host == "" {
 		return fmt.Errorf("smtp_host is required")
@@ -3455,11 +3544,6 @@ func sendEmailAlert(ctx context.Context, channel AdminResource, alert AlertEvent
 	if from == "" {
 		return fmt.Errorf("smtp_from is required")
 	}
-	recipients := splitNotificationRecipients(firstStringField(fields, "email_to", "recipients", "to"))
-	if len(recipients) == 0 {
-		return fmt.Errorf("email_to is required")
-	}
-
 	addr := net.JoinHostPort(host, strconv.FormatInt(port, 10))
 	dialer := net.Dialer{Timeout: 5 * time.Second}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
@@ -3497,7 +3581,7 @@ func sendEmailAlert(ctx context.Context, channel AdminResource, alert AlertEvent
 	if err != nil {
 		return err
 	}
-	if _, err := writer.Write(emailAlertMessage(from, recipients, alert)); err != nil {
+	if _, err := writer.Write(message); err != nil {
 		_ = writer.Close()
 		return err
 	}
@@ -3518,6 +3602,89 @@ func splitNotificationRecipients(value string) []string {
 		}
 	}
 	return recipients
+}
+
+func (s *Server) resolvePasswordResetMailChannel() (AdminResource, error) {
+	channels := s.store.ListResources("notification-channels")
+	for _, channel := range channels {
+		if channel.Status != StatusActive || normalizeNotificationChannelType(stringField(channel.Fields, "type")) != "email" {
+			continue
+		}
+		if err := validatePasswordResetMailChannel(channel); err == nil {
+			return channel, nil
+		}
+	}
+	return AdminResource{}, NewHTTPError(400, "email_notification_required", "Active email notification channel with SMTP host, port and sender is required")
+}
+
+func validatePasswordResetMailChannel(channel AdminResource) error {
+	fields := channel.Fields
+	if normalizeNotificationChannelType(stringField(fields, "type")) != "email" {
+		return fmt.Errorf("email notification channel is required")
+	}
+	if strings.TrimSpace(stringField(fields, "smtp_host")) == "" {
+		return fmt.Errorf("smtp_host is required")
+	}
+	if int64Field(fields, "smtp_port") <= 0 {
+		return fmt.Errorf("smtp_port is required")
+	}
+	if strings.TrimSpace(firstStringField(fields, "smtp_from", "from_email", "from")) == "" {
+		return fmt.Errorf("smtp_from is required")
+	}
+	return nil
+}
+
+func (s *Server) sendAdminPasswordResetEmail(r *http.Request, channel AdminResource, user AdminUser, createdBy string) error {
+	if strings.TrimSpace(user.Email) == "" {
+		return NewHTTPError(400, "missing_user_email", "User email is required")
+	}
+	plainToken, token, err := s.store.CreateAdminPasswordResetToken(user.ID, createdBy, 24*time.Hour)
+	if err != nil {
+		return err
+	}
+	resetLink := adminPasswordResetLink(r, plainToken)
+	return sendEmail(r.Context(), channel.Fields, []string{user.Email}, passwordResetEmailMessage(channel.Fields, []string{user.Email}, user, resetLink, token.ExpiresAt))
+}
+
+func adminPasswordResetLink(r *http.Request, token string) string {
+	baseURL := ""
+	if r != nil {
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		if proto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); proto != "" {
+			scheme = strings.TrimSpace(strings.Split(proto, ",")[0])
+		}
+		if host := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); host != "" {
+			baseURL = scheme + "://" + strings.TrimSpace(strings.Split(host, ",")[0])
+		} else if r.Host != "" {
+			baseURL = scheme + "://" + r.Host
+		}
+	}
+	if baseURL == "" {
+		baseURL = "http://localhost:3000"
+	}
+	return strings.TrimRight(baseURL, "/") + "/?reset_token=" + token
+}
+
+func passwordResetEmailMessage(fields map[string]any, recipients []string, user AdminUser, resetLink string, expiresAt time.Time) []byte {
+	from := strings.TrimSpace(firstStringField(fields, "smtp_from", "from_email", "from"))
+	subject := sanitizeEmailHeader("[TokenHub] 重置控制台登录密码")
+	body := fmt.Sprintf("您好 %s，\n\n管理员已为您的 TokenHub 控制台账号发起密码重置。\n账号：%s\n邮箱：%s\n\n请在 24 小时内打开以下链接设置新密码：\n%s\n\n过期时间：%s\n如非本人操作，请联系管理员。\n",
+		defaultString(user.Name, user.Username),
+		user.Username,
+		user.Email,
+		resetLink,
+		expiresAt.Format(time.RFC3339),
+	)
+	message := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
+		sanitizeEmailHeader(from),
+		sanitizeEmailHeader(strings.Join(recipients, ", ")),
+		subject,
+		body,
+	)
+	return []byte(message)
 }
 
 func emailAlertMessage(from string, recipients []string, alert AlertEvent) []byte {

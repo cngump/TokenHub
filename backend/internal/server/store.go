@@ -112,6 +112,8 @@ type Store interface {
 	ListAdminUsers() []AdminUser
 	UpdateAdminUser(id string, patch AdminUser, password string) (AdminUser, error)
 	DeleteAdminUser(id string) error
+	CreateAdminPasswordResetToken(userID string, createdBy string, ttl time.Duration) (string, AdminPasswordResetToken, error)
+	ResetAdminUserPassword(token string, password string) (AdminUser, error)
 	AuthenticateAdminUser(identity string, password string, ttl time.Duration) (AdminUser, AdminSession, error)
 	ValidateAdminSession(token string) (AdminUser, bool)
 	RevokeAdminSession(token string)
@@ -208,6 +210,7 @@ func NewSQLiteStoreWithConfig(databaseURL string, config Config) (*GormStore, er
 		&ApprovalRequest{},
 		&AdminUser{},
 		&AdminSession{},
+		&AdminPasswordResetToken{},
 		&SQLiteBackupRecord{},
 	); err != nil {
 		return nil, err
@@ -2255,8 +2258,71 @@ func (s *GormStore) DeleteAdminUser(id string) error {
 		if err := tx.Where("user_id = ?", id).Delete(&AdminSession{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("user_id = ?", id).Delete(&AdminPasswordResetToken{}).Error; err != nil {
+			return err
+		}
 		return tx.Delete(&user).Error
 	})
+}
+
+func (s *GormStore) CreateAdminPasswordResetToken(userID string, createdBy string, ttl time.Duration) (string, AdminPasswordResetToken, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var user AdminUser
+	if err := s.db.First(&user, "id = ?", userID).Error; err != nil {
+		return "", AdminPasswordResetToken{}, notFound(err, "admin_user_not_found", "Admin user not found")
+	}
+	now := time.Now().UTC()
+	plainToken := NewID("rst") + NewID("tok")
+	item := AdminPasswordResetToken{
+		ID:        NewID("rtk"),
+		UserID:    userID,
+		TokenHash: HashSecret(plainToken),
+		ExpiresAt: now.Add(ttl),
+		CreatedBy: createdBy,
+		CreatedAt: now,
+	}
+	if err := s.db.Create(&item).Error; err != nil {
+		return "", AdminPasswordResetToken{}, err
+	}
+	return plainToken, item, nil
+}
+
+func (s *GormStore) ResetAdminUserPassword(token string, password string) (AdminUser, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if strings.TrimSpace(token) == "" || strings.TrimSpace(password) == "" {
+		return AdminUser{}, NewHTTPError(400, "invalid_reset_request", "token and password are required")
+	}
+	var item AdminPasswordResetToken
+	if err := s.db.First(&item, "token_hash = ?", HashSecret(token)).Error; err != nil {
+		return AdminUser{}, NewHTTPError(400, "invalid_reset_token", "Reset token is invalid or expired")
+	}
+	if item.UsedAt != nil || time.Now().UTC().After(item.ExpiresAt) {
+		return AdminUser{}, NewHTTPError(400, "invalid_reset_token", "Reset token is invalid or expired")
+	}
+	var user AdminUser
+	if err := s.db.First(&user, "id = ?", item.UserID).Error; err != nil {
+		return AdminUser{}, notFound(err, "admin_user_not_found", "Admin user not found")
+	}
+	now := time.Now().UTC()
+	user.PasswordHash = HashSecret(password)
+	user.UpdatedAt = now
+	item.UsedAt = &now
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(&user).Error; err != nil {
+			return err
+		}
+		if err := tx.Save(&item).Error; err != nil {
+			return err
+		}
+		return tx.Where("user_id = ?", user.ID).Delete(&AdminSession{}).Error
+	}); err != nil {
+		return AdminUser{}, err
+	}
+	return publicAdminUser(user), nil
 }
 
 func (s *GormStore) AuthenticateAdminUser(identity string, password string, ttl time.Duration) (AdminUser, AdminSession, error) {

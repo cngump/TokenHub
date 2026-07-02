@@ -2878,6 +2878,7 @@ export default function AdminHome() {
   const [confirmDelete, setConfirmDelete] = useState<ConfirmState<any> | null>(null);
   const [issuedKey, setIssuedKey] = useState("");
   const [reportHistory, setReportHistory] = useState<ReportExportHistoryItem[]>([]);
+  const resetToken = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("reset_token") ?? "";
 
   const api = useMemo(() => ({ baseURL, adminToken }), [baseURL, adminToken]);
   const activeConfig = resourceConfigs[activeView];
@@ -3135,6 +3136,26 @@ export default function AdminHome() {
     }
   }
 
+  async function resetPassword(token: string, password: string) {
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const resp = await fetch(`${baseURL.replace(/\/$/, "")}/api/admin/auth/reset-password`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token, password }),
+      });
+      if (!resp.ok) throw new Error(`reset password ${resp.status}`);
+      window.history.replaceState(null, "", window.location.pathname);
+      setNotice(tx("密码已重置，请使用新密码登录"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : tx("密码重置失败"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function logout() {
     if (adminToken) {
       await adminFetch(api, "/api/admin/auth/logout", { method: "POST" }).catch(() => undefined);
@@ -3297,6 +3318,19 @@ export default function AdminHome() {
 
   if (!bootstrapped) {
     return <main className="login-shell" />;
+  }
+
+  if (resetToken && !currentUser) {
+    return (
+      <ResetPasswordView
+        loading={loading}
+        error={error}
+        theme={theme}
+        onThemeToggle={toggleTheme}
+        token={resetToken}
+        onReset={(token, password) => void resetPassword(token, password)}
+      />
+    );
   }
 
   if (!currentUser) {
@@ -3739,6 +3773,85 @@ function LoginView({
           {error ? <div className="login-error">{error}</div> : null}
           <button className="button login-submit" disabled={loading} type="submit">
             {loading ? tx("登录中") : tx("登录控制台")}
+          </button>
+        </form>
+      </section>
+    </main>
+  );
+}
+
+function ResetPasswordView({
+  loading,
+  error,
+  theme,
+  onThemeToggle,
+  token,
+  onReset,
+}: {
+  loading: boolean;
+  error: string;
+  theme: "light" | "dark";
+  onThemeToggle: () => void;
+  token: string;
+  onReset: (token: string, password: string) => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const mismatch = confirmPassword !== "" && password !== confirmPassword;
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (mismatch || password.length < 8) return;
+    onReset(token, password);
+  }
+
+  return (
+    <main className="login-shell" data-theme={theme}>
+      <button className="login-theme-toggle" onClick={onThemeToggle} title={tx("切换主题")} type="button">
+        {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
+      </button>
+      <section className="login-stage">
+        <form className="login-card" onSubmit={submit}>
+          <div className="login-card-head">
+            <h1>{tx("重置密码")}</h1>
+            <p>{tx("请设置新的控制台登录密码。")}</p>
+          </div>
+          <label className="field">
+            <span>{tx("新密码")}</span>
+            <span className="password-field">
+              <input
+                minLength={8}
+                value={password}
+                type={passwordVisible ? "text" : "password"}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+              />
+              <button
+                aria-label={passwordVisible ? tx("隐藏密码") : tx("显示密码")}
+                className="password-toggle"
+                onClick={() => setPasswordVisible((value) => !value)}
+                type="button"
+              >
+                {passwordVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </span>
+          </label>
+          <label className="field">
+            <span>{tx("确认新密码")}</span>
+            <input
+              minLength={8}
+              value={confirmPassword}
+              type={passwordVisible ? "text" : "password"}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              required
+            />
+          </label>
+          {password !== "" && password.length < 8 ? <div className="login-error">{tx("密码至少 8 位")}</div> : null}
+          {mismatch ? <div className="login-error">{tx("两次输入的密码不一致")}</div> : null}
+          {error ? <div className="login-error">{error}</div> : null}
+          <button className="button login-submit" disabled={loading || mismatch || password.length < 8} type="submit">
+            {loading ? tx("提交中") : tx("重置密码")}
           </button>
         </form>
       </section>
@@ -9021,6 +9134,14 @@ function adminUserConfig(): ResourceConfig<AdminUser> {
     create: (ctx, values) => adminMutate(ctx, "/api/admin/users", "POST", userPayload(values, true)),
     update: (ctx, item, values) => adminMutate(ctx, `/api/admin/users/${item.id}`, "PATCH", userPayload(values, false)),
     remove: (ctx, item) => adminDelete(ctx, `/api/admin/users/${item.id}`),
+    actions: [
+      {
+        label: "发送重置密码邮件",
+        title: "向该用户发送重置密码链接",
+        run: (ctx, item) => adminMutate(ctx, `/api/admin/users/${item.id}/reset-password-email`, "POST", {}),
+        doneMessage: (item) => `${item.name || item.email} 的重置密码邮件已发送`,
+      },
+    ],
     toolbarActions: [
       {
         label: "导入用户",

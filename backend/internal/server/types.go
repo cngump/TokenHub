@@ -444,6 +444,16 @@ type AdminSession struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type AdminPasswordResetToken struct {
+	ID        string     `json:"id" gorm:"primaryKey"`
+	UserID    string     `json:"user_id" gorm:"index"`
+	TokenHash string     `json:"-" gorm:"uniqueIndex"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	UsedAt    *time.Time `json:"used_at,omitempty"`
+	CreatedBy string     `json:"created_by,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
 type SQLiteBackupRecord struct {
 	ID             string     `json:"id" gorm:"primaryKey"`
 	Name           string     `json:"name"`
