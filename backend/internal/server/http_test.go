@@ -398,6 +398,28 @@ func TestAdminImportsUsersFromExistingSystemCSV(t *testing.T) {
 	}
 }
 
+func TestAdminImportsUsersFromHeaderlessCSV(t *testing.T) {
+	store := NewMemoryStore()
+	if err := BootstrapBaseData(store); err != nil {
+		t.Fatal(err)
+	}
+	app := New(store).Handler()
+
+	content := "xiemengjun,谢孟军,xiemengjun@e-lead.cn,admin,team_UK8jwEcIIoFmNVmJ,active\n" +
+		"lisk,李世康,lisk@e-lead.cn,admin,team_UK8jwEcIIoFmNVmJ,active\n"
+	resp := doJSON(t, app, http.MethodPost, "/api/admin/users/import", map[string]any{
+		"source":  "manual_csv",
+		"format":  "csv",
+		"content": content,
+	}, "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected import 200, got %d: %s", resp.Code, resp.Body)
+	}
+	if !strings.Contains(resp.Body, `"created":2`) || !strings.Contains(resp.Body, `"skipped":0`) {
+		t.Fatalf("expected two created users: %s", resp.Body)
+	}
+}
+
 func TestGatewayRejectsUnauthorizedModel(t *testing.T) {
 	app := newTestServer()
 	resp := doJSON(t, app, http.MethodPost, "/v1/chat/completions", map[string]any{

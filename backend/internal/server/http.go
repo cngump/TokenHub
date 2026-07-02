@@ -1188,13 +1188,14 @@ func parseAdminUserImportCSV(content string) ([]adminUserImportItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(records) < 2 {
-		return nil, fmt.Errorf("csv must include header and at least one user row")
+	if len(records) == 0 {
+		return nil, fmt.Errorf("csv must include at least one user row")
 	}
 	headers := map[string]int{}
 	for index, header := range records[0] {
 		headers[normalizeImportHeader(header)] = index
 	}
+	hasHeader := hasAdminUserImportHeader(headers)
 	value := func(record []string, names ...string) string {
 		for _, name := range names {
 			if index, ok := headers[name]; ok && index < len(record) {
@@ -1203,21 +1204,58 @@ func parseAdminUserImportCSV(content string) ([]adminUserImportItem, error) {
 		}
 		return ""
 	}
-	items := make([]adminUserImportItem, 0, len(records)-1)
-	for _, record := range records[1:] {
+	items := make([]adminUserImportItem, 0, len(records))
+	start := 0
+	if hasHeader {
+		start = 1
+	}
+	for _, record := range records[start:] {
 		if len(record) == 0 || strings.TrimSpace(strings.Join(record, "")) == "" {
 			continue
 		}
-		items = append(items, adminUserImportItem{
-			Username: value(record, "username"),
-			Name:     value(record, "name"),
-			Email:    value(record, "email"),
-			Role:     value(record, "role"),
-			TeamID:   value(record, "team_id", "team"),
-			Status:   value(record, "status"),
-		})
+		if hasHeader {
+			items = append(items, adminUserImportItem{
+				Username: value(record, "username"),
+				Name:     value(record, "name"),
+				Email:    value(record, "email"),
+				Role:     value(record, "role"),
+				TeamID:   value(record, "team_id", "team"),
+				Status:   value(record, "status"),
+			})
+			continue
+		}
+		items = append(items, adminUserImportItemFromRecord(record))
+	}
+	if len(items) == 0 {
+		return nil, fmt.Errorf("csv must include at least one user row")
 	}
 	return items, nil
+}
+
+func hasAdminUserImportHeader(headers map[string]int) bool {
+	for _, name := range []string{"username", "name", "email", "role", "team_id", "team", "status"} {
+		if _, ok := headers[name]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func adminUserImportItemFromRecord(record []string) adminUserImportItem {
+	field := func(index int) string {
+		if index >= 0 && index < len(record) {
+			return strings.TrimSpace(record[index])
+		}
+		return ""
+	}
+	return adminUserImportItem{
+		Username: field(0),
+		Name:     field(1),
+		Email:    field(2),
+		Role:     field(3),
+		TeamID:   field(4),
+		Status:   field(5),
+	}
 }
 
 func normalizeImportHeader(header string) string {
