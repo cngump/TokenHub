@@ -27,6 +27,34 @@ Start the stack from the repository root:
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
 ```
 
+### Optional server-side build acceleration
+
+The project Dockerfiles do not hard-code regional package mirrors. If your server has slow access to Docker Hub, npm, or Go module sources, configure acceleration on the deployment host instead of editing Dockerfiles.
+
+For Docker base image pulls, configure Docker daemon registry mirrors on the server, for example in `/etc/docker/daemon.json`, then restart Docker:
+
+```json
+{
+	"registry-mirrors": [
+		"https://<your-docker-registry-mirror>"
+	]
+}
+```
+
+For dependency downloads during image builds, prefer configuring an outbound HTTP/HTTPS proxy for Docker or BuildKit on the server. This keeps builds portable and avoids committing environment-specific npm or Go proxy settings to the repository.
+
+If you deploy in an environment where direct access to upstream registries is slow, the following server-side examples can be used as references:
+
+```bash
+# Go module downloads
+go env -w GOPROXY=https://goproxy.cn,direct
+
+# npm package downloads
+npm config set registry https://registry.npmmirror.com
+```
+
+These commands configure the server or build environment. Do not add them directly to project Dockerfiles unless you intentionally maintain an environment-specific fork.
+
 The compose file starts:
 
 - Backend on `http://localhost:8080`

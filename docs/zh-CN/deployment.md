@@ -27,6 +27,34 @@ cp deploy/.env.example deploy/.env
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
 ```
 
+### 可选：服务器侧构建加速
+
+项目 Dockerfile 不写死区域性的包镜像源。如果服务器访问 Docker Hub、npm 或 Go Module 源较慢，请优先在部署服务器上配置加速，而不是修改 Dockerfile。
+
+对于基础镜像拉取，可在服务器 Docker daemon 中配置镜像加速，例如 `/etc/docker/daemon.json`，然后重启 Docker：
+
+```json
+{
+	"registry-mirrors": [
+		"https://<your-docker-registry-mirror>"
+	]
+}
+```
+
+对于镜像构建阶段的依赖下载，建议在服务器上为 Docker 或 BuildKit 配置 HTTP/HTTPS 出口代理。这样可以保持构建可移植，避免把特定环境的 npm 或 Go 代理配置提交到仓库。
+
+如果部署环境直接访问上游源较慢，可以参考以下服务器侧配置示例：
+
+```bash
+# Go Module 下载
+go env -w GOPROXY=https://goproxy.cn,direct
+
+# npm 包下载
+npm config set registry https://registry.npmmirror.com
+```
+
+这些命令用于配置服务器或构建环境。除非明确维护特定环境的分支，否则不要直接写入项目 Dockerfile。
+
 Compose 会启动：
 
 - 后端：`http://localhost:8080`

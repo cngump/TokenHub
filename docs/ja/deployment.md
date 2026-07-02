@@ -27,6 +27,34 @@ cp deploy/.env.example deploy/.env
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
 ```
 
+### 任意: サーバー側のビルド高速化
+
+このプロジェクトの Dockerfile には、地域依存のパッケージミラーをハードコードしません。サーバーから Docker Hub、npm、Go Module ソースへのアクセスが遅い場合は、Dockerfile を編集せず、デプロイ先サーバー側で高速化を設定してください。
+
+ベースイメージの取得には、サーバーの Docker daemon にレジストリミラーを設定できます。例として `/etc/docker/daemon.json` を編集し、Docker を再起動します。
+
+```json
+{
+	"registry-mirrors": [
+		"https://<your-docker-registry-mirror>"
+	]
+}
+```
+
+イメージビルド中の依存関係ダウンロードについては、サーバーで Docker または BuildKit 向けの HTTP/HTTPS アウトバウンドプロキシを設定することを推奨します。これによりビルドの移植性を保ち、環境固有の npm や Go proxy 設定をリポジトリにコミットせずに済みます。
+
+デプロイ環境から上流レジストリへの直接アクセスが遅い場合は、次のサーバー側設定例を参考にできます。
+
+```bash
+# Go Module のダウンロード
+go env -w GOPROXY=https://goproxy.cn,direct
+
+# npm パッケージのダウンロード
+npm config set registry https://registry.npmmirror.com
+```
+
+これらのコマンドはサーバーまたはビルド環境を設定するためのものです。環境固有の fork を意図的に保守する場合を除き、プロジェクトの Dockerfile には直接追加しないでください。
+
 Compose は次を起動します。
 
 - バックエンド: `http://localhost:8080`
