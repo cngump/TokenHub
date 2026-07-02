@@ -29,6 +29,9 @@ const (
 	ProviderAzureOpenAI      = "azure_openai"
 	ProviderAnthropic        = "anthropic"
 	ProviderGemini           = "gemini"
+
+	ProviderResourceAPIKey             = "api_key"
+	ProviderResourceOpenAISubscription = "openai_subscription"
 )
 
 var (
@@ -211,30 +214,49 @@ type Provider struct {
 }
 
 type ProviderResource struct {
-	ID             string            `json:"id" gorm:"primaryKey"`
-	ProviderID     string            `json:"provider_id" gorm:"index"`
-	Name           string            `json:"name"`
-	Group          string            `json:"group,omitempty" gorm:"index"`
-	ResourceType   string            `json:"resource_type"`
-	BaseURL        string            `json:"base_url,omitempty"`
-	APIKey         string            `json:"api_key,omitempty"`
-	Region         string            `json:"region,omitempty"`
-	Environment    string            `json:"environment,omitempty"`
-	Status         string            `json:"status"`
-	Healthy        bool              `json:"healthy"`
-	Priority       int               `json:"priority"`
-	Weight         int               `json:"weight"`
-	RateLimitRPM   int64             `json:"rate_limit_rpm"`
-	TokenLimitTPM  int64             `json:"token_limit_tpm"`
-	MaxConcurrency int64             `json:"max_concurrency"`
-	Headers        map[string]string `json:"headers,omitempty" gorm:"serializer:json"`
-	Options        map[string]string `json:"options,omitempty" gorm:"serializer:json"`
-	FailureCount   int               `json:"failure_count"`
-	CooldownUntil  *time.Time        `json:"cooldown_until,omitempty"`
-	LastUsedAt     *time.Time        `json:"last_used_at,omitempty"`
-	LastCheckedAt  *time.Time        `json:"last_checked_at,omitempty"`
-	CreatedAt      time.Time         `json:"created_at"`
-	UpdatedAt      time.Time         `json:"updated_at"`
+	ID                string                       `json:"id" gorm:"primaryKey"`
+	ProviderID        string                       `json:"provider_id" gorm:"index"`
+	Name              string                       `json:"name"`
+	Group             string                       `json:"group,omitempty" gorm:"index"`
+	ResourceType      string                       `json:"resource_type"`
+	BaseURL           string                       `json:"base_url,omitempty"`
+	APIKey            string                       `json:"api_key,omitempty"`
+	Region            string                       `json:"region,omitempty"`
+	Environment       string                       `json:"environment,omitempty"`
+	Status            string                       `json:"status"`
+	Healthy           bool                         `json:"healthy"`
+	Priority          int                          `json:"priority"`
+	Weight            int                          `json:"weight"`
+	RateLimitRPM      int64                        `json:"rate_limit_rpm"`
+	TokenLimitTPM     int64                        `json:"token_limit_tpm"`
+	MaxConcurrency    int64                        `json:"max_concurrency"`
+	Headers           map[string]string            `json:"headers,omitempty" gorm:"serializer:json"`
+	Options           map[string]string            `json:"options,omitempty" gorm:"serializer:json"`
+	Credentials       *ProviderResourceCredentials `json:"credentials,omitempty" gorm:"-"`
+	CredentialBlob    string                       `json:"-" gorm:"column:credential_blob"`
+	CredentialSummary map[string]string            `json:"credential_summary,omitempty" gorm:"-"`
+	FailureCount      int                          `json:"failure_count"`
+	CooldownUntil     *time.Time                   `json:"cooldown_until,omitempty"`
+	LastUsedAt        *time.Time                   `json:"last_used_at,omitempty"`
+	LastCheckedAt     *time.Time                   `json:"last_checked_at,omitempty"`
+	CreatedAt         time.Time                    `json:"created_at"`
+	UpdatedAt         time.Time                    `json:"updated_at"`
+}
+
+type ProviderResourceCredentials struct {
+	AuthType       string `json:"auth_type,omitempty"`
+	AccessToken    string `json:"access_token,omitempty"`
+	RefreshToken   string `json:"refresh_token,omitempty"`
+	IDToken        string `json:"id_token,omitempty"`
+	ClientID       string `json:"client_id,omitempty"`
+	Scopes         string `json:"scopes,omitempty"`
+	TokenType      string `json:"token_type,omitempty"`
+	ExpiresAt      string `json:"expires_at,omitempty"`
+	AccountID      string `json:"account_id,omitempty"`
+	UserID         string `json:"user_id,omitempty"`
+	Email          string `json:"email,omitempty"`
+	OrganizationID string `json:"organization_id,omitempty"`
+	PlanType       string `json:"plan_type,omitempty"`
 }
 
 type ProviderResourceBulkResult struct {

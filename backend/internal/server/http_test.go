@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -2418,6 +2419,87 @@ func TestAdminCreatesProviderResource(t *testing.T) {
 	}
 }
 
+func TestAdminCreatesOpenAISubscriptionProviderResource(t *testing.T) {
+	store := NewMemoryStore()
+	store.AddProvider(Provider{
+		ID:      "prv_openai_sub",
+		Name:    "OpenAI Subscription Pool",
+		Type:    ProviderOpenAI,
+		Status:  StatusActive,
+		Healthy: true,
+	})
+	app := New(store).Handler()
+	idToken := testJWT(map[string]any{
+		"email": "codex.user@example.com",
+		"https://api.openai.com/auth": map[string]any{
+			"chatgpt_account_id": "acc_openai_sub",
+			"chatgpt_user_id":    "usr_openai_sub",
+			"chatgpt_plan_type":  "plus",
+			"user_id":            "user_openai_sub",
+			"organizations": []map[string]any{
+				{"id": "org_openai_default", "is_default": true},
+			},
+		},
+	})
+
+	resp := doJSON(t, app, http.MethodPost, "/api/admin/provider-resources", map[string]any{
+		"provider_id":   "prv_openai_sub",
+		"name":          "OpenAI Plus Account A",
+		"resource_type": ProviderResourceOpenAISubscription,
+		"status":        StatusActive,
+		"healthy":       true,
+		"priority":      1,
+		"weight":        100,
+		"credentials": map[string]any{
+			"auth_type":     "oauth",
+			"access_token":  "access-secret",
+			"refresh_token": "refresh-secret",
+			"id_token":      idToken,
+			"client_id":     "app_EMoamEEZ73f0CkXaXp7hrann",
+			"scopes":        "openid profile email offline_access",
+		},
+	}, "")
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected openai subscription resource created, got %d: %s", resp.Code, resp.Body)
+	}
+	for _, secret := range []string{"access-secret", "refresh-secret", idToken} {
+		if strings.Contains(resp.Body, secret) {
+			t.Fatalf("resource response leaked secret %q: %s", secret, resp.Body)
+		}
+	}
+	if !strings.Contains(resp.Body, `"credential_summary"`) ||
+		!strings.Contains(resp.Body, `"account_email":"codex.user@example.com"`) ||
+		!strings.Contains(resp.Body, `"organization_id":"org_openai_default"`) ||
+		!strings.Contains(resp.Body, `"has_refresh_token":"true"`) {
+		t.Fatalf("expected OpenAI account summary, got: %s", resp.Body)
+	}
+
+	var resource ProviderResource
+	if err := json.Unmarshal([]byte(resp.Body), &resource); err != nil {
+		t.Fatal(err)
+	}
+	var persisted ProviderResource
+	if err := store.db.First(&persisted, "id = ?", resource.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if persisted.APIKey == "access-secret" || !strings.HasPrefix(persisted.APIKey, "enc:v1:") {
+		t.Fatalf("access token should be stored encrypted, got %q", persisted.APIKey)
+	}
+	if persisted.CredentialBlob == "" || persisted.CredentialBlob == "refresh-secret" || !strings.HasPrefix(persisted.CredentialBlob, "enc:v1:") {
+		t.Fatalf("refresh token blob should be stored encrypted, got %q", persisted.CredentialBlob)
+	}
+
+	list := doJSON(t, app, http.MethodGet, "/api/admin/provider-resources", nil, "")
+	if list.Code != http.StatusOK {
+		t.Fatalf("expected resources list, got %d: %s", list.Code, list.Body)
+	}
+	for _, secret := range []string{"access-secret", "refresh-secret", idToken} {
+		if strings.Contains(list.Body, secret) {
+			t.Fatalf("resource list leaked secret %q: %s", secret, list.Body)
+		}
+	}
+}
+
 func TestProviderCredentialsAreEncryptedAndUsable(t *testing.T) {
 	store := NewMemoryStore()
 	project := store.CreateProject(Project{Name: "Encrypted Credentials App"})
@@ -2456,6 +2538,13 @@ func TestProviderCredentialsAreEncryptedAndUsable(t *testing.T) {
 	if persisted.APIKey == "resource-secret" || !strings.HasPrefix(persisted.APIKey, "enc:v1:") {
 		t.Fatalf("resource secret should be stored encrypted, got %q", persisted.APIKey)
 	}
+	if _, err := store.UpdateProviderResource(resource.ID, ProviderResource{
+		Name:    "Encrypted Resource Updated",
+		Status:  StatusActive,
+		Healthy: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	store.AddModel(Model{Name: "gpt-4.1-mini", Modality: "chat", Status: StatusActive})
 	store.AddRoute(ModelRoute{
 		ModelName:          "gpt-4.1-mini",
@@ -2483,6 +2572,69 @@ func TestProviderCredentialsAreEncryptedAndUsable(t *testing.T) {
 	}
 	if strings.Contains(resp.Body, "resource-secret") {
 		t.Fatalf("secret should not be returned: %s", resp.Body)
+	}
+}
+
+func TestOpenAISubscriptionResourceSuppliesRouteCredentials(t *testing.T) {
+	store := NewMemoryStore()
+	project := store.CreateProject(Project{Name: "OpenAI Subscription App"})
+	_, secret, err := store.CreateAPIKey(project.ID, APIKey{
+		Name:    "openai-subscription-key",
+		Allowed: []string{"gpt-4.1-mini"},
+		Status:  StatusActive,
+	}, "thk_openai_subscription")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := store.AddProvider(Provider{ID: "prv_capture_openai", Name: "Capture OpenAI", Type: "capture", Status: StatusActive, Healthy: true})
+	resource, err := store.AddProviderResource(ProviderResource{
+		ID:           "rsrc_openai_account",
+		ProviderID:   provider.ID,
+		Name:         "OpenAI Account",
+		ResourceType: ProviderResourceOpenAISubscription,
+		Status:       StatusActive,
+		Healthy:      true,
+		Credentials: &ProviderResourceCredentials{
+			AuthType:       "oauth",
+			AccessToken:    "openai-access-token",
+			RefreshToken:   "openai-refresh-token",
+			Email:          "owner@example.com",
+			AccountID:      "acc_capture",
+			OrganizationID: "org_capture",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.AddModel(Model{Name: "gpt-4.1-mini", Modality: "chat", Status: StatusActive})
+	store.AddRoute(ModelRoute{
+		ModelName:          "gpt-4.1-mini",
+		ProviderID:         provider.ID,
+		ProviderResourceID: resource.ID,
+		ProviderModel:      "gpt-4.1-mini",
+		Status:             StatusActive,
+	})
+	adapter := &captureAdapter{}
+	server := New(store)
+	server.adapters["capture"] = adapter
+	app := server.Handler()
+
+	resp := doJSON(t, app, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"model": "gpt-4.1-mini",
+		"messages": []map[string]any{
+			{"role": "user", "content": "hello from subscription"},
+		},
+	}, secret)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body)
+	}
+	if adapter.seenKey != "openai-access-token" {
+		t.Fatalf("expected OpenAI account access token, got %q", adapter.seenKey)
+	}
+	if adapter.seenOptions["credential_source"] != ProviderResourceOpenAISubscription ||
+		adapter.seenOptions["account_email"] != "owner@example.com" ||
+		adapter.seenOptions["organization_id"] != "org_capture" {
+		t.Fatalf("expected OpenAI account options, got %+v", adapter.seenOptions)
 	}
 }
 
@@ -3184,27 +3336,38 @@ func findResource(t *testing.T, store *GormStore, id string) ProviderResource {
 }
 
 type captureAdapter struct {
-	seenKey string
+	seenKey     string
+	seenOptions map[string]string
 }
 
 func (a *captureAdapter) Chat(ctx context.Context, provider Provider, providerModel string, req ChatCompletionRequest) (any, Usage, error) {
 	a.seenKey = provider.APIKey
+	a.seenOptions = provider.Options
 	return MockAdapter{}.Chat(ctx, provider, providerModel, req)
 }
 
 func (a *captureAdapter) ChatStream(ctx context.Context, provider Provider, providerModel string, req ChatCompletionRequest, w io.Writer) (Usage, error) {
 	a.seenKey = provider.APIKey
+	a.seenOptions = provider.Options
 	return MockAdapter{}.ChatStream(ctx, provider, providerModel, req, w)
 }
 
 func (a *captureAdapter) Responses(ctx context.Context, provider Provider, providerModel string, req ResponsesRequest) (any, Usage, error) {
 	a.seenKey = provider.APIKey
+	a.seenOptions = provider.Options
 	return MockAdapter{}.Responses(ctx, provider, providerModel, req)
 }
 
 func (a *captureAdapter) Embeddings(ctx context.Context, provider Provider, providerModel string, req EmbeddingsRequest) (any, Usage, error) {
 	a.seenKey = provider.APIKey
+	a.seenOptions = provider.Options
 	return MockAdapter{}.Embeddings(ctx, provider, providerModel, req)
+}
+
+func testJWT(claims map[string]any) string {
+	header, _ := json.Marshal(map[string]any{"alg": "none", "typ": "JWT"})
+	body, _ := json.Marshal(claims)
+	return base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(body) + ".sig"
 }
 
 type failingAdapter struct{}

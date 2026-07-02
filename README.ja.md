@@ -5,7 +5,7 @@
 <h1 align="center">TokenHub</h1>
 
 <p align="center">
-  TokenHub は、OpenAI-Compatible API、Provider ルーティング、API Key、利用分析、コストガバナンスを一つの管理コンソールにまとめるプライベート AI ゲートウェイです。
+  TokenHub は、ユーザー、チームリーダー、管理者のためのロール別ワークスペースを備えたエンタープライズ向けプライベート AI ゲートウェイです。
 </p>
 
 <p align="center">
@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  Language: <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a> | 日本語
+  <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a> | 日本語
 </p>
 
 ## スクリーンショット
@@ -35,17 +35,27 @@
 | 利用分析 | システム設定 |
 | ![Usage Analytics](docs/assets/screenshots/usage-en.png) | ![System Settings](docs/assets/screenshots/settings-en.png) |
 
-## 主な機能
+## 3つのロールを中心に設計
+
+TokenHub は、日常的なモデル利用、チームガバナンス、プラットフォーム運用を明確に分け、企業ユーザーが自分の責任に合ったワークフローへすぐ入れるようにします。
+
+| ロール | ワークスペースの重点 | ガイド |
+| --- | --- | --- |
+| ユーザー | 利用可能なモデルの確認、プロジェクト Key の作成、モデル API の呼び出し、個人利用状況の確認 | [ユーザーガイド](docs/ja/user-guide.md) |
+| チームリーダー | プロジェクトスペース、プロジェクトメンバー、プロジェクト Key、チームレポート、プロジェクト別コスト配賦の管理 | [チームリーダーガイド](docs/ja/team-leader-guide.md) |
+| 管理者 | Provider、モデルカタログ、ルーティングポリシー、ID ソース、RBAC、監査、コスト制御の設定 | [管理者ガイド](docs/ja/administrator-guide.md) |
+
+## プラットフォーム機能
 
 - OpenAI-Compatible モデル API: `/v1/chat/completions`、`/v1/responses`、`/v1/embeddings`。
 - Provider チャネル: OpenAI-Compatible、Azure OpenAI、Anthropic、Gemini、DeepSeek、Qwen、ローカル vLLM/Ollama、カスタム上流。
-- モデルカタログ、ルート優先度、ルート重み、失敗時のフォールバック順序。
-- API Key、プロジェクト、チーム、モデル許可リスト、クォータ、並行数制限。
-- リクエストログ、利用統計、コスト請求、承認、ヘルスチェック、アラート、通知チャネル。
-- 経営向け利用ダッシュボード: 部門ランキング、個人ランキング、Token 消費比較、Provider コスト比率。
-- クリーンな管理コンソール: コンパクトなナビゲーション、グローバル検索、ライト/ダーク切り替え、左ナビ + 右詳細の API ドキュメント。
+- モデルカタログとルーティングポリシー: 優先度、重み、フェイルオーバー順序、ルートヘルス診断に対応。
+- プロジェクト単位の Key 管理: チーム所有、メンバー権限、クォータ、並行数制限に対応。
+- ユーザー、プロジェクト、チーム、モデル、コストセンターに紐づく利用分析とリクエストログ。
+- OAuth/OIDC によるエンタープライズサインイン、RBAC、監査証跡に対応する ID ソース設定。
+- クリーンなコンソール: ロール別ナビゲーション、グローバル検索、ライト/ダーク切り替え、左ナビ + 右詳細の API ドキュメント。
 - SQLite-first のプライベートデプロイと Docker Compose サポート。
-- 管理コンソールは中国語、英語、日本語の切り替えに対応。
+- 管理コンソールは英語、中国語、日本語の切り替えに対応。
 
 ## クイックスタート
 
@@ -95,12 +105,11 @@ npm run test:deepseek
 ## ドキュメント
 
 - [ドキュメントホーム](docs/ja/README.md)
-- [クイックスタート](docs/ja/quick-start.md)
-- [モデル API](docs/ja/model-api.md)
-- [管理コンソール](docs/ja/admin-console.md)
-- [モデルカタログ](docs/ja/model-catalog.md)
-- [デプロイ](docs/ja/deployment.md)
-- [セキュリティ](docs/ja/security.md)
+- [ユーザーガイド](docs/ja/user-guide.md)
+- [チームリーダーガイド](docs/ja/team-leader-guide.md)
+- [管理者ガイド](docs/ja/administrator-guide.md)
+- [English documentation](docs/README.md)
+- [简体中文文档](docs/zh-CN/README.md)
 
 ## License
 

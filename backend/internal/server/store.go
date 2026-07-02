@@ -682,11 +682,12 @@ func (s *GormStore) AddProviderResource(resource ProviderResource) (ProviderReso
 		resource.CreatedAt = now
 	}
 	resource.UpdatedAt = now
+	s.prepareProviderResourceForCreate(&resource)
 	resource.APIKey = s.encryptSecret(resource.APIKey)
 	if err := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&resource).Error; err != nil {
 		return ProviderResource{}, err
 	}
-	resource.APIKey = ""
+	redactProviderResourceSecrets(&resource)
 	return resource, nil
 }
 
@@ -694,7 +695,7 @@ func (s *GormStore) ListProviderResources() []ProviderResource {
 	var items []ProviderResource
 	_ = s.db.Order("provider_id asc, priority asc, weight desc, created_at asc").Find(&items).Error
 	for i := range items {
-		items[i].APIKey = ""
+		redactProviderResourceSecrets(&items[i])
 	}
 	return items
 }
@@ -723,8 +724,10 @@ func (s *GormStore) UpdateProviderResource(id string, patch ProviderResource) (P
 		resource.ResourceType = patch.ResourceType
 	}
 	resource.BaseURL = patch.BaseURL
+	shouldEncryptAPIKey := false
 	if patch.APIKey != "" {
-		resource.APIKey = s.encryptSecret(patch.APIKey)
+		resource.APIKey = patch.APIKey
+		shouldEncryptAPIKey = true
 	}
 	resource.Region = patch.Region
 	resource.Environment = patch.Environment
@@ -748,10 +751,17 @@ func (s *GormStore) UpdateProviderResource(id string, patch ProviderResource) (P
 		resource.Options = patch.Options
 	}
 	resource.UpdatedAt = time.Now().UTC()
+	s.prepareProviderResourceForUpdate(&resource, patch)
+	if patch.Credentials != nil && strings.TrimSpace(patch.Credentials.AccessToken) != "" {
+		shouldEncryptAPIKey = true
+	}
+	if shouldEncryptAPIKey {
+		resource.APIKey = s.encryptSecret(resource.APIKey)
+	}
 	if err := s.db.Save(&resource).Error; err != nil {
 		return ProviderResource{}, err
 	}
-	resource.APIKey = ""
+	redactProviderResourceSecrets(&resource)
 	return resource, nil
 }
 
@@ -790,7 +800,7 @@ func (s *GormStore) SetProviderResourceHealth(resourceID string, healthy bool) (
 	resource.Healthy = healthy
 	resource.LastCheckedAt = &now
 	resource.UpdatedAt = now
-	resource.APIKey = ""
+	redactProviderResourceSecrets(&resource)
 	return resource, nil
 }
 
@@ -872,7 +882,7 @@ func (s *GormStore) BulkOperateProviderResources(action string, ids []string) (P
 			continue
 		}
 		resource.UpdatedAt = now
-		resource.APIKey = ""
+		redactProviderResourceSecrets(&resource)
 		result.Success++
 		result.Resources = append(result.Resources, resource)
 	}
@@ -924,13 +934,14 @@ func (s *GormStore) ImportProviderResources(resources []ProviderResource) (Provi
 			resource.CreatedAt = now
 		}
 		resource.UpdatedAt = now
+		s.prepareProviderResourceForCreate(&resource)
 		resource.APIKey = s.encryptSecret(resource.APIKey)
 		if err := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&resource).Error; err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, "row "+row+": "+err.Error())
 			continue
 		}
-		resource.APIKey = ""
+		redactProviderResourceSecrets(&resource)
 		result.Success++
 		result.Resources = append(result.Resources, resource)
 	}
@@ -1070,7 +1081,7 @@ func (s *GormStore) TestProviderResource(id string) (ProviderResource, error) {
 	resource.FailureCount = 0
 	resource.CooldownUntil = nil
 	resource.UpdatedAt = now
-	resource.APIKey = ""
+	redactProviderResourceSecrets(&resource)
 	return resource, nil
 }
 
@@ -1367,7 +1378,7 @@ func (s *GormStore) routeSelection(provider Provider, resource *ProviderResource
 		effective.Options = options
 	}
 	publicResource := *resource
-	publicResource.APIKey = ""
+	redactProviderResourceSecrets(&publicResource)
 	return RouteSelection{
 		Provider:      effective,
 		Resource:      &publicResource,

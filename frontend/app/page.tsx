@@ -150,6 +150,8 @@ type ProviderResource = {
   rate_limit_rpm?: number;
   token_limit_tpm?: number;
   max_concurrency?: number;
+  options?: Record<string, string>;
+  credential_summary?: Record<string, string>;
   failure_count?: number;
   cooldown_until?: string;
   last_used_at?: string;
@@ -551,6 +553,7 @@ type FieldConfig = {
   options?: string[];
   optionsFromData?: (data: AppData, currentUser?: AdminUser | null) => Array<{ value: string; label: string }>;
   placeholder?: string;
+  autoComplete?: string;
   required?: boolean;
   help?: string;
   readOnlyOnEdit?: boolean;
@@ -796,6 +799,34 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "新增": "Create",
     "新增模型": "Create Model",
     "新增 Provider": "Create Provider",
+    "账号集成": "Account Integration",
+    "Provider 账号资源": "Provider Account Resources",
+    "OpenAI 账号资源": "OpenAI Account Resource",
+    "添加账号资源": "Add Account Resource",
+    "账号资源": "Account Resources",
+    "账号类型": "Account Type",
+    "认证方式": "Authentication",
+    "访问 Token": "Access Token",
+    "刷新 Token": "Refresh Token",
+    "ID Token": "ID Token",
+    "账号邮箱": "Account Email",
+    "账号 ID": "Account ID",
+    "组织 ID": "Organization ID",
+    "计划类型": "Plan Type",
+    "已保存刷新 Token": "Refresh token saved",
+    "未保存刷新 Token": "No refresh token",
+    "普通 API Key 资源": "API Key Resource",
+    "OpenAI Subscription 账号": "OpenAI Subscription Account",
+    "OAuth 账号": "OAuth Account",
+    "Personal Access Token": "Personal Access Token",
+    "把 OpenAI subscription、PAT 或普通 API Key 作为 Provider 资源实例加入账号池，并参与路由权重、并发和限流调度。": "Add OpenAI subscriptions, PATs, or API keys as Provider resource accounts for route weighting, concurrency, and rate-limit scheduling.",
+    "OpenAI subscription / Codex OAuth access token 或 PAT；保存后不会再次显示。": "OpenAI subscription / Codex OAuth access token or PAT. It will not be shown again after saving.",
+    "可选，保存到加密凭据中，用于后续自动刷新能力。": "Optional. Stored in encrypted credentials for future token refresh support.",
+    "可选。填写后会自动提取账号邮箱、账号 ID、组织 ID 和计划类型。": "Optional. TokenHub extracts account email, account ID, organization ID, and plan type when provided.",
+    "普通资源实例的上游 API Key；编辑时留空表示不修改。": "Upstream API key for a regular resource instance. Leave empty while editing to keep the current key.",
+    "分组": "Group",
+    "RPM 限制": "RPM Limit",
+    "TPM 限制": "TPM Limit",
     "配置": "Configure",
     "配置路由": "Configure Routes",
     "编辑": "Edit",
@@ -1701,6 +1732,34 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "新增": "作成",
     "新增模型": "モデル作成",
     "新增 Provider": "Provider 作成",
+    "账号集成": "アカウント連携",
+    "Provider 账号资源": "Provider アカウントリソース",
+    "OpenAI 账号资源": "OpenAI アカウントリソース",
+    "添加账号资源": "アカウントリソースを追加",
+    "账号资源": "アカウントリソース",
+    "账号类型": "アカウント種別",
+    "认证方式": "認証方式",
+    "访问 Token": "アクセストークン",
+    "刷新 Token": "リフレッシュトークン",
+    "ID Token": "ID トークン",
+    "账号邮箱": "アカウントメール",
+    "账号 ID": "アカウント ID",
+    "组织 ID": "組織 ID",
+    "计划类型": "プラン種別",
+    "已保存刷新 Token": "リフレッシュトークン保存済み",
+    "未保存刷新 Token": "リフレッシュトークンなし",
+    "普通 API Key 资源": "API Key リソース",
+    "OpenAI Subscription 账号": "OpenAI Subscription アカウント",
+    "OAuth 账号": "OAuth アカウント",
+    "Personal Access Token": "Personal Access Token",
+    "把 OpenAI subscription、PAT 或普通 API Key 作为 Provider 资源实例加入账号池，并参与路由权重、并发和限流调度。": "OpenAI subscription、PAT、通常の API Key を Provider リソースアカウントとして追加し、ルート重み、同時実行数、レート制限の調整に参加させます。",
+    "OpenAI subscription / Codex OAuth access token 或 PAT；保存后不会再次显示。": "OpenAI subscription / Codex OAuth アクセストークンまたは PAT。保存後は再表示されません。",
+    "可选，保存到加密凭据中，用于后续自动刷新能力。": "任意。今後の自動更新に備えて暗号化された認証情報として保存します。",
+    "可选。填写后会自动提取账号邮箱、账号 ID、组织 ID 和计划类型。": "任意。入力するとアカウントメール、アカウント ID、組織 ID、プラン種別を自動抽出します。",
+    "普通资源实例的上游 API Key；编辑时留空表示不修改。": "通常リソースインスタンスの上流 API Key。編集時に空のままなら変更しません。",
+    "分组": "グループ",
+    "RPM 限制": "RPM 制限",
+    "TPM 限制": "TPM 制限",
     "配置": "設定",
     "配置路由": "ルート設定",
     "编辑": "編集",
@@ -9433,6 +9492,8 @@ function FieldInput({
 }) {
   const [filter, setFilter] = useState("");
   const readOnly = editing && field.readOnlyOnEdit;
+  const autoComplete = field.autoComplete ?? "off";
+  const inputName = `tokenhub-${field.key}`;
   let options = field.optionsFromData?.(data, currentUser) ?? (field.options ?? []).map((option) => ({ value: option, label: enumOptionLabel(field.key, option) }));
   if (value && !options.some((option) => option.value === value)) {
     options = [...options, { value, label: value }];
@@ -9511,7 +9572,17 @@ function FieldInput({
     return (
       <label className="field">
         <span>{tx(field.label)}</span>
-        <textarea value={value} onChange={(event) => onChange(event.target.value)} placeholder={tx(field.placeholder)} required={field.required} readOnly={readOnly} />
+        <textarea
+          autoComplete={autoComplete}
+          data-1p-ignore={autoComplete === "off" || autoComplete === "new-password" ? "true" : undefined}
+          data-lpignore={autoComplete === "off" || autoComplete === "new-password" ? "true" : undefined}
+          name={inputName}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={tx(field.placeholder)}
+          required={field.required}
+          readOnly={readOnly}
+        />
         {field.help ? <small>{tx(field.help)}</small> : null}
       </label>
     );
@@ -9551,6 +9622,10 @@ function FieldInput({
     <label className="field">
       <span>{tx(field.label)}</span>
       <input
+        autoComplete={autoComplete}
+        data-1p-ignore={autoComplete === "off" || autoComplete === "new-password" ? "true" : undefined}
+        data-lpignore={autoComplete === "off" || autoComplete === "new-password" ? "true" : undefined}
+        name={inputName}
         value={value}
         type={field.type === "number" ? "number" : field.type === "password" ? "password" : "text"}
         onChange={(event) => onChange(event.target.value)}
@@ -10086,6 +10161,7 @@ function providerConfig(): ResourceConfig<Provider> {
       { key: "type", label: "类型", render: (item) => providerTypeLabel(item.type) },
       { key: "base_url", label: "Base URL", render: (item) => item.base_url || "local mock" },
       { key: "routes", label: "路由线路", render: (item, ctx) => providerRouteSummary(item, ctx) },
+      { key: "account_resources", label: "账号资源", render: (item, ctx) => providerAccountResourceSummary(item, ctx) },
       { key: "priority", label: "优先级" },
       { key: "healthy", label: "健康", render: (item) => <StatusPill status={item.healthy ? "healthy" : "down"} /> },
       { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
@@ -10113,6 +10189,14 @@ function providerConfig(): ResourceConfig<Provider> {
         }),
       },
       {
+        label: "账号集成",
+        title: "为该 Provider 添加账号资源",
+        modal: (item) => ({
+          config: providerResourceConfig(item),
+          initialValues: providerResourceDefaults(item),
+        }),
+      },
+      {
         label: "测试",
         title: "检测 Provider 可用性",
         run: (ctx, item) => adminMutate(ctx, `/api/admin/providers/${item.id}/test`, "POST", {}),
@@ -10127,6 +10211,74 @@ function providerConfig(): ResourceConfig<Provider> {
       status: item.status,
       healthy: String(item.healthy),
     }),
+  };
+}
+
+function providerResourceConfig(provider?: Provider): ResourceConfig<ProviderResource> {
+  return {
+    view: "providers",
+    title: "账号集成",
+    eyebrow: "Provider 账号资源",
+    description: "把 OpenAI subscription、PAT 或普通 API Key 作为 Provider 资源实例加入账号池，并参与路由权重、并发和限流调度。",
+    createLabel: "添加账号资源",
+    columns: [
+      { key: "name", label: "名称" },
+      { key: "provider_id", label: "Provider", render: (item, ctx) => findProvider(ctx, item.provider_id)?.name || item.provider_id },
+      { key: "resource_type", label: "账号类型", render: (item) => resourceTypeLabel(item.resource_type) },
+      { key: "credential_summary", label: "账号邮箱", render: (item) => item.credential_summary?.account_email || item.credential_summary?.account_id || "-" },
+      { key: "weight", label: "权重" },
+      { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
+    ],
+    fields: [
+      { key: "provider_id", label: "Provider", type: "select", optionsFromData: providerSelectOptions, required: true, readOnlyOnEdit: Boolean(provider) },
+      { key: "name", label: "名称", required: true },
+      { key: "resource_type", label: "账号类型", type: "select", options: ["openai_subscription", "api_key"], required: true },
+      { key: "auth_type", label: "认证方式", type: "select", options: ["oauth", "personal_access_token", "api_key"], visible: openAIAccountFieldVisible },
+      { key: "access_token", label: "访问 Token", type: "password", autoComplete: "new-password", visible: openAIAccountFieldVisible, help: "OpenAI subscription / Codex OAuth access token 或 PAT；保存后不会再次显示。" },
+      { key: "refresh_token", label: "刷新 Token", type: "password", autoComplete: "new-password", visible: openAIAccountFieldVisible, help: "可选，保存到加密凭据中，用于后续自动刷新能力。" },
+      { key: "id_token", label: "ID Token", type: "textarea", autoComplete: "off", visible: openAIAccountFieldVisible, help: "可选。填写后会自动提取账号邮箱、账号 ID、组织 ID 和计划类型。" },
+      { key: "api_key", label: "API Key", type: "password", autoComplete: "new-password", visible: (values) => values.resource_type !== "openai_subscription", help: "普通资源实例的上游 API Key；编辑时留空表示不修改。" },
+      { key: "account_email", label: "账号邮箱", autoComplete: "off", visible: openAIAccountFieldVisible },
+      { key: "account_id", label: "账号 ID", autoComplete: "off", visible: openAIAccountFieldVisible },
+      { key: "organization_id", label: "组织 ID", autoComplete: "off", visible: openAIAccountFieldVisible },
+      { key: "plan_type", label: "计划类型", visible: openAIAccountFieldVisible },
+      { key: "base_url", label: "Base URL", placeholder: "https://api.openai.com/v1" },
+      { key: "group", label: "分组" },
+      { key: "priority", label: "优先级", type: "number" },
+      { key: "weight", label: "权重", type: "number" },
+      { key: "rate_limit_rpm", label: "RPM 限制", type: "number" },
+      { key: "token_limit_tpm", label: "TPM 限制", type: "number" },
+      { key: "max_concurrency", label: "最大并发", type: "number" },
+      { key: "status", label: "状态", type: "select", options: ["active", "disabled"], required: true },
+      { key: "healthy", label: "健康", type: "boolean" },
+    ],
+    list: (ctx) => ctx.providerResources.filter((item) => !provider || item.provider_id === provider.id),
+    create: (ctx, values) => adminMutate(ctx, "/api/admin/provider-resources", "POST", providerResourcePayload(values)),
+    update: (ctx, item, values) => adminMutate(ctx, `/api/admin/provider-resources/${item.id}`, "PATCH", providerResourceUpdatePayload(values)),
+    remove: (ctx, item) => adminDelete(ctx, `/api/admin/provider-resources/${item.id}`),
+    toForm: providerResourceToForm,
+  };
+}
+
+function openAIAccountFieldVisible(values: Record<string, string>) {
+  return values.resource_type === "openai_subscription";
+}
+
+function providerResourceDefaults(provider: Provider) {
+  return {
+    provider_id: provider.id,
+    name: `${provider.name || provider.id} OpenAI Account`,
+    resource_type: "openai_subscription",
+    auth_type: "oauth",
+    base_url: provider.base_url || "https://api.openai.com/v1",
+    group: "default",
+    priority: "1",
+    weight: "100",
+    rate_limit_rpm: "",
+    token_limit_tpm: "",
+    max_concurrency: "3",
+    status: "active",
+    healthy: "true",
   };
 }
 
@@ -11060,6 +11212,89 @@ function providerUpdatePayload(values: Record<string, string>) {
     delete payload.api_key;
   }
   return payload;
+}
+
+function providerResourcePayload(values: Record<string, string>) {
+  const isOpenAIAccount = values.resource_type === "openai_subscription";
+  const credentials = isOpenAIAccount
+    ? {
+        auth_type: values.auth_type || "oauth",
+        access_token: values.access_token,
+        refresh_token: values.refresh_token,
+        id_token: values.id_token,
+        email: values.account_email,
+        account_id: values.account_id,
+        organization_id: values.organization_id,
+        plan_type: values.plan_type,
+      }
+    : undefined;
+  return {
+    provider_id: values.provider_id,
+    name: values.name,
+    resource_type: values.resource_type || "api_key",
+    base_url: values.base_url,
+    api_key: isOpenAIAccount ? values.access_token : values.api_key,
+    group: values.group || "default",
+    status: values.status || "active",
+    healthy: values.healthy !== "false",
+    priority: numberOr(values.priority, 1),
+    weight: numberOr(values.weight, 100),
+    rate_limit_rpm: numberOr(values.rate_limit_rpm, 0),
+    token_limit_tpm: numberOr(values.token_limit_tpm, 0),
+    max_concurrency: numberOr(values.max_concurrency, 0),
+    credentials,
+    options: providerResourceOptions(values),
+  };
+}
+
+function providerResourceUpdatePayload(values: Record<string, string>) {
+  const payload = providerResourcePayload(values) as Record<string, unknown>;
+  const isOpenAIAccount = values.resource_type === "openai_subscription";
+  if (isOpenAIAccount && !values.access_token?.trim()) delete payload.api_key;
+  if (!isOpenAIAccount && !values.api_key?.trim()) delete payload.api_key;
+  if (isOpenAIAccount && !values.access_token?.trim() && !values.refresh_token?.trim() && !values.id_token?.trim()) {
+    delete payload.credentials;
+  }
+  return payload;
+}
+
+function providerResourceOptions(values: Record<string, string>) {
+  if (values.resource_type !== "openai_subscription") return {};
+  return {
+    credential_source: "openai_subscription",
+    auth_type: values.auth_type || "oauth",
+    account_email: values.account_email,
+    account_id: values.account_id,
+    organization_id: values.organization_id,
+    plan_type: values.plan_type,
+  };
+}
+
+function providerResourceToForm(item: ProviderResource) {
+  const summary = item.credential_summary ?? {};
+  return {
+    provider_id: item.provider_id,
+    name: item.name,
+    resource_type: item.resource_type,
+    auth_type: summary.auth_type || item.options?.auth_type || "oauth",
+    access_token: "",
+    refresh_token: "",
+    id_token: "",
+    api_key: "",
+    account_email: summary.account_email || "",
+    account_id: summary.account_id || "",
+    organization_id: summary.organization_id || "",
+    plan_type: summary.plan_type || "",
+    base_url: item.base_url ?? "",
+    group: item.group ?? "default",
+    priority: String(item.priority ?? 1),
+    weight: String(item.weight ?? 100),
+    rate_limit_rpm: String(item.rate_limit_rpm ?? ""),
+    token_limit_tpm: String(item.token_limit_tpm ?? ""),
+    max_concurrency: String(item.max_concurrency ?? ""),
+    status: item.status,
+    healthy: String(item.healthy),
+  };
 }
 
 function modelPayload(values: Record<string, string>) {
@@ -12447,6 +12682,20 @@ function providerRouteSummary(provider: Provider, data: AppData) {
   return `${active}/${routes.length} 启用 · ${models.join(", ")}`;
 }
 
+function providerAccountResourceSummary(provider: Provider, data: AppData) {
+  const resources = data.providerResources.filter((resource) => resource.provider_id === provider.id && resource.resource_type === "openai_subscription");
+  if (resources.length === 0) return <span className="muted-inline">-</span>;
+  const active = resources.filter((resource) => resource.status === "active" && resource.healthy).length;
+  const first = resources[0]?.credential_summary;
+  const label = first?.account_email || first?.account_id || resources[0]?.name || "";
+  return (
+    <div className="model-name-cell">
+      <strong>{active}/{resources.length} {tx("启用")}</strong>
+      <span>{label || tx("OpenAI 账号资源")}</span>
+    </div>
+  );
+}
+
 function providerCostDetailRows(data: AppData) {
   if (data.breakdown.providers.length > 0) return data.breakdown.providers;
   const resourcesByID = new Map(data.providerResources.map((resource) => [resource.id, resource]));
@@ -12664,7 +12913,10 @@ function enumValueLabel(value: string | undefined) {
     unknown: "未知",
     global: "全局",
     project: "项目",
-    api_key: "API Key",
+    api_key: "普通 API Key 资源",
+    openai_subscription: "OpenAI Subscription 账号",
+    oauth: "OAuth 账号",
+    personal_access_token: "Personal Access Token",
     team: "团队",
     self: "本人",
     provider: "Provider",
