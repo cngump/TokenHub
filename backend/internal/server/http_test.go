@@ -296,36 +296,21 @@ func TestAdminCreatesAPIKeyUnderDefaultProject(t *testing.T) {
 	}
 }
 
-func TestUserCanReadOwnAccessibleAdminModels(t *testing.T) {
+func TestUserCanReadRoutedAdminModels(t *testing.T) {
 	store := NewMemoryStore()
-	if err := BootstrapBaseData(store); err != nil {
-		t.Fatal(err)
-	}
-	user, err := store.CreateAdminUser(AdminUser{
+	if _, err := store.CreateAdminUser(AdminUser{
 		Username: "model.viewer",
 		Email:    "model.viewer@tokenhub.local",
 		Role:     "user",
 		TeamID:   "team_platform",
 		Status:   StatusActive,
-	}, "viewer123456")
-	if err != nil {
+	}, "viewer123456"); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = store.CreateAPIKey(defaultProjectID, APIKey{
-		Name:    "viewer-key",
-		Allowed: []string{"gpt-4.1-mini"},
-		Limits: QuotaLimits{
-			DailyRequests:  10,
-			MaxConcurrency: 1,
-		},
-		Status: StatusActive,
-		Metadata: map[string]string{
-			"created_by": user.ID,
-		},
-	}, "thk_viewer_models")
-	if err != nil {
-		t.Fatal(err)
-	}
+	store.AddModel(Model{Name: "gpt-4.1-mini", Modality: "chat", Status: StatusActive})
+	store.AddModel(Model{Name: "text-embedding-3-small", Modality: "embedding", Status: StatusActive})
+	store.AddRoute(ModelRoute{ModelName: "gpt-4.1-mini", ProviderID: "provider_mock", ProviderModel: "mock-chat", Status: StatusActive})
+	store.AddRoute(ModelRoute{ModelName: "text-embedding-3-small", ProviderID: "provider_mock", ProviderModel: "mock-embedding", Status: StatusDisabled})
 	app := New(store).Handler()
 
 	login := doJSON(t, app, http.MethodPost, "/api/admin/auth/login", map[string]any{
@@ -347,7 +332,7 @@ func TestUserCanReadOwnAccessibleAdminModels(t *testing.T) {
 		t.Fatalf("expected user to read accessible models, got %d: %s", models.Code, models.Body)
 	}
 	if !strings.Contains(models.Body, `"name":"gpt-4.1-mini"`) || strings.Contains(models.Body, `"name":"text-embedding-3-small"`) {
-		t.Fatalf("expected only allowed active models: %s", models.Body)
+		t.Fatalf("expected only active routed models: %s", models.Body)
 	}
 	overview := doJSON(t, app, http.MethodGet, "/api/admin/overview", nil, payload.Token)
 	if overview.Code != http.StatusOK || !strings.Contains(overview.Body, `"name":"gpt-4.1-mini"`) {
@@ -1640,6 +1625,281 @@ func TestRBACAndAdminAuditEvents(t *testing.T) {
 	}
 	if !strings.Contains(audit.Body, `"resource_type":"project"`) || !strings.Contains(audit.Body, `"action":"create"`) {
 		t.Fatalf("expected project create audit event: %s", audit.Body)
+	}
+}
+
+func TestRolePermissionsForDeveloperAndTeamLeaderWorkspaces(t *testing.T) {
+	if !canAdmin("user", "playground", http.MethodPost) {
+		t.Fatal("regular user should be allowed to use playground")
+	}
+	if canAdmin("user", "routing", http.MethodPost) {
+		t.Fatal("regular user should not manage routing")
+	}
+	if !canAdmin("team_leader", "project", http.MethodPost) {
+		t.Fatal("team leader should be allowed to manage team projects")
+	}
+	if !canAdmin("team_leader", "quota", http.MethodGet) {
+		t.Fatal("team leader should be allowed to read visible project quotas")
+	}
+	if !canAdmin("team_leader", "quota", http.MethodPost) {
+		t.Fatal("team leader should be allowed to request or save visible project quotas")
+	}
+}
+
+func TestRegularUserModelsComeFromActiveRoutesNotKeys(t *testing.T) {
+	store := NewMemoryStore()
+	_, err := store.CreateAdminUser(AdminUser{
+		Username: "model-viewer",
+		Name:     "Model Viewer",
+		Email:    "model-viewer@tokenhub.local",
+		Role:     "user",
+		TeamID:   "team_platform",
+		Status:   StatusActive,
+	}, "viewer123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.AddModel(Model{Name: "routed-chat", Modality: "chat", Status: StatusActive})
+	store.AddModel(Model{Name: "unrouted-chat", Modality: "chat", Status: StatusActive})
+	store.AddModel(Model{Name: "disabled-routed-chat", Modality: "chat", Status: StatusDisabled})
+	store.AddModel(Model{Name: "disabled-route-chat", Modality: "chat", Status: StatusActive})
+	store.AddRoute(ModelRoute{ModelName: "routed-chat", ProviderID: "provider_mock", ProviderModel: "routed-chat", Status: StatusActive})
+	store.AddRoute(ModelRoute{ModelName: "disabled-routed-chat", ProviderID: "provider_mock", ProviderModel: "disabled-routed-chat", Status: StatusActive})
+	store.AddRoute(ModelRoute{ModelName: "disabled-route-chat", ProviderID: "provider_mock", ProviderModel: "disabled-route-chat", Status: StatusDisabled})
+	app := New(store).Handler()
+
+	login := doJSON(t, app, http.MethodPost, "/api/admin/auth/login", map[string]any{
+		"identity": "model-viewer@tokenhub.local",
+		"password": "viewer123456",
+	}, "")
+	if login.Code != http.StatusOK {
+		t.Fatalf("login failed: %d %s", login.Code, login.Body)
+	}
+	var payload struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(login.Body), &payload); err != nil {
+		t.Fatal(err)
+	}
+	models := doJSON(t, app, http.MethodGet, "/api/admin/models", nil, payload.Token)
+	if models.Code != http.StatusOK {
+		t.Fatalf("models failed: %d %s", models.Code, models.Body)
+	}
+	if !strings.Contains(models.Body, "routed-chat") {
+		t.Fatalf("expected routed model without any user key: %s", models.Body)
+	}
+	for _, hidden := range []string{"unrouted-chat", "disabled-routed-chat", "disabled-route-chat"} {
+		if strings.Contains(models.Body, hidden) {
+			t.Fatalf("model %s should not be visible: %s", hidden, models.Body)
+		}
+	}
+}
+
+func TestTeamLeaderProjectManagementIsTeamScoped(t *testing.T) {
+	store := NewMemoryStore()
+	leader, err := store.CreateAdminUser(AdminUser{
+		Username: "project-leader",
+		Name:     "Project Leader",
+		Email:    "project-leader@tokenhub.local",
+		Role:     "team_leader",
+		TeamID:   "team_project",
+		Status:   StatusActive,
+	}, "leader123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	teamProject := store.CreateProject(Project{Name: "Existing Team Project", TeamID: leader.TeamID})
+	otherProject := store.CreateProject(Project{Name: "Other Team Project", TeamID: "team_other"})
+	teamQuota := store.CreateResource("quota-policies", AdminResource{
+		ID:     "quota_team_project",
+		Name:   "Team Project Quota",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"scope":          "project",
+			"scope_id":       teamProject.ID,
+			"daily_requests": 100,
+		},
+	})
+	otherQuota := store.CreateResource("quota-policies", AdminResource{
+		ID:     "quota_other_project",
+		Name:   "Other Project Quota",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"scope":          "project",
+			"scope_id":       otherProject.ID,
+			"daily_requests": 200,
+		},
+	})
+	app := New(store).Handler()
+
+	login := doJSON(t, app, http.MethodPost, "/api/admin/auth/login", map[string]any{
+		"identity": "project-leader@tokenhub.local",
+		"password": "leader123456",
+	}, "")
+	var payload struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(login.Body), &payload); err != nil {
+		t.Fatal(err)
+	}
+	created := doJSON(t, app, http.MethodPost, "/api/admin/projects", map[string]any{
+		"name":          "Team Project",
+		"team_id":       "team_other",
+		"owner_user_id": "",
+	}, payload.Token)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("team leader project create failed: %d %s", created.Code, created.Body)
+	}
+	var project Project
+	if err := json.Unmarshal([]byte(created.Body), &project); err != nil {
+		t.Fatal(err)
+	}
+	if project.TeamID != leader.TeamID || project.OwnerUserID != leader.ID {
+		t.Fatalf("team leader project should be scoped to own team/user: %+v", project)
+	}
+	quotas := doJSON(t, app, http.MethodGet, "/api/admin/resources/quota-policies", nil, payload.Token)
+	if quotas.Code != http.StatusOK {
+		t.Fatalf("team leader should read scoped project quotas, got %d: %s", quotas.Code, quotas.Body)
+	}
+	if !strings.Contains(quotas.Body, teamQuota.ID) || strings.Contains(quotas.Body, otherQuota.ID) {
+		t.Fatalf("quota list should be scoped to team projects: %s", quotas.Body)
+	}
+	createdQuota := doJSON(t, app, http.MethodPost, "/api/admin/resources/quota-policies", map[string]any{
+		"name":   "Created Team Project Quota",
+		"status": StatusActive,
+		"fields": map[string]any{
+			"scope":            "project",
+			"scope_id":         teamProject.ID,
+			"monthly_requests": 500,
+		},
+	}, payload.Token)
+	if createdQuota.Code != http.StatusCreated {
+		t.Fatalf("team leader should create quota for own project, got %d: %s", createdQuota.Code, createdQuota.Body)
+	}
+	forbiddenQuota := doJSON(t, app, http.MethodPost, "/api/admin/resources/quota-policies", map[string]any{
+		"name":   "Other Team Quota",
+		"status": StatusActive,
+		"fields": map[string]any{
+			"scope":    "project",
+			"scope_id": otherProject.ID,
+		},
+	}, payload.Token)
+	if forbiddenQuota.Code != http.StatusForbidden {
+		t.Fatalf("team leader should not create quota for another team project, got %d: %s", forbiddenQuota.Code, forbiddenQuota.Body)
+	}
+	forbidden := doJSON(t, app, http.MethodPatch, "/api/admin/projects/"+otherProject.ID, map[string]any{
+		"name":    "Hijacked",
+		"team_id": leader.TeamID,
+	}, payload.Token)
+	if forbidden.Code != http.StatusForbidden {
+		t.Fatalf("team leader should not update another team project, got %d: %s", forbidden.Code, forbidden.Body)
+	}
+}
+
+func TestProjectMembersAssignMultipleProjectsAndKeyIssueScope(t *testing.T) {
+	store := NewMemoryStore()
+	user, err := store.CreateAdminUser(AdminUser{
+		Username: "project-member",
+		Name:     "Project Member",
+		Email:    "project-member@tokenhub.local",
+		Role:     "user",
+		TeamID:   "team_member",
+		Status:   StatusActive,
+	}, "user123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherUser, err := store.CreateAdminUser(AdminUser{
+		Username: "other-member",
+		Name:     "Other Member",
+		Email:    "other-member@tokenhub.local",
+		Role:     "user",
+		TeamID:   "team_member",
+		Status:   StatusActive,
+	}, "user123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	developerProject := store.CreateProject(Project{Name: "Developer Project", TeamID: user.TeamID})
+	viewerProject := store.CreateProject(Project{Name: "Viewer Project", TeamID: user.TeamID})
+	sameTeamProject := store.CreateProject(Project{Name: "Same Team Unassigned Project", TeamID: user.TeamID})
+	otherMemberProject := store.CreateProject(Project{Name: "Other Member Project", TeamID: user.TeamID})
+	store.CreateResource("project-members", AdminResource{
+		Name:   "Developer Project Member",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"project_id": developerProject.ID,
+			"user_id":    user.ID,
+			"role":       "developer",
+		},
+	})
+	store.CreateResource("project-members", AdminResource{
+		Name:   "Viewer Project Member",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"project_id": viewerProject.ID,
+			"user_id":    user.ID,
+			"role":       "viewer",
+		},
+	})
+	store.CreateResource("project-members", AdminResource{
+		Name:   "Other Project Member",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"project_id": otherMemberProject.ID,
+			"user_id":    otherUser.ID,
+			"role":       "developer",
+		},
+	})
+	app := New(store).Handler()
+
+	login := doJSON(t, app, http.MethodPost, "/api/admin/auth/login", map[string]any{
+		"identity": "project-member@tokenhub.local",
+		"password": "user123456",
+	}, "")
+	var payload struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(login.Body), &payload); err != nil {
+		t.Fatal(err)
+	}
+	projects := doJSON(t, app, http.MethodGet, "/api/admin/projects", nil, payload.Token)
+	if projects.Code != http.StatusOK {
+		t.Fatalf("user project list failed: %d %s", projects.Code, projects.Body)
+	}
+	if !strings.Contains(projects.Body, developerProject.ID) || !strings.Contains(projects.Body, viewerProject.ID) {
+		t.Fatalf("assigned projects should be visible: %s", projects.Body)
+	}
+	for _, hidden := range []string{sameTeamProject.ID, otherMemberProject.ID} {
+		if strings.Contains(projects.Body, hidden) {
+			t.Fatalf("unassigned project %s should not be visible: %s", hidden, projects.Body)
+		}
+	}
+	memberships := doJSON(t, app, http.MethodGet, "/api/admin/resources/project-members", nil, payload.Token)
+	if memberships.Code != http.StatusOK {
+		t.Fatalf("user project memberships failed: %d %s", memberships.Code, memberships.Body)
+	}
+	if !strings.Contains(memberships.Body, developerProject.ID) || !strings.Contains(memberships.Body, viewerProject.ID) ||
+		strings.Contains(memberships.Body, otherMemberProject.ID) {
+		t.Fatalf("user should only read own project memberships: %s", memberships.Body)
+	}
+	createdKey := doJSON(t, app, http.MethodPost, "/api/admin/projects/"+developerProject.ID+"/keys", map[string]any{
+		"name": "Developer Key",
+	}, payload.Token)
+	if createdKey.Code != http.StatusCreated || !strings.Contains(createdKey.Body, `"api_key"`) {
+		t.Fatalf("developer member should issue key, got %d: %s", createdKey.Code, createdKey.Body)
+	}
+	viewerKey := doJSON(t, app, http.MethodPost, "/api/admin/projects/"+viewerProject.ID+"/keys", map[string]any{
+		"name": "Viewer Key",
+	}, payload.Token)
+	if viewerKey.Code != http.StatusForbidden {
+		t.Fatalf("viewer member should not issue key, got %d: %s", viewerKey.Code, viewerKey.Body)
+	}
+	unassignedKey := doJSON(t, app, http.MethodPost, "/api/admin/projects/"+sameTeamProject.ID+"/keys", map[string]any{
+		"name": "Unassigned Key",
+	}, payload.Token)
+	if unassignedKey.Code != http.StatusForbidden {
+		t.Fatalf("same-team unassigned user should not issue key, got %d: %s", unassignedKey.Code, unassignedKey.Body)
 	}
 }
 

@@ -3511,6 +3511,8 @@ func resourcePrefix(kind string) string {
 		return "team"
 	case "role-configs":
 		return "role"
+	case "project-members":
+		return "pm"
 	case "identity-providers":
 		return "idp"
 	case "users":
