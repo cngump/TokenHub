@@ -2919,6 +2919,7 @@ function loadPlanForView(user: AdminUser, view: ViewKey): LoadPlan {
       addResourceDependency(plan, "teams");
       addResourceDependency(plan, "cost-centers");
       addResourceDependency(plan, "quota-policies");
+      addResourceDependency(plan, "project-members");
       break;
     case "project-members":
       plan.overview = true;
@@ -6676,11 +6677,6 @@ function ProjectMemberRow({
           <strong>{title}</strong>
           <span>{subtitle || "-"}</span>
         </div>
-      </div>
-      <div className="project-member-meta">
-        <span>{projectMemberRoleLabel(stringifyValue(member.fields?.role))}</span>
-        <span>{projectMemberCanIssueLabel(member)}</span>
-        <StatusPill status={member.status} />
       </div>
       <div className="project-member-actions">
         <button className="text-button" onClick={onEdit} type="button">{tx("编辑")}</button>

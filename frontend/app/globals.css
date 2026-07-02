@@ -2070,7 +2070,8 @@ h2 {
 .project-member-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   gap: 8px;
   padding: 10px;
   border-bottom: 1px solid var(--border);
