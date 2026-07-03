@@ -2,22 +2,36 @@
 
 Language: [English](../README.md) | [简体中文](../zh-CN/README.md) | 日本語
 
-このディレクトリには、TokenHub を実行、設定、利用するための公開ユーザードキュメントを置いています。内部設計メモではなく、運用者と開発者の実務に必要な内容に絞っています。
+TokenHub のドキュメントは、企業 AI ゲートウェイで使う 3 つのロールを中心に再編成されています。既定言語は英語です。中国語版と日本語版も、同じ英語スクリーンショットと英語サンプルデータを利用します。
 
-## 内容
+## ロールガイド
 
-| ドキュメント | 説明 |
+| ガイド | 対象者 | 主なワークフロー |
+| --- | --- | --- |
+| [利用者ガイド](user-guide.md) | 社員、アプリケーション開発者 | 利用可能モデルの確認、Project Key の作成、モデル API 呼び出し、個人利用量の確認 |
+| [チームリーダーガイド](team-leader-guide.md) | チーム Owner、プロジェクト保守者 | Project、メンバー、API Key、チームレポート、Project コスト配賦の管理 |
+| [管理者ガイド](administrator-guide.md) | プラットフォーム管理者、セキュリティ運用者 | Provider、モデルカタログ、ルーティング、ID プロバイダー、RBAC、監査、コスト統制の設定 |
+
+## 共通の英語サンプルデータ
+
+| オブジェクト | サンプル |
 | --- | --- |
-| [クイックスタート](quick-start.md) | ローカルでバックエンドと管理コンソールを起動し、スモークテストを実行します |
-| [モデル API](model-api.md) | OpenAI-compatible エンドポイントで TokenHub を呼び出します |
-| [管理コンソール](admin-console.md) | Provider、モデルルート、API Key、利用量、ログ、アラートを設定します |
-| [モデルカタログ](model-catalog.md) | YAML で標準モデルカタログを管理します |
-| [デプロイ](deployment.md) | 環境変数、Docker Compose、データパス、バックアップを説明します |
-| [セキュリティ](security.md) | API Key、管理アクセス、RBAC、監査ログ、認証情報の扱いを説明します |
+| Organization | Acme AI Platform |
+| Team | Platform Engineering |
+| Project | Payments Assistant |
+| Cost center | AI Platform Cost Center |
+| Model | gpt-4.1-mini |
+| API key placeholder | YOUR_TOKENHUB_API_KEY |
 
-## 推奨順序
+## スクリーンショット
 
-1. まず [クイックスタート](quick-start.md) を読んでください。
-2. 管理者は [管理コンソール](admin-console.md) で設定フローを確認してください。
-3. アプリ開発者は [モデル API](model-api.md) で SDK 連携を確認してください。
-4. 本番利用前に [デプロイ](deployment.md) と [セキュリティ](security.md) を確認してください。
+すべてのスクリーンショットは英語 UI から取得し、全言語版で共用します。
+
+| 画面 | ファイル |
+| --- | --- |
+| Gateway documentation | `../assets/screenshots/gateway-en.png` |
+| Overview | `../assets/screenshots/overview-en.png` |
+| Models | `../assets/screenshots/models-en.png` |
+| Routes | `../assets/screenshots/routes-en.png` |
+| Usage | `../assets/screenshots/usage-en.png` |
+| Settings | `../assets/screenshots/settings-en.png` |

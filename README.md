@@ -5,7 +5,7 @@
 <h1 align="center">TokenHub</h1>
 
 <p align="center">
-  TokenHub is a private AI gateway that unifies OpenAI-compatible APIs, Provider routing, API keys, usage analytics, and cost governance in one clean console.
+  TokenHub is a private enterprise AI gateway with role-based workspaces for users, team leaders, and administrators.
 </p>
 
 <p align="center">
@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  Language: English | <a href="README.zh-CN.md">简体中文</a> | <a href="README.ja.md">日本語</a>
+  English | <a href="README.zh-CN.md">简体中文</a> | <a href="README.ja.md">日本語</a>
 </p>
 
 ## Screenshots
@@ -35,17 +35,27 @@
 | Usage Analytics | System Settings |
 | ![Usage Analytics](docs/assets/screenshots/usage-en.png) | ![System Settings](docs/assets/screenshots/settings-en.png) |
 
-## What You Get
+## Designed Around Three Roles
+
+TokenHub separates everyday model usage, team governance, and platform administration so enterprise users see the workflows that match their responsibility.
+
+| Role | Workspace Focus | Guide |
+| --- | --- | --- |
+| User | Find available models, create project-scoped API keys, call the model API, and review personal usage | [User Guide](docs/user-guide.md) |
+| Team Leader | Manage project spaces, project members, project keys, team reports, and project cost attribution | [Team Leader Guide](docs/team-leader-guide.md) |
+| Administrator | Configure providers, model catalog, routing policies, identity sources, RBAC, audit, and cost controls | [Administrator Guide](docs/administrator-guide.md) |
+
+## Platform Capabilities
 
 - OpenAI-compatible model APIs: `/v1/chat/completions`, `/v1/responses`, `/v1/embeddings`.
 - Provider channels for OpenAI-compatible, Azure OpenAI, Anthropic, Gemini, DeepSeek, Qwen, local vLLM/Ollama, and custom upstreams.
-- Model catalog, routing priorities, route weights, and failover order.
-- API keys, projects, teams, model allowlists, quotas, and concurrency limits.
-- Request logs, usage analytics, cost billing, approvals, health checks, alerts, and notification channels.
-- Executive usage dashboards with department rankings, member rankings, token comparisons, and Provider cost share.
-- Clean admin console with compact navigation, global search, light/dark mode, and split-view API documentation.
+- Model catalog and routing policies with priority, weight, failover order, and route health diagnostics.
+- Project-scoped key management with team ownership, member permissions, quotas, and concurrency controls.
+- Usage analytics and request logs attributed to user, project, team, model, and cost center.
+- Identity source configuration for OAuth/OIDC enterprise sign-in, plus RBAC and audit trails.
+- Clean console with compact role-aware navigation, global search, light/dark mode, and split-view API documentation.
 - SQLite-first private deployment with Docker Compose support.
-- Admin console language switching for Chinese, English, and Japanese.
+- Console language switching for English, Chinese, and Japanese.
 
 ## Quick Start
 
@@ -95,12 +105,11 @@ npm run test:deepseek
 ## Documentation
 
 - [Documentation home](docs/README.md)
-- [Quick start](docs/quick-start.md)
-- [Model API](docs/model-api.md)
-- [Admin console](docs/admin-console.md)
-- [Model catalog](docs/model-catalog.md)
-- [Deployment](docs/deployment.md)
-- [Security](docs/security.md)
+- [User Guide](docs/user-guide.md)
+- [Team Leader Guide](docs/team-leader-guide.md)
+- [Administrator Guide](docs/administrator-guide.md)
+- [简体中文文档](docs/zh-CN/README.md)
+- [日本語ドキュメント](docs/ja/README.md)
 
 ## License
 

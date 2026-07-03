@@ -3,7 +3,10 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -12,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/smtp"
+	"net/url"
 	"os"
 	"sort"
 	"strconv"
@@ -68,6 +72,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/admin/auth/logout", s.handleAdminLogout)
 	s.mux.HandleFunc("/api/admin/auth/me", s.handleAdminMe)
 	s.mux.HandleFunc("/api/admin/auth/reset-password", s.handleAdminResetPassword)
+	s.mux.HandleFunc("/api/admin/auth/identity-providers", s.handleAdminAuthIdentityProviders)
+	s.mux.HandleFunc("/api/admin/auth/oauth/start", s.handleAdminOAuthStart)
+	s.mux.HandleFunc("/api/admin/auth/oauth/callback", s.handleAdminOAuthCallback)
 	s.mux.HandleFunc("/api/admin/overview", s.handleAdminOverview)
 	s.mux.HandleFunc("/api/admin/playground/chat", s.handleAdminPlaygroundChat)
 	s.mux.HandleFunc("/api/admin/projects", s.handleAdminProjects)
@@ -353,7 +360,7 @@ func (s *Server) executeRoutedEmbeddings(r *http.Request, routed RoutedCall, req
 }
 
 func (s *Server) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Request) {
-	user, ok := s.requireAdmin(w, r, "routing", r.Method)
+	user, ok := s.requireAdmin(w, r, "playground", r.Method)
 	if !ok {
 		return
 	}
@@ -846,6 +853,649 @@ func (s *Server) handleAdminMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"user": user})
 }
 
+type adminAuthIdentityProvider struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	DisplayName  string `json:"display_name"`
+	ProviderType string `json:"provider_type"`
+	IssuerURL    string `json:"issuer_url,omitempty"`
+	IconKey      string `json:"icon_key,omitempty"`
+}
+
+type oauthStatePayload struct {
+	ProviderID  string `json:"provider_id"`
+	ReturnURL   string `json:"return_url"`
+	RedirectURI string `json:"redirect_uri"`
+	ExpiresAt   int64  `json:"expires_at"`
+	Nonce       string `json:"nonce"`
+}
+
+type oauthTokenResponse struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   int64  `json:"expires_in"`
+	IDToken     string `json:"id_token"`
+}
+
+func (s *Server) handleAdminAuthIdentityProviders(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
+		return
+	}
+	providers := []adminAuthIdentityProvider{}
+	for _, item := range s.activeOAuthIdentityProviders() {
+		providers = append(providers, adminAuthIdentityProvider{
+			ID:           item.ID,
+			Name:         item.Name,
+			DisplayName:  identityProviderDisplayName(item),
+			ProviderType: strings.ToLower(strings.TrimSpace(stringField(item.Fields, "provider_type"))),
+			IssuerURL:    strings.TrimSpace(stringField(item.Fields, "issuer_url")),
+			IconKey:      identityProviderIconKey(item),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": providers})
+}
+
+func (s *Server) handleAdminOAuthStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
+		return
+	}
+	provider, ok := s.findActiveOAuthIdentityProvider(r.URL.Query().Get("id"))
+	if !ok {
+		writeError(w, r, NewHTTPError(404, "identity_provider_not_found", "Identity provider not found"))
+		return
+	}
+	authorizeURL := strings.TrimSpace(stringField(provider.Fields, "authorize_url"))
+	clientID := strings.TrimSpace(stringField(provider.Fields, "client_id"))
+	if authorizeURL == "" || clientID == "" {
+		writeError(w, r, NewHTTPError(400, "identity_provider_incomplete", "Identity provider authorize URL and client ID are required"))
+		return
+	}
+	redirectURI, err := identityProviderRedirectURI(provider, r)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	returnURL := safeOAuthReturnURL(r.URL.Query().Get("return_url"), r)
+	state, err := s.signOAuthState(oauthStatePayload{
+		ProviderID:  provider.ID,
+		ReturnURL:   returnURL,
+		RedirectURI: redirectURI,
+		ExpiresAt:   time.Now().UTC().Add(10 * time.Minute).Unix(),
+		Nonce:       NewID("oauth"),
+	})
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	target, err := buildOAuthAuthorizeURL(authorizeURL, clientID, redirectURI, identityProviderScopes(provider), state)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	http.Redirect(w, r, target, http.StatusFound)
+}
+
+func (s *Server) handleAdminOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
+		return
+	}
+	state, err := s.verifyOAuthState(r.URL.Query().Get("state"))
+	if err != nil {
+		writeError(w, r, NewHTTPError(400, "invalid_oauth_state", "OAuth state is invalid or expired"))
+		return
+	}
+	if providerError := strings.TrimSpace(r.URL.Query().Get("error")); providerError != "" {
+		http.Redirect(w, r, oauthRedirectWithError(state.ReturnURL, "provider_error"), http.StatusFound)
+		return
+	}
+	code := strings.TrimSpace(r.URL.Query().Get("code"))
+	if code == "" {
+		http.Redirect(w, r, oauthRedirectWithError(state.ReturnURL, "missing_code"), http.StatusFound)
+		return
+	}
+	provider, ok := s.findActiveOAuthIdentityProvider(state.ProviderID)
+	if !ok {
+		http.Redirect(w, r, oauthRedirectWithError(state.ReturnURL, "identity_provider_not_found"), http.StatusFound)
+		return
+	}
+	token, err := s.exchangeOAuthCode(r.Context(), provider, code, state.RedirectURI)
+	if err != nil {
+		http.Redirect(w, r, oauthRedirectWithError(state.ReturnURL, "token_exchange_failed"), http.StatusFound)
+		return
+	}
+	claims, err := s.fetchOAuthUserInfo(r.Context(), provider, token.AccessToken)
+	if err != nil {
+		http.Redirect(w, r, oauthRedirectWithError(state.ReturnURL, "userinfo_failed"), http.StatusFound)
+		return
+	}
+	user, err := s.upsertOAuthAdminUser(provider, claims)
+	if err != nil {
+		http.Redirect(w, r, oauthRedirectWithError(state.ReturnURL, "user_sync_failed"), http.StatusFound)
+		return
+	}
+	_, session, err := s.store.CreateAdminSession(user.ID, 12*time.Hour)
+	if err != nil {
+		http.Redirect(w, r, oauthRedirectWithError(state.ReturnURL, "session_failed"), http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, oauthRedirectWithSession(state.ReturnURL, session), http.StatusFound)
+}
+
+func (s *Server) activeOAuthIdentityProviders() []AdminResource {
+	items := []AdminResource{}
+	for _, item := range s.store.ListResources("identity-providers") {
+		if item.Status != StatusActive {
+			continue
+		}
+		providerType := strings.ToLower(strings.TrimSpace(stringField(item.Fields, "provider_type")))
+		if providerType != "oidc" && providerType != "oauth2" {
+			continue
+		}
+		if strings.TrimSpace(stringField(item.Fields, "authorize_url")) == "" ||
+			strings.TrimSpace(stringField(item.Fields, "token_url")) == "" ||
+			strings.TrimSpace(stringField(item.Fields, "userinfo_url")) == "" ||
+			strings.TrimSpace(stringField(item.Fields, "client_id")) == "" {
+			continue
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+func (s *Server) findActiveOAuthIdentityProvider(id string) (AdminResource, bool) {
+	id = strings.TrimSpace(id)
+	items := s.activeOAuthIdentityProviders()
+	if id == "" && len(items) == 1 {
+		return items[0], true
+	}
+	for _, item := range items {
+		if item.ID == id {
+			return item, true
+		}
+	}
+	return AdminResource{}, false
+}
+
+func identityProviderScopes(provider AdminResource) string {
+	raw := strings.TrimSpace(stringField(provider.Fields, "scopes"))
+	if raw == "" {
+		return "openid profile email"
+	}
+	if strings.Contains(raw, ",") {
+		parts := strings.Split(raw, ",")
+		out := make([]string, 0, len(parts))
+		for _, part := range parts {
+			if value := strings.TrimSpace(part); value != "" {
+				out = append(out, value)
+			}
+		}
+		return strings.Join(out, " ")
+	}
+	return raw
+}
+
+func identityProviderIconKey(provider AdminResource) string {
+	configured := strings.ToLower(strings.TrimSpace(stringField(provider.Fields, "icon_key")))
+	if configured != "" && configured != "auto" {
+		return configured
+	}
+	providerType := strings.ToLower(strings.TrimSpace(stringField(provider.Fields, "provider_type")))
+	fingerprint := strings.ToLower(strings.Join([]string{
+		provider.Name,
+		stringField(provider.Fields, "issuer_url"),
+		stringField(provider.Fields, "authorize_url"),
+		providerType,
+	}, " "))
+	for _, key := range []string{"gitlab", "github", "google", "microsoft", "azure", "entra", "okta", "keycloak"} {
+		if strings.Contains(fingerprint, key) {
+			if key == "azure" || key == "entra" {
+				return "microsoft"
+			}
+			return key
+		}
+	}
+	switch providerType {
+	case "oidc", "oauth2", "saml", "ldap":
+		return providerType
+	default:
+		return "sso"
+	}
+}
+
+func identityProviderDisplayName(provider AdminResource) string {
+	if label := strings.TrimSpace(stringField(provider.Fields, "login_label")); label != "" {
+		return label
+	}
+	iconKey := identityProviderIconKey(provider)
+	if label := identityProviderIconDisplayName(iconKey); label != "" {
+		return label
+	}
+	if provider.Name != "" {
+		return provider.Name
+	}
+	return identityProviderTypeLabel(strings.ToLower(strings.TrimSpace(stringField(provider.Fields, "provider_type"))))
+}
+
+func identityProviderIconDisplayName(iconKey string) string {
+	switch strings.ToLower(strings.TrimSpace(iconKey)) {
+	case "gitlab":
+		return "GitLab"
+	case "github":
+		return "GitHub"
+	case "google":
+		return "Google"
+	case "microsoft":
+		return "Microsoft"
+	case "okta":
+		return "Okta"
+	case "keycloak":
+		return "Keycloak"
+	default:
+		return ""
+	}
+}
+
+func identityProviderTypeLabel(providerType string) string {
+	switch strings.ToLower(strings.TrimSpace(providerType)) {
+	case "oidc":
+		return "OIDC"
+	case "oauth2":
+		return "OAuth2"
+	case "saml":
+		return "SAML"
+	case "ldap":
+		return "LDAP"
+	default:
+		return "SSO"
+	}
+}
+
+func buildOAuthAuthorizeURL(authorizeURL string, clientID string, redirectURI string, scope string, state string) (string, error) {
+	target, err := url.Parse(authorizeURL)
+	if err != nil || target.Scheme == "" || target.Host == "" {
+		return "", NewHTTPError(400, "invalid_authorize_url", "Authorize URL is invalid")
+	}
+	query := target.Query()
+	query.Set("response_type", "code")
+	query.Set("client_id", clientID)
+	query.Set("redirect_uri", redirectURI)
+	if strings.TrimSpace(scope) != "" {
+		query.Set("scope", scope)
+	}
+	query.Set("state", state)
+	target.RawQuery = query.Encode()
+	return target.String(), nil
+}
+
+func oauthCallbackURL(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if forwarded := firstForwardedValue(r.Header.Get("x-forwarded-proto")); forwarded != "" {
+		scheme = forwarded
+	}
+	host := r.Host
+	if forwarded := firstForwardedValue(r.Header.Get("x-forwarded-host")); forwarded != "" {
+		host = forwarded
+	}
+	return fmt.Sprintf("%s://%s/api/admin/auth/oauth/callback", scheme, host)
+}
+
+func identityProviderRedirectURI(provider AdminResource, r *http.Request) (string, error) {
+	configured := strings.TrimSpace(stringField(provider.Fields, "redirect_uri"))
+	if configured == "" {
+		return oauthCallbackURL(r), nil
+	}
+	target, err := url.Parse(configured)
+	if err != nil || target.Scheme == "" || target.Host == "" {
+		return "", NewHTTPError(400, "invalid_redirect_uri", "OAuth callback URL must be an absolute URL")
+	}
+	if target.Scheme != "http" && target.Scheme != "https" {
+		return "", NewHTTPError(400, "invalid_redirect_uri", "OAuth callback URL must use http or https")
+	}
+	if target.Fragment != "" {
+		return "", NewHTTPError(400, "invalid_redirect_uri", "OAuth callback URL must not contain a fragment")
+	}
+	return configured, nil
+}
+
+func firstForwardedValue(value string) string {
+	if value == "" {
+		return ""
+	}
+	return strings.TrimSpace(strings.Split(value, ",")[0])
+}
+
+func safeOAuthReturnURL(raw string, r *http.Request) string {
+	fallback := "http://localhost:3000/overview"
+	if origin := strings.TrimSpace(r.Header.Get("origin")); origin != "" {
+		fallback = strings.TrimRight(origin, "/") + "/overview"
+	} else if referer := strings.TrimSpace(r.Header.Get("referer")); referer != "" {
+		if parsed, err := url.Parse(referer); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+			fallback = parsed.Scheme + "://" + parsed.Host + "/overview"
+		}
+	}
+	candidate := strings.TrimSpace(raw)
+	if candidate == "" {
+		return fallback
+	}
+	parsed, err := url.Parse(candidate)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return fallback
+	}
+	if isAllowedOAuthReturnHost(parsed.Hostname(), r.Host) {
+		return parsed.String()
+	}
+	return fallback
+}
+
+func isAllowedOAuthReturnHost(hostname string, requestHost string) bool {
+	hostname = strings.ToLower(strings.Trim(hostname, "[]"))
+	requestHostname := strings.ToLower(strings.Trim(strings.Split(requestHost, ":")[0], "[]"))
+	switch hostname {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	return hostname != "" && hostname == requestHostname
+}
+
+func (s *Server) signOAuthState(payload oauthStatePayload) (string, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	body := base64.RawURLEncoding.EncodeToString(data)
+	mac := hmac.New(sha256.New, []byte(s.oauthStateSecret()))
+	_, _ = mac.Write([]byte(body))
+	signature := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return body + "." + signature, nil
+}
+
+func (s *Server) verifyOAuthState(state string) (oauthStatePayload, error) {
+	parts := strings.Split(strings.TrimSpace(state), ".")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return oauthStatePayload{}, fmt.Errorf("invalid oauth state")
+	}
+	mac := hmac.New(sha256.New, []byte(s.oauthStateSecret()))
+	_, _ = mac.Write([]byte(parts[0]))
+	expected := mac.Sum(nil)
+	got, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil || !hmac.Equal(got, expected) {
+		return oauthStatePayload{}, fmt.Errorf("invalid oauth state")
+	}
+	data, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return oauthStatePayload{}, err
+	}
+	var payload oauthStatePayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return oauthStatePayload{}, err
+	}
+	if payload.ProviderID == "" || payload.ReturnURL == "" || payload.RedirectURI == "" || time.Now().UTC().Unix() > payload.ExpiresAt {
+		return oauthStatePayload{}, fmt.Errorf("invalid oauth state")
+	}
+	return payload, nil
+}
+
+func (s *Server) oauthStateSecret() string {
+	if secret := strings.TrimSpace(s.config.SecretKey); secret != "" {
+		return secret
+	}
+	if secret := strings.TrimSpace(s.config.AdminToken); secret != "" {
+		return secret
+	}
+	return "tokenhub-oauth-state"
+}
+
+func (s *Server) exchangeOAuthCode(ctx context.Context, provider AdminResource, code string, redirectURI string) (oauthTokenResponse, error) {
+	tokenURL := strings.TrimSpace(stringField(provider.Fields, "token_url"))
+	clientID := strings.TrimSpace(stringField(provider.Fields, "client_id"))
+	clientSecret := strings.TrimSpace(stringField(provider.Fields, "client_secret"))
+	if tokenURL == "" || clientID == "" {
+		return oauthTokenResponse{}, NewHTTPError(400, "identity_provider_incomplete", "Identity provider token URL and client ID are required")
+	}
+	form := url.Values{}
+	form.Set("grant_type", "authorization_code")
+	form.Set("code", code)
+	form.Set("redirect_uri", redirectURI)
+	form.Set("client_id", clientID)
+	if clientSecret != "" {
+		form.Set("client_secret", clientSecret)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return oauthTokenResponse{}, err
+	}
+	req.Header.Set("accept", "application/json")
+	req.Header.Set("content-type", "application/x-www-form-urlencoded")
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		return oauthTokenResponse{}, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return oauthTokenResponse{}, NewHTTPError(502, "oauth_token_failed", fmt.Sprintf("OAuth token endpoint returned %d", resp.StatusCode))
+	}
+	var token oauthTokenResponse
+	if err := json.Unmarshal(body, &token); err != nil {
+		return oauthTokenResponse{}, err
+	}
+	if strings.TrimSpace(token.AccessToken) == "" {
+		return oauthTokenResponse{}, NewHTTPError(502, "oauth_token_missing", "OAuth token endpoint did not return an access token")
+	}
+	return token, nil
+}
+
+func (s *Server) fetchOAuthUserInfo(ctx context.Context, provider AdminResource, accessToken string) (map[string]any, error) {
+	userinfoURL := strings.TrimSpace(stringField(provider.Fields, "userinfo_url"))
+	if userinfoURL == "" {
+		return nil, NewHTTPError(400, "identity_provider_incomplete", "Identity provider userinfo URL is required")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, userinfoURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("accept", "application/json")
+	req.Header.Set("authorization", "Bearer "+accessToken)
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, NewHTTPError(502, "oauth_userinfo_failed", fmt.Sprintf("OAuth userinfo endpoint returned %d", resp.StatusCode))
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(body, &claims); err != nil {
+		return nil, err
+	}
+	return claims, nil
+}
+
+func (s *Server) upsertOAuthAdminUser(provider AdminResource, claims map[string]any) (AdminUser, error) {
+	usernameClaim := strings.TrimSpace(stringField(provider.Fields, "username_claim"))
+	emailClaim := strings.TrimSpace(stringField(provider.Fields, "email_claim"))
+	teamClaim := strings.TrimSpace(stringField(provider.Fields, "team_claim"))
+	email := firstOAuthClaim(claims, emailClaim, "email", "public_email")
+	if email == "" {
+		return AdminUser{}, NewHTTPError(400, "oauth_email_missing", "OAuth userinfo did not include an email")
+	}
+	username := firstOAuthClaim(claims, usernameClaim, "preferred_username", "username", "nickname", "name")
+	if username == "" {
+		username = strings.Split(email, "@")[0]
+	}
+	name := firstOAuthClaim(claims, "name", "display_name", usernameClaim, "username")
+	if name == "" {
+		name = username
+	}
+	teamID := s.oauthTeamID(firstOAuthClaim(claims, teamClaim))
+	users := s.store.ListAdminUsers()
+	if existing, ok := findOAuthAdminUser(users, email, username); ok {
+		if existing.Status != StatusActive {
+			return AdminUser{}, NewHTTPError(403, "admin_user_disabled", "Admin user is disabled")
+		}
+		patch := existing
+		if name != "" {
+			patch.Name = name
+		}
+		patch.Email = email
+		if username != "" && !adminUsernameTaken(users, username, existing.ID) {
+			patch.Username = username
+		}
+		if teamID != "" {
+			patch.TeamID = teamID
+		}
+		return s.store.UpdateAdminUser(existing.ID, patch, "")
+	}
+	username = uniqueOAuthUsername(users, username, email)
+	return s.store.CreateAdminUser(AdminUser{
+		Username: username,
+		Name:     name,
+		Email:    email,
+		Role:     "user",
+		TeamID:   teamID,
+		Status:   StatusActive,
+	}, GenerateAdminSessionToken())
+}
+
+func firstOAuthClaim(claims map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := oauthClaimString(claims, key); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func oauthClaimString(claims map[string]any, key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" || claims == nil {
+		return ""
+	}
+	var value any = claims
+	for _, part := range strings.Split(key, ".") {
+		fields, ok := value.(map[string]any)
+		if !ok {
+			return ""
+		}
+		value, ok = fields[part]
+		if !ok || value == nil {
+			return ""
+		}
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case json.Number:
+		return typed.String()
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	case bool:
+		if typed {
+			return "true"
+		}
+		return "false"
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func findOAuthAdminUser(users []AdminUser, email string, username string) (AdminUser, bool) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	username = strings.ToLower(strings.TrimSpace(username))
+	for _, user := range users {
+		if email != "" && strings.ToLower(strings.TrimSpace(user.Email)) == email {
+			return user, true
+		}
+	}
+	for _, user := range users {
+		if username != "" && strings.ToLower(strings.TrimSpace(user.Username)) == username {
+			return user, true
+		}
+	}
+	return AdminUser{}, false
+}
+
+func adminUsernameTaken(users []AdminUser, username string, allowedUserID string) bool {
+	username = strings.ToLower(strings.TrimSpace(username))
+	for _, user := range users {
+		if user.ID != allowedUserID && strings.ToLower(strings.TrimSpace(user.Username)) == username {
+			return true
+		}
+	}
+	return false
+}
+
+func uniqueOAuthUsername(users []AdminUser, preferred string, email string) string {
+	base := strings.TrimSpace(preferred)
+	if base == "" {
+		base = strings.Split(strings.TrimSpace(email), "@")[0]
+	}
+	if base == "" {
+		base = "oauth-user"
+	}
+	if !adminUsernameTaken(users, base, "") {
+		return base
+	}
+	for index := 2; index < 1000; index++ {
+		candidate := fmt.Sprintf("%s-%d", base, index)
+		if !adminUsernameTaken(users, candidate, "") {
+			return candidate
+		}
+	}
+	return base + "-" + NewID("oauth")
+}
+
+func (s *Server) oauthTeamID(claimValue string) string {
+	normalized := normalizeScopeValue(claimValue)
+	if normalized == "" {
+		return ""
+	}
+	for _, team := range s.store.ListResources("teams") {
+		for _, value := range []string{
+			team.ID,
+			team.Name,
+			stringField(team.Fields, "name"),
+			stringField(team.Fields, "code"),
+			stringField(team.Fields, "team_id"),
+			stringField(team.Fields, "team_name"),
+		} {
+			if normalizeScopeValue(value) == normalized {
+				return team.ID
+			}
+		}
+	}
+	return ""
+}
+
+func oauthRedirectWithSession(returnURL string, session AdminSession) string {
+	values := url.Values{}
+	values.Set("oauth_token", session.Token)
+	values.Set("oauth_expires_at", session.ExpiresAt.Format(time.RFC3339))
+	return oauthRedirectWithFragment(returnURL, values)
+}
+
+func oauthRedirectWithError(returnURL string, code string) string {
+	values := url.Values{}
+	values.Set("oauth_error", code)
+	return oauthRedirectWithFragment(returnURL, values)
+}
+
+func oauthRedirectWithFragment(returnURL string, values url.Values) string {
+	target, err := url.Parse(returnURL)
+	if err != nil || target.Scheme == "" || target.Host == "" {
+		target, _ = url.Parse("http://localhost:3000/overview")
+	}
+	target.Fragment = values.Encode()
+	return target.String()
+}
+
 func (s *Server) handleAdminOverview(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.requireAdmin(w, r, "overview", r.Method)
 	if !ok {
@@ -862,9 +1512,9 @@ func (s *Server) handleAdminOverview(w http.ResponseWriter, r *http.Request) {
 	if s.canViewGlobalOperations(user) {
 		providers = s.store.ListProviders()
 		providerResources = s.store.ListProviderResources()
-		models = s.store.ListModels()
 		alerts = s.store.ListAlerts()
 	}
+	models = s.accessibleModelsForAdminUser(user)
 	routes := []ModelRoute{}
 	if s.canViewGlobalOperations(user) {
 		routes = s.store.ListRoutes()
@@ -903,6 +1553,16 @@ func (s *Server) handleAdminProjects(w http.ResponseWriter, r *http.Request) {
 		if err := decodeJSON(r, &req); err != nil {
 			writeError(w, r, NewHTTPError(400, "invalid_request", err.Error()))
 			return
+		}
+		if normalizeAdminRole(user.Role) == "team_leader" {
+			if strings.TrimSpace(user.TeamID) == "" {
+				writeError(w, r, NewHTTPError(403, "team_required", "Team leader must belong to a team"))
+				return
+			}
+			req.TeamID = user.TeamID
+			if strings.TrimSpace(req.OwnerUserID) == "" {
+				req.OwnerUserID = user.ID
+			}
 		}
 		project := s.store.CreateProject(req)
 		s.recordAdminAudit(r, user, "create", "project", project.ID, "", project)
@@ -946,6 +1606,21 @@ func (s *Server) handleAdminProjectNested(w http.ResponseWriter, r *http.Request
 				writeError(w, r, NewHTTPError(400, "invalid_request", err.Error()))
 				return
 			}
+			if normalizeAdminRole(user.Role) == "team_leader" {
+				existing, err := s.findProject(projectID)
+				if err != nil {
+					writeError(w, r, err)
+					return
+				}
+				if !s.canAccessProject(user, existing) {
+					writeError(w, r, NewHTTPError(403, "project_forbidden", "Project is not available for this user"))
+					return
+				}
+				req.TeamID = user.TeamID
+				if strings.TrimSpace(req.OwnerUserID) == "" {
+					req.OwnerUserID = existing.OwnerUserID
+				}
+			}
 			project, err := s.store.UpdateProject(projectID, req)
 			if err != nil {
 				writeError(w, r, err)
@@ -954,6 +1629,17 @@ func (s *Server) handleAdminProjectNested(w http.ResponseWriter, r *http.Request
 			s.recordAdminAudit(r, user, "update", "project", project.ID, "", project)
 			writeJSON(w, http.StatusOK, project)
 		case http.MethodDelete:
+			if normalizeAdminRole(user.Role) == "team_leader" {
+				existing, err := s.findProject(projectID)
+				if err != nil {
+					writeError(w, r, err)
+					return
+				}
+				if !s.canAccessProject(user, existing) {
+					writeError(w, r, NewHTTPError(403, "project_forbidden", "Project is not available for this user"))
+					return
+				}
+			}
 			if err := s.store.DeleteProject(projectID); err != nil {
 				writeError(w, r, err)
 				return
@@ -2082,13 +2768,17 @@ func (s *Server) handleAdminProviderResourceImport(w http.ResponseWriter, r *htt
 }
 
 func (s *Server) handleAdminModels(w http.ResponseWriter, r *http.Request) {
-	user, ok := s.requireAdmin(w, r, "model", r.Method)
+	user, ok := s.authorizeAdminUser(w, r)
 	if !ok {
+		return
+	}
+	if !canAdmin(user.Role, "model", r.Method) {
+		writeError(w, r, NewHTTPError(403, "admin_forbidden", "Admin role is not allowed to perform this action"))
 		return
 	}
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, map[string]any{"data": s.store.ListModels()})
+		writeJSON(w, http.StatusOK, map[string]any{"data": s.accessibleModelsForAdminUser(user)})
 	case http.MethodPost:
 		var req struct {
 			Model
@@ -2287,6 +2977,10 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 				writeError(w, r, NewHTTPError(400, "invalid_resource", "name is required"))
 				return
 			}
+			if err := s.validateScopedResourceMutation(user, kind, "", req); err != nil {
+				writeError(w, r, err)
+				return
+			}
 			if approval, required := s.adminResourceApproval(user, kind, "", req); required {
 				s.recordAdminAudit(r, user, "request_approval", kind, approval.ID, "", approval)
 				writeJSON(w, http.StatusAccepted, map[string]any{"approval_required": true, "approval": approval})
@@ -2321,6 +3015,10 @@ func (s *Server) handleAdminResources(w http.ResponseWriter, r *http.Request) {
 		var req AdminResource
 		if err := decodeJSON(r, &req); err != nil {
 			writeError(w, r, NewHTTPError(400, "invalid_request", err.Error()))
+			return
+		}
+		if err := s.validateScopedResourceMutation(user, kind, parts[1], req); err != nil {
+			writeError(w, r, err)
 			return
 		}
 		if approval, required := s.adminResourceApproval(user, kind, parts[1], req); required {
@@ -3882,6 +4580,16 @@ func (s *Server) findResource(kind string, id string) (AdminResource, error) {
 	return AdminResource{}, NewHTTPError(404, "resource_not_found", "Resource not found")
 }
 
+func (s *Server) findProject(id string) (Project, error) {
+	id = strings.TrimSpace(id)
+	for _, project := range s.store.ListProjects() {
+		if project.ID == id {
+			return project, nil
+		}
+	}
+	return Project{}, NewHTTPError(404, "project_not_found", "Project not found")
+}
+
 func invoiceDecisionPayload(invoice AdminResource, action string, invoiceNote string, rejectReason string) map[string]any {
 	fields := map[string]any{}
 	for key, value := range invoice.Fields {
@@ -4066,14 +4774,14 @@ func canAdmin(role string, resource string, method string) bool {
 			return false
 		}
 		if write {
-			return resource == "identity" || resource == "api_key" || resource == "approval"
+			return resource == "identity" || resource == "project" || resource == "api_key" || resource == "approval" || resource == "playground" || resource == "quota"
 		}
-		return resource == "overview" || resource == "project" || resource == "api_key" || resource == "usage" || resource == "audit" || resource == "identity" || resource == "approval"
+		return resource == "overview" || resource == "project" || resource == "api_key" || resource == "usage" || resource == "audit" || resource == "identity" || resource == "approval" || resource == "quota"
 	case "user":
 		if write {
-			return resource == "api_key"
+			return resource == "api_key" || resource == "playground"
 		}
-		return resource == "overview" || resource == "project" || resource == "api_key" || resource == "usage" || resource == "audit"
+		return resource == "overview" || resource == "project" || resource == "api_key" || resource == "usage" || resource == "audit" || resource == "model" || resource == "playground"
 	default:
 		return !write && resource == "overview"
 	}
@@ -4132,7 +4840,10 @@ func (s *Server) canAccessProject(user AdminUser, project Project) bool {
 	if project.OwnerUserID != "" && project.OwnerUserID == user.ID {
 		return true
 	}
-	return user.TeamID != "" && project.TeamID == user.TeamID
+	if s.projectMemberGrantsProjectAccess(user, project.ID) {
+		return true
+	}
+	return normalizeAdminRole(user.Role) == "team_leader" && user.TeamID != "" && project.TeamID == user.TeamID
 }
 
 func (s *Server) projectQuotaPolicy(project Project) (AdminResource, bool) {
@@ -4443,6 +5154,37 @@ func (s *Server) filterAPIKeysForUser(user AdminUser, keys []APIKey) []APIKey {
 	return out
 }
 
+func (s *Server) accessibleModelsForAdminUser(user AdminUser) []Model {
+	if s.canViewGlobalOperations(user) {
+		return s.store.ListModels()
+	}
+	routed := s.activeRoutedModelNameSet()
+	models := s.store.ListModels()
+	out := make([]Model, 0, len(models))
+	for _, model := range models {
+		if model.Status != StatusActive {
+			continue
+		}
+		if routed[model.Name] || routed[model.ID] {
+			out = append(out, model)
+		}
+	}
+	return out
+}
+
+func (s *Server) activeRoutedModelNameSet() map[string]bool {
+	out := map[string]bool{}
+	for _, route := range s.store.ListRoutes() {
+		if route.Status != StatusActive {
+			continue
+		}
+		if modelName := strings.TrimSpace(route.ModelName); modelName != "" {
+			out[modelName] = true
+		}
+	}
+	return out
+}
+
 func (s *Server) canManageAPIKey(user AdminUser, keyID string) bool {
 	role := normalizeAdminRole(user.Role)
 	if isPlatformAdminRole(role) {
@@ -4464,11 +5206,17 @@ func (s *Server) canAccessAPIKey(user AdminUser, key APIKey) bool {
 	if key.Metadata != nil && key.Metadata["created_by"] == user.ID {
 		return true
 	}
-	if role != "team_leader" {
-		return false
-	}
 	for _, project := range s.store.ListProjects() {
-		if project.ID == key.ProjectID && s.canAccessProject(user, project) {
+		if project.ID != key.ProjectID {
+			continue
+		}
+		if project.OwnerUserID != "" && project.OwnerUserID == user.ID {
+			return true
+		}
+		if role == "team_leader" && s.canAccessProject(user, project) {
+			return true
+		}
+		if s.projectMemberCanManageKeys(user, project.ID) {
 			return true
 		}
 	}
@@ -4484,9 +5232,90 @@ func (s *Server) canUseProjectForAPIKey(user AdminUser, projectID string) bool {
 		if project.ID != projectID {
 			continue
 		}
-		return s.canAccessProject(user, project)
+		if project.Status != "" && project.Status != StatusActive {
+			return false
+		}
+		if project.OwnerUserID != "" && project.OwnerUserID == user.ID {
+			return true
+		}
+		if role == "team_leader" && s.canAccessProject(user, project) {
+			return true
+		}
+		return s.projectMemberCanIssueKey(user, project.ID)
 	}
 	return false
+}
+
+func (s *Server) projectMemberGrantsProjectAccess(user AdminUser, projectID string) bool {
+	for _, member := range s.store.ListResources("project-members") {
+		if !projectMemberMatches(member, projectID, user.ID) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func (s *Server) projectMemberCanIssueKey(user AdminUser, projectID string) bool {
+	for _, member := range s.store.ListResources("project-members") {
+		if !projectMemberMatches(member, projectID, user.ID) {
+			continue
+		}
+		if projectMemberRoleCanIssueKey(memberRole(member)) || truthyField(member.Fields, "can_issue_keys") {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) projectMemberCanManageKeys(user AdminUser, projectID string) bool {
+	for _, member := range s.store.ListResources("project-members") {
+		if !projectMemberMatches(member, projectID, user.ID) {
+			continue
+		}
+		if projectMemberRoleCanManageKeys(memberRole(member)) {
+			return true
+		}
+	}
+	return false
+}
+
+func projectMemberMatches(member AdminResource, projectID string, userID string) bool {
+	return member.Status == StatusActive &&
+		strings.TrimSpace(stringField(member.Fields, "project_id")) == projectID &&
+		strings.TrimSpace(stringField(member.Fields, "user_id")) == userID
+}
+
+func memberRole(member AdminResource) string {
+	return strings.ToLower(strings.TrimSpace(stringField(member.Fields, "role")))
+}
+
+func projectMemberRoleCanIssueKey(role string) bool {
+	switch role {
+	case "owner", "maintainer", "developer":
+		return true
+	default:
+		return false
+	}
+}
+
+func projectMemberRoleCanManageKeys(role string) bool {
+	switch role {
+	case "owner", "maintainer":
+		return true
+	default:
+		return false
+	}
+}
+
+func truthyField(fields map[string]any, key string) bool {
+	value := strings.ToLower(strings.TrimSpace(stringField(fields, key)))
+	switch value {
+	case "true", "1", "yes", "y", "on", "enabled":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) filterAdminUsersForUser(user AdminUser, users []AdminUser) []AdminUser {
@@ -4563,6 +5392,15 @@ func (s *Server) filterResourcesForUser(user AdminUser, kind string, resources [
 	if s.canViewGlobalOperations(user) {
 		return resources
 	}
+	if role == "user" && kind == "project-members" {
+		out := make([]AdminResource, 0, len(resources))
+		for _, item := range resources {
+			if item.Status == StatusActive && strings.TrimSpace(stringField(item.Fields, "user_id")) == user.ID {
+				out = append(out, item)
+			}
+		}
+		return out
+	}
 	if role != "team_leader" {
 		return nil
 	}
@@ -4591,11 +5429,163 @@ func (s *Server) canAccessScopedResource(user AdminUser, kind string, item Admin
 			return s.teamCostCenterSet(user.TeamID)[normalizeScopeValue(scopeID)]
 		}
 		return s.resourceMatchesTeamOrCostCenter(user.TeamID, item)
+	case "quota-policies":
+		return s.canAccessQuotaPolicy(user, item)
+	case "project-members":
+		return s.canAccessProjectMemberResource(user, item)
 	case "chargebacks", "invoices":
 		return s.resourceMatchesTeamOrCostCenter(user.TeamID, item)
 	default:
 		return false
 	}
+}
+
+func (s *Server) canAccessProjectMemberResource(user AdminUser, item AdminResource) bool {
+	projectID := strings.TrimSpace(stringField(item.Fields, "project_id"))
+	if projectID == "" {
+		return false
+	}
+	project, ok := s.store.GetProject(projectID)
+	if !ok || !s.canAccessProject(user, project) {
+		return false
+	}
+	if normalizeAdminRole(user.Role) != "team_leader" {
+		return true
+	}
+	targetUserID := strings.TrimSpace(stringField(item.Fields, "user_id"))
+	targetUser, ok := s.findAdminUser(targetUserID)
+	return ok && targetUser.TeamID == user.TeamID
+}
+
+func (s *Server) canAccessQuotaPolicy(user AdminUser, item AdminResource) bool {
+	if s.canViewGlobalOperations(user) {
+		return true
+	}
+	if normalizeAdminRole(user.Role) != "team_leader" {
+		return false
+	}
+	scope := strings.ToLower(strings.TrimSpace(firstStringField(item.Fields, "scope", "scope_type")))
+	scopeID := strings.TrimSpace(stringField(item.Fields, "scope_id"))
+	switch scope {
+	case "project":
+		return s.visibleProjectIDSet(user)[scopeID]
+	case "team":
+		return scopeID == user.TeamID
+	case "cost_center", "cost-center":
+		return s.teamCostCenterSet(user.TeamID)[normalizeScopeValue(scopeID)]
+	}
+	for _, project := range s.filterProjectsForUser(user, s.store.ListProjects()) {
+		if strings.TrimSpace(project.DefaultQuotaRef) == item.ID {
+			return true
+		}
+	}
+	return s.resourceMatchesTeamOrCostCenter(user.TeamID, item)
+}
+
+func (s *Server) validateScopedResourceMutation(user AdminUser, kind string, resourceID string, req AdminResource) error {
+	if kind == "project-members" {
+		return s.validateProjectMemberMutation(user, resourceID, req)
+	}
+	if normalizeAdminRole(user.Role) != "team_leader" || kind != "quota-policies" {
+		return nil
+	}
+	if resourceID != "" {
+		existing, err := s.findResource(kind, resourceID)
+		if err != nil {
+			return err
+		}
+		if !s.canAccessQuotaPolicy(user, existing) {
+			return NewHTTPError(http.StatusForbidden, "quota_forbidden", "Quota policy is not available for this user")
+		}
+		if req.Fields == nil {
+			return nil
+		}
+	}
+	if !s.quotaPolicyReferencesVisibleProject(user, req) {
+		return NewHTTPError(http.StatusForbidden, "quota_forbidden", "Quota policy must belong to a visible project")
+	}
+	return nil
+}
+
+func (s *Server) validateProjectMemberMutation(user AdminUser, resourceID string, req AdminResource) error {
+	var existing AdminResource
+	var err error
+	if resourceID != "" {
+		existing, err = s.findResource("project-members", resourceID)
+		if err != nil {
+			return err
+		}
+		if normalizeAdminRole(user.Role) == "team_leader" && !s.canAccessProjectMemberResource(user, existing) {
+			return NewHTTPError(http.StatusForbidden, "project_member_forbidden", "Project member is not available for this user")
+		}
+	}
+	fields := req.Fields
+	if fields == nil {
+		fields = existing.Fields
+	}
+	projectID := strings.TrimSpace(stringField(fields, "project_id"))
+	userID := strings.TrimSpace(stringField(fields, "user_id"))
+	role := strings.ToLower(strings.TrimSpace(stringField(fields, "role")))
+	if projectID == "" || userID == "" {
+		return NewHTTPError(http.StatusBadRequest, "invalid_project_member", "project_id and user_id are required")
+	}
+	if role == "" {
+		return NewHTTPError(http.StatusBadRequest, "invalid_project_member", "role is required")
+	}
+	if !validProjectMemberRole(role) {
+		return NewHTTPError(http.StatusBadRequest, "invalid_project_member", "role must be owner, maintainer, developer, or viewer")
+	}
+	project, ok := s.store.GetProject(projectID)
+	if !ok {
+		return NewHTTPError(http.StatusNotFound, "project_not_found", "Project not found")
+	}
+	targetUser, ok := s.findAdminUser(userID)
+	if !ok {
+		return NewHTTPError(http.StatusNotFound, "admin_user_not_found", "Admin user not found")
+	}
+	if normalizeAdminRole(user.Role) == "team_leader" {
+		if strings.TrimSpace(project.TeamID) == "" || project.TeamID != user.TeamID {
+			return NewHTTPError(http.StatusForbidden, "project_member_forbidden", "Team leader can only assign own team projects")
+		}
+		if targetUser.TeamID != user.TeamID || normalizeAdminRole(targetUser.Role) != "user" {
+			return NewHTTPError(http.StatusForbidden, "project_member_forbidden", "Team leader can only assign ordinary users in own team")
+		}
+	}
+	for _, item := range s.store.ListResources("project-members") {
+		if item.ID == resourceID {
+			continue
+		}
+		if strings.TrimSpace(stringField(item.Fields, "project_id")) == projectID &&
+			strings.TrimSpace(stringField(item.Fields, "user_id")) == userID {
+			return NewHTTPError(http.StatusConflict, "project_member_conflict", "User is already assigned to this project")
+		}
+	}
+	return nil
+}
+
+func validProjectMemberRole(role string) bool {
+	switch role {
+	case "owner", "maintainer", "developer", "viewer":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Server) quotaPolicyReferencesVisibleProject(user AdminUser, item AdminResource) bool {
+	projectID := quotaPolicyProjectID(item)
+	if projectID == "" {
+		return false
+	}
+	return s.visibleProjectIDSet(user)[projectID]
+}
+
+func quotaPolicyProjectID(item AdminResource) string {
+	scope := strings.ToLower(strings.TrimSpace(firstStringField(item.Fields, "scope", "scope_type")))
+	if scope != "project" {
+		return ""
+	}
+	return strings.TrimSpace(firstStringField(item.Fields, "scope_id", "project_id"))
 }
 
 func (s *Server) resourceMatchesTeamOrCostCenter(teamID string, item AdminResource) bool {
@@ -4651,6 +5641,9 @@ func normalizeScopeValue(value string) string {
 func adminResourcePermission(path string) string {
 	if strings.Contains(path, "/quota-policies") {
 		return "quota"
+	}
+	if strings.Contains(path, "/project-members") {
+		return "project"
 	}
 	if strings.Contains(path, "/security-policies") {
 		return "security"

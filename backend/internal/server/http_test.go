@@ -3,10 +3,12 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -292,6 +294,57 @@ func TestAdminCreatesAPIKeyUnderDefaultProject(t *testing.T) {
 	}
 	if keys[0].ProjectID != defaultProjectID {
 		t.Fatalf("expected key project %s, got %s", defaultProjectID, keys[0].ProjectID)
+	}
+}
+
+func TestUserCanReadRoutedAdminModels(t *testing.T) {
+	store := NewMemoryStore()
+	if _, err := store.CreateAdminUser(AdminUser{
+		Username: "model.viewer",
+		Email:    "model.viewer@tokenhub.local",
+		Role:     "user",
+		TeamID:   "team_platform",
+		Status:   StatusActive,
+	}, "viewer123456"); err != nil {
+		t.Fatal(err)
+	}
+	store.AddModel(Model{Name: "gpt-4.1-mini", Modality: "chat", Status: StatusActive})
+	store.AddModel(Model{Name: "text-embedding-3-small", Modality: "embedding", Status: StatusActive})
+	store.AddRoute(ModelRoute{ModelName: "gpt-4.1-mini", ProviderID: "provider_mock", ProviderModel: "mock-chat", Status: StatusActive})
+	store.AddRoute(ModelRoute{ModelName: "text-embedding-3-small", ProviderID: "provider_mock", ProviderModel: "mock-embedding", Status: StatusDisabled})
+	app := New(store).Handler()
+
+	login := doJSON(t, app, http.MethodPost, "/api/admin/auth/login", map[string]any{
+		"identity": "model.viewer@tokenhub.local",
+		"password": "viewer123456",
+	}, "")
+	if login.Code != http.StatusOK {
+		t.Fatalf("expected login 200, got %d: %s", login.Code, login.Body)
+	}
+	var payload struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(login.Body), &payload); err != nil {
+		t.Fatal(err)
+	}
+
+	models := doJSON(t, app, http.MethodGet, "/api/admin/models", nil, payload.Token)
+	if models.Code != http.StatusOK {
+		t.Fatalf("expected user to read accessible models, got %d: %s", models.Code, models.Body)
+	}
+	if !strings.Contains(models.Body, `"name":"gpt-4.1-mini"`) || strings.Contains(models.Body, `"name":"text-embedding-3-small"`) {
+		t.Fatalf("expected only active routed models: %s", models.Body)
+	}
+	overview := doJSON(t, app, http.MethodGet, "/api/admin/overview", nil, payload.Token)
+	if overview.Code != http.StatusOK || !strings.Contains(overview.Body, `"name":"gpt-4.1-mini"`) {
+		t.Fatalf("expected overview to include accessible models, got %d: %s", overview.Code, overview.Body)
+	}
+	create := doJSON(t, app, http.MethodPost, "/api/admin/models", map[string]any{
+		"name":   "viewer-created-model",
+		"status": StatusActive,
+	}, payload.Token)
+	if create.Code != http.StatusForbidden {
+		t.Fatalf("expected user model create to be forbidden, got %d: %s", create.Code, create.Body)
 	}
 }
 
@@ -1375,6 +1428,180 @@ func TestAdminLoginAndUserManagement(t *testing.T) {
 	}
 }
 
+func TestAdminAuthIdentityProvidersListActiveOAuthSources(t *testing.T) {
+	store := NewMemoryStore()
+	store.CreateResource("identity-providers", AdminResource{
+		ID:     "idp_gitlab",
+		Name:   "GitLab OAuth",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"provider_type": "oauth2",
+			"issuer_url":    "http://gitlab.example.test",
+			"client_id":     "gitlab-client",
+			"client_secret": "secret-value",
+			"authorize_url": "http://gitlab.example.test/oauth/authorize",
+			"token_url":     "http://gitlab.example.test/oauth/token",
+			"userinfo_url":  "http://gitlab.example.test/api/v4/user",
+		},
+	})
+	store.CreateResource("identity-providers", AdminResource{
+		ID:     "idp_disabled",
+		Name:   "Disabled OAuth",
+		Status: StatusDisabled,
+		Fields: map[string]any{
+			"provider_type": "oauth2",
+			"client_id":     "disabled-client",
+			"authorize_url": "http://disabled.example.test/oauth/authorize",
+			"token_url":     "http://disabled.example.test/oauth/token",
+			"userinfo_url":  "http://disabled.example.test/userinfo",
+		},
+	})
+	store.CreateResource("identity-providers", AdminResource{
+		ID:     "idp_google",
+		Name:   "Company SSO",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"provider_type": "oauth2",
+			"icon_key":      "google",
+			"client_id":     "google-client",
+			"authorize_url": "http://accounts.example.test/oauth/authorize",
+			"token_url":     "http://accounts.example.test/oauth/token",
+			"userinfo_url":  "http://accounts.example.test/userinfo",
+		},
+	})
+	app := NewWithConfig(store, Config{AdminToken: "dev_admin_token", SecretKey: "test-secret"}).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/auth/identity-providers", nil)
+	rr := httptest.NewRecorder()
+	app.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected providers 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"id":"idp_gitlab"`) ||
+		!strings.Contains(rr.Body.String(), `"icon_key":"gitlab"`) ||
+		!strings.Contains(rr.Body.String(), `"display_name":"GitLab"`) ||
+		!strings.Contains(rr.Body.String(), `"id":"idp_google"`) ||
+		!strings.Contains(rr.Body.String(), `"icon_key":"google"`) ||
+		!strings.Contains(rr.Body.String(), `"display_name":"Google"`) ||
+		strings.Contains(rr.Body.String(), "secret-value") ||
+		strings.Contains(rr.Body.String(), "idp_disabled") {
+		t.Fatalf("unexpected providers payload: %s", rr.Body.String())
+	}
+}
+
+func TestAdminOAuthLoginCreatesSession(t *testing.T) {
+	var receivedTokenRequest bool
+	var receivedUserInfoRequest bool
+	oauthServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oauth/token":
+			receivedTokenRequest = true
+			if r.Method != http.MethodPost {
+				t.Fatalf("token method = %s", r.Method)
+			}
+			if err := r.ParseForm(); err != nil {
+				t.Fatal(err)
+			}
+			if r.FormValue("grant_type") != "authorization_code" ||
+				r.FormValue("code") != "oauth-code" ||
+				r.FormValue("client_id") != "gitlab-client" ||
+				r.FormValue("client_secret") != "gitlab-secret" ||
+				r.FormValue("redirect_uri") != "http://localhost:8080/api/admin/auth/oauth/callback" {
+				t.Fatalf("unexpected token form: %+v", r.Form)
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"access_token": "gitlab-access-token", "token_type": "Bearer"})
+		case "/api/v4/user":
+			receivedUserInfoRequest = true
+			if r.Header.Get("authorization") != "Bearer gitlab-access-token" {
+				t.Fatalf("unexpected userinfo authorization: %s", r.Header.Get("authorization"))
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"name":       "GitLab User",
+				"email":      "gitlab.user@example.test",
+				"department": "Product",
+			})
+		default:
+			t.Fatalf("unexpected oauth path: %s", r.URL.Path)
+		}
+	}))
+	defer oauthServer.Close()
+
+	store := NewMemoryStore()
+	store.CreateResource("identity-providers", AdminResource{
+		ID:     "idp_gitlab",
+		Name:   "GitLab OAuth",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"provider_type":  "oauth2",
+			"issuer_url":     oauthServer.URL,
+			"client_id":      "gitlab-client",
+			"client_secret":  "gitlab-secret",
+			"authorize_url":  oauthServer.URL + "/oauth/authorize",
+			"token_url":      oauthServer.URL + "/oauth/token",
+			"userinfo_url":   oauthServer.URL + "/api/v4/user",
+			"redirect_uri":   "http://localhost:8080/api/admin/auth/oauth/callback",
+			"scopes":         "openid profile email read_user",
+			"username_claim": "name",
+			"email_claim":    "email",
+			"team_claim":     "department",
+		},
+	})
+	app := NewWithConfig(store, Config{AdminToken: "dev_admin_token", SecretKey: "test-secret"}).Handler()
+
+	startReq := httptest.NewRequest(http.MethodGet, "/api/admin/auth/oauth/start?id=idp_gitlab&return_url=http%3A%2F%2Flocalhost%3A3001%2Foverview", nil)
+	startReq.Host = "127.0.0.1:8080"
+	startResp := httptest.NewRecorder()
+	app.ServeHTTP(startResp, startReq)
+	if startResp.Code != http.StatusFound {
+		t.Fatalf("expected start redirect, got %d: %s", startResp.Code, startResp.Body.String())
+	}
+	authorizeLocation, err := url.Parse(startResp.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authorizeLocation.Path != "/oauth/authorize" {
+		t.Fatalf("unexpected authorize location: %s", authorizeLocation.String())
+	}
+	authorizeQuery := authorizeLocation.Query()
+	if authorizeQuery.Get("client_id") != "gitlab-client" ||
+		authorizeQuery.Get("redirect_uri") != "http://localhost:8080/api/admin/auth/oauth/callback" ||
+		authorizeQuery.Get("scope") != "openid profile email read_user" ||
+		authorizeQuery.Get("response_type") != "code" ||
+		authorizeQuery.Get("state") == "" {
+		t.Fatalf("unexpected authorize query: %s", authorizeLocation.RawQuery)
+	}
+
+	callbackReq := httptest.NewRequest(http.MethodGet, "/api/admin/auth/oauth/callback?code=oauth-code&state="+url.QueryEscape(authorizeQuery.Get("state")), nil)
+	callbackReq.Host = "localhost:8080"
+	callbackResp := httptest.NewRecorder()
+	app.ServeHTTP(callbackResp, callbackReq)
+	if callbackResp.Code != http.StatusFound {
+		t.Fatalf("expected callback redirect, got %d: %s", callbackResp.Code, callbackResp.Body.String())
+	}
+	if !receivedTokenRequest || !receivedUserInfoRequest {
+		t.Fatalf("expected token and userinfo requests, token=%v userinfo=%v", receivedTokenRequest, receivedUserInfoRequest)
+	}
+	returnLocation, err := url.Parse(callbackResp.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if returnLocation.String() == "" || returnLocation.Scheme != "http" || returnLocation.Host != "localhost:3001" || returnLocation.Path != "/overview" {
+		t.Fatalf("unexpected return location: %s", returnLocation.String())
+	}
+	returnParams, err := url.ParseQuery(returnLocation.Fragment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionToken := returnParams.Get("oauth_token")
+	if sessionToken == "" || returnParams.Get("oauth_expires_at") == "" {
+		t.Fatalf("missing oauth session fragment: %s", returnLocation.Fragment)
+	}
+	me := doJSON(t, app, http.MethodGet, "/api/admin/auth/me", nil, sessionToken)
+	if me.Code != http.StatusOK || !strings.Contains(me.Body, `"email":"gitlab.user@example.test"`) || !strings.Contains(me.Body, `"role":"user"`) {
+		t.Fatalf("unexpected me response: %d %s", me.Code, me.Body)
+	}
+}
+
 func TestRBACAndAdminAuditEvents(t *testing.T) {
 	store := NewMemoryStore()
 	if err := SeedDemoData(store); err != nil {
@@ -1421,6 +1648,281 @@ func TestRBACAndAdminAuditEvents(t *testing.T) {
 	}
 	if !strings.Contains(audit.Body, `"resource_type":"project"`) || !strings.Contains(audit.Body, `"action":"create"`) {
 		t.Fatalf("expected project create audit event: %s", audit.Body)
+	}
+}
+
+func TestRolePermissionsForDeveloperAndTeamLeaderWorkspaces(t *testing.T) {
+	if !canAdmin("user", "playground", http.MethodPost) {
+		t.Fatal("regular user should be allowed to use playground")
+	}
+	if canAdmin("user", "routing", http.MethodPost) {
+		t.Fatal("regular user should not manage routing")
+	}
+	if !canAdmin("team_leader", "project", http.MethodPost) {
+		t.Fatal("team leader should be allowed to manage team projects")
+	}
+	if !canAdmin("team_leader", "quota", http.MethodGet) {
+		t.Fatal("team leader should be allowed to read visible project quotas")
+	}
+	if !canAdmin("team_leader", "quota", http.MethodPost) {
+		t.Fatal("team leader should be allowed to request or save visible project quotas")
+	}
+}
+
+func TestRegularUserModelsComeFromActiveRoutesNotKeys(t *testing.T) {
+	store := NewMemoryStore()
+	_, err := store.CreateAdminUser(AdminUser{
+		Username: "model-viewer",
+		Name:     "Model Viewer",
+		Email:    "model-viewer@tokenhub.local",
+		Role:     "user",
+		TeamID:   "team_platform",
+		Status:   StatusActive,
+	}, "viewer123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.AddModel(Model{Name: "routed-chat", Modality: "chat", Status: StatusActive})
+	store.AddModel(Model{Name: "unrouted-chat", Modality: "chat", Status: StatusActive})
+	store.AddModel(Model{Name: "disabled-routed-chat", Modality: "chat", Status: StatusDisabled})
+	store.AddModel(Model{Name: "disabled-route-chat", Modality: "chat", Status: StatusActive})
+	store.AddRoute(ModelRoute{ModelName: "routed-chat", ProviderID: "provider_mock", ProviderModel: "routed-chat", Status: StatusActive})
+	store.AddRoute(ModelRoute{ModelName: "disabled-routed-chat", ProviderID: "provider_mock", ProviderModel: "disabled-routed-chat", Status: StatusActive})
+	store.AddRoute(ModelRoute{ModelName: "disabled-route-chat", ProviderID: "provider_mock", ProviderModel: "disabled-route-chat", Status: StatusDisabled})
+	app := New(store).Handler()
+
+	login := doJSON(t, app, http.MethodPost, "/api/admin/auth/login", map[string]any{
+		"identity": "model-viewer@tokenhub.local",
+		"password": "viewer123456",
+	}, "")
+	if login.Code != http.StatusOK {
+		t.Fatalf("login failed: %d %s", login.Code, login.Body)
+	}
+	var payload struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(login.Body), &payload); err != nil {
+		t.Fatal(err)
+	}
+	models := doJSON(t, app, http.MethodGet, "/api/admin/models", nil, payload.Token)
+	if models.Code != http.StatusOK {
+		t.Fatalf("models failed: %d %s", models.Code, models.Body)
+	}
+	if !strings.Contains(models.Body, "routed-chat") {
+		t.Fatalf("expected routed model without any user key: %s", models.Body)
+	}
+	for _, hidden := range []string{"unrouted-chat", "disabled-routed-chat", "disabled-route-chat"} {
+		if strings.Contains(models.Body, hidden) {
+			t.Fatalf("model %s should not be visible: %s", hidden, models.Body)
+		}
+	}
+}
+
+func TestTeamLeaderProjectManagementIsTeamScoped(t *testing.T) {
+	store := NewMemoryStore()
+	leader, err := store.CreateAdminUser(AdminUser{
+		Username: "project-leader",
+		Name:     "Project Leader",
+		Email:    "project-leader@tokenhub.local",
+		Role:     "team_leader",
+		TeamID:   "team_project",
+		Status:   StatusActive,
+	}, "leader123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	teamProject := store.CreateProject(Project{Name: "Existing Team Project", TeamID: leader.TeamID})
+	otherProject := store.CreateProject(Project{Name: "Other Team Project", TeamID: "team_other"})
+	teamQuota := store.CreateResource("quota-policies", AdminResource{
+		ID:     "quota_team_project",
+		Name:   "Team Project Quota",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"scope":          "project",
+			"scope_id":       teamProject.ID,
+			"daily_requests": 100,
+		},
+	})
+	otherQuota := store.CreateResource("quota-policies", AdminResource{
+		ID:     "quota_other_project",
+		Name:   "Other Project Quota",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"scope":          "project",
+			"scope_id":       otherProject.ID,
+			"daily_requests": 200,
+		},
+	})
+	app := New(store).Handler()
+
+	login := doJSON(t, app, http.MethodPost, "/api/admin/auth/login", map[string]any{
+		"identity": "project-leader@tokenhub.local",
+		"password": "leader123456",
+	}, "")
+	var payload struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(login.Body), &payload); err != nil {
+		t.Fatal(err)
+	}
+	created := doJSON(t, app, http.MethodPost, "/api/admin/projects", map[string]any{
+		"name":          "Team Project",
+		"team_id":       "team_other",
+		"owner_user_id": "",
+	}, payload.Token)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("team leader project create failed: %d %s", created.Code, created.Body)
+	}
+	var project Project
+	if err := json.Unmarshal([]byte(created.Body), &project); err != nil {
+		t.Fatal(err)
+	}
+	if project.TeamID != leader.TeamID || project.OwnerUserID != leader.ID {
+		t.Fatalf("team leader project should be scoped to own team/user: %+v", project)
+	}
+	quotas := doJSON(t, app, http.MethodGet, "/api/admin/resources/quota-policies", nil, payload.Token)
+	if quotas.Code != http.StatusOK {
+		t.Fatalf("team leader should read scoped project quotas, got %d: %s", quotas.Code, quotas.Body)
+	}
+	if !strings.Contains(quotas.Body, teamQuota.ID) || strings.Contains(quotas.Body, otherQuota.ID) {
+		t.Fatalf("quota list should be scoped to team projects: %s", quotas.Body)
+	}
+	createdQuota := doJSON(t, app, http.MethodPost, "/api/admin/resources/quota-policies", map[string]any{
+		"name":   "Created Team Project Quota",
+		"status": StatusActive,
+		"fields": map[string]any{
+			"scope":            "project",
+			"scope_id":         teamProject.ID,
+			"monthly_requests": 500,
+		},
+	}, payload.Token)
+	if createdQuota.Code != http.StatusCreated {
+		t.Fatalf("team leader should create quota for own project, got %d: %s", createdQuota.Code, createdQuota.Body)
+	}
+	forbiddenQuota := doJSON(t, app, http.MethodPost, "/api/admin/resources/quota-policies", map[string]any{
+		"name":   "Other Team Quota",
+		"status": StatusActive,
+		"fields": map[string]any{
+			"scope":    "project",
+			"scope_id": otherProject.ID,
+		},
+	}, payload.Token)
+	if forbiddenQuota.Code != http.StatusForbidden {
+		t.Fatalf("team leader should not create quota for another team project, got %d: %s", forbiddenQuota.Code, forbiddenQuota.Body)
+	}
+	forbidden := doJSON(t, app, http.MethodPatch, "/api/admin/projects/"+otherProject.ID, map[string]any{
+		"name":    "Hijacked",
+		"team_id": leader.TeamID,
+	}, payload.Token)
+	if forbidden.Code != http.StatusForbidden {
+		t.Fatalf("team leader should not update another team project, got %d: %s", forbidden.Code, forbidden.Body)
+	}
+}
+
+func TestProjectMembersAssignMultipleProjectsAndKeyIssueScope(t *testing.T) {
+	store := NewMemoryStore()
+	user, err := store.CreateAdminUser(AdminUser{
+		Username: "project-member",
+		Name:     "Project Member",
+		Email:    "project-member@tokenhub.local",
+		Role:     "user",
+		TeamID:   "team_member",
+		Status:   StatusActive,
+	}, "user123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherUser, err := store.CreateAdminUser(AdminUser{
+		Username: "other-member",
+		Name:     "Other Member",
+		Email:    "other-member@tokenhub.local",
+		Role:     "user",
+		TeamID:   "team_member",
+		Status:   StatusActive,
+	}, "user123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	developerProject := store.CreateProject(Project{Name: "Developer Project", TeamID: user.TeamID})
+	viewerProject := store.CreateProject(Project{Name: "Viewer Project", TeamID: user.TeamID})
+	sameTeamProject := store.CreateProject(Project{Name: "Same Team Unassigned Project", TeamID: user.TeamID})
+	otherMemberProject := store.CreateProject(Project{Name: "Other Member Project", TeamID: user.TeamID})
+	store.CreateResource("project-members", AdminResource{
+		Name:   "Developer Project Member",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"project_id": developerProject.ID,
+			"user_id":    user.ID,
+			"role":       "developer",
+		},
+	})
+	store.CreateResource("project-members", AdminResource{
+		Name:   "Viewer Project Member",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"project_id": viewerProject.ID,
+			"user_id":    user.ID,
+			"role":       "viewer",
+		},
+	})
+	store.CreateResource("project-members", AdminResource{
+		Name:   "Other Project Member",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"project_id": otherMemberProject.ID,
+			"user_id":    otherUser.ID,
+			"role":       "developer",
+		},
+	})
+	app := New(store).Handler()
+
+	login := doJSON(t, app, http.MethodPost, "/api/admin/auth/login", map[string]any{
+		"identity": "project-member@tokenhub.local",
+		"password": "user123456",
+	}, "")
+	var payload struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal([]byte(login.Body), &payload); err != nil {
+		t.Fatal(err)
+	}
+	projects := doJSON(t, app, http.MethodGet, "/api/admin/projects", nil, payload.Token)
+	if projects.Code != http.StatusOK {
+		t.Fatalf("user project list failed: %d %s", projects.Code, projects.Body)
+	}
+	if !strings.Contains(projects.Body, developerProject.ID) || !strings.Contains(projects.Body, viewerProject.ID) {
+		t.Fatalf("assigned projects should be visible: %s", projects.Body)
+	}
+	for _, hidden := range []string{sameTeamProject.ID, otherMemberProject.ID} {
+		if strings.Contains(projects.Body, hidden) {
+			t.Fatalf("unassigned project %s should not be visible: %s", hidden, projects.Body)
+		}
+	}
+	memberships := doJSON(t, app, http.MethodGet, "/api/admin/resources/project-members", nil, payload.Token)
+	if memberships.Code != http.StatusOK {
+		t.Fatalf("user project memberships failed: %d %s", memberships.Code, memberships.Body)
+	}
+	if !strings.Contains(memberships.Body, developerProject.ID) || !strings.Contains(memberships.Body, viewerProject.ID) ||
+		strings.Contains(memberships.Body, otherMemberProject.ID) {
+		t.Fatalf("user should only read own project memberships: %s", memberships.Body)
+	}
+	createdKey := doJSON(t, app, http.MethodPost, "/api/admin/projects/"+developerProject.ID+"/keys", map[string]any{
+		"name": "Developer Key",
+	}, payload.Token)
+	if createdKey.Code != http.StatusCreated || !strings.Contains(createdKey.Body, `"api_key"`) {
+		t.Fatalf("developer member should issue key, got %d: %s", createdKey.Code, createdKey.Body)
+	}
+	viewerKey := doJSON(t, app, http.MethodPost, "/api/admin/projects/"+viewerProject.ID+"/keys", map[string]any{
+		"name": "Viewer Key",
+	}, payload.Token)
+	if viewerKey.Code != http.StatusForbidden {
+		t.Fatalf("viewer member should not issue key, got %d: %s", viewerKey.Code, viewerKey.Body)
+	}
+	unassignedKey := doJSON(t, app, http.MethodPost, "/api/admin/projects/"+sameTeamProject.ID+"/keys", map[string]any{
+		"name": "Unassigned Key",
+	}, payload.Token)
+	if unassignedKey.Code != http.StatusForbidden {
+		t.Fatalf("same-team unassigned user should not issue key, got %d: %s", unassignedKey.Code, unassignedKey.Body)
 	}
 }
 
@@ -1939,6 +2441,87 @@ func TestAdminCreatesProviderResource(t *testing.T) {
 	}
 }
 
+func TestAdminCreatesOpenAISubscriptionProviderResource(t *testing.T) {
+	store := NewMemoryStore()
+	store.AddProvider(Provider{
+		ID:      "prv_openai_sub",
+		Name:    "OpenAI Subscription Pool",
+		Type:    ProviderOpenAI,
+		Status:  StatusActive,
+		Healthy: true,
+	})
+	app := New(store).Handler()
+	idToken := testJWT(map[string]any{
+		"email": "codex.user@example.com",
+		"https://api.openai.com/auth": map[string]any{
+			"chatgpt_account_id": "acc_openai_sub",
+			"chatgpt_user_id":    "usr_openai_sub",
+			"chatgpt_plan_type":  "plus",
+			"user_id":            "user_openai_sub",
+			"organizations": []map[string]any{
+				{"id": "org_openai_default", "is_default": true},
+			},
+		},
+	})
+
+	resp := doJSON(t, app, http.MethodPost, "/api/admin/provider-resources", map[string]any{
+		"provider_id":   "prv_openai_sub",
+		"name":          "OpenAI Plus Account A",
+		"resource_type": ProviderResourceOpenAISubscription,
+		"status":        StatusActive,
+		"healthy":       true,
+		"priority":      1,
+		"weight":        100,
+		"credentials": map[string]any{
+			"auth_type":     "oauth",
+			"access_token":  "access-secret",
+			"refresh_token": "refresh-secret",
+			"id_token":      idToken,
+			"client_id":     "app_EMoamEEZ73f0CkXaXp7hrann",
+			"scopes":        "openid profile email offline_access",
+		},
+	}, "")
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected openai subscription resource created, got %d: %s", resp.Code, resp.Body)
+	}
+	for _, secret := range []string{"access-secret", "refresh-secret", idToken} {
+		if strings.Contains(resp.Body, secret) {
+			t.Fatalf("resource response leaked secret %q: %s", secret, resp.Body)
+		}
+	}
+	if !strings.Contains(resp.Body, `"credential_summary"`) ||
+		!strings.Contains(resp.Body, `"account_email":"codex.user@example.com"`) ||
+		!strings.Contains(resp.Body, `"organization_id":"org_openai_default"`) ||
+		!strings.Contains(resp.Body, `"has_refresh_token":"true"`) {
+		t.Fatalf("expected OpenAI account summary, got: %s", resp.Body)
+	}
+
+	var resource ProviderResource
+	if err := json.Unmarshal([]byte(resp.Body), &resource); err != nil {
+		t.Fatal(err)
+	}
+	var persisted ProviderResource
+	if err := store.db.First(&persisted, "id = ?", resource.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if persisted.APIKey == "access-secret" || !strings.HasPrefix(persisted.APIKey, "enc:v1:") {
+		t.Fatalf("access token should be stored encrypted, got %q", persisted.APIKey)
+	}
+	if persisted.CredentialBlob == "" || persisted.CredentialBlob == "refresh-secret" || !strings.HasPrefix(persisted.CredentialBlob, "enc:v1:") {
+		t.Fatalf("refresh token blob should be stored encrypted, got %q", persisted.CredentialBlob)
+	}
+
+	list := doJSON(t, app, http.MethodGet, "/api/admin/provider-resources", nil, "")
+	if list.Code != http.StatusOK {
+		t.Fatalf("expected resources list, got %d: %s", list.Code, list.Body)
+	}
+	for _, secret := range []string{"access-secret", "refresh-secret", idToken} {
+		if strings.Contains(list.Body, secret) {
+			t.Fatalf("resource list leaked secret %q: %s", secret, list.Body)
+		}
+	}
+}
+
 func TestProviderCredentialsAreEncryptedAndUsable(t *testing.T) {
 	store := NewMemoryStore()
 	project := store.CreateProject(Project{Name: "Encrypted Credentials App"})
@@ -1977,6 +2560,13 @@ func TestProviderCredentialsAreEncryptedAndUsable(t *testing.T) {
 	if persisted.APIKey == "resource-secret" || !strings.HasPrefix(persisted.APIKey, "enc:v1:") {
 		t.Fatalf("resource secret should be stored encrypted, got %q", persisted.APIKey)
 	}
+	if _, err := store.UpdateProviderResource(resource.ID, ProviderResource{
+		Name:    "Encrypted Resource Updated",
+		Status:  StatusActive,
+		Healthy: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	store.AddModel(Model{Name: "gpt-4.1-mini", Modality: "chat", Status: StatusActive})
 	store.AddRoute(ModelRoute{
 		ModelName:          "gpt-4.1-mini",
@@ -2004,6 +2594,69 @@ func TestProviderCredentialsAreEncryptedAndUsable(t *testing.T) {
 	}
 	if strings.Contains(resp.Body, "resource-secret") {
 		t.Fatalf("secret should not be returned: %s", resp.Body)
+	}
+}
+
+func TestOpenAISubscriptionResourceSuppliesRouteCredentials(t *testing.T) {
+	store := NewMemoryStore()
+	project := store.CreateProject(Project{Name: "OpenAI Subscription App"})
+	_, secret, err := store.CreateAPIKey(project.ID, APIKey{
+		Name:    "openai-subscription-key",
+		Allowed: []string{"gpt-4.1-mini"},
+		Status:  StatusActive,
+	}, "thk_openai_subscription")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := store.AddProvider(Provider{ID: "prv_capture_openai", Name: "Capture OpenAI", Type: "capture", Status: StatusActive, Healthy: true})
+	resource, err := store.AddProviderResource(ProviderResource{
+		ID:           "rsrc_openai_account",
+		ProviderID:   provider.ID,
+		Name:         "OpenAI Account",
+		ResourceType: ProviderResourceOpenAISubscription,
+		Status:       StatusActive,
+		Healthy:      true,
+		Credentials: &ProviderResourceCredentials{
+			AuthType:       "oauth",
+			AccessToken:    "openai-access-token",
+			RefreshToken:   "openai-refresh-token",
+			Email:          "owner@example.com",
+			AccountID:      "acc_capture",
+			OrganizationID: "org_capture",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.AddModel(Model{Name: "gpt-4.1-mini", Modality: "chat", Status: StatusActive})
+	store.AddRoute(ModelRoute{
+		ModelName:          "gpt-4.1-mini",
+		ProviderID:         provider.ID,
+		ProviderResourceID: resource.ID,
+		ProviderModel:      "gpt-4.1-mini",
+		Status:             StatusActive,
+	})
+	adapter := &captureAdapter{}
+	server := New(store)
+	server.adapters["capture"] = adapter
+	app := server.Handler()
+
+	resp := doJSON(t, app, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"model": "gpt-4.1-mini",
+		"messages": []map[string]any{
+			{"role": "user", "content": "hello from subscription"},
+		},
+	}, secret)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body)
+	}
+	if adapter.seenKey != "openai-access-token" {
+		t.Fatalf("expected OpenAI account access token, got %q", adapter.seenKey)
+	}
+	if adapter.seenOptions["credential_source"] != ProviderResourceOpenAISubscription ||
+		adapter.seenOptions["account_email"] != "owner@example.com" ||
+		adapter.seenOptions["organization_id"] != "org_capture" {
+		t.Fatalf("expected OpenAI account options, got %+v", adapter.seenOptions)
 	}
 }
 
@@ -2705,27 +3358,38 @@ func findResource(t *testing.T, store *GormStore, id string) ProviderResource {
 }
 
 type captureAdapter struct {
-	seenKey string
+	seenKey     string
+	seenOptions map[string]string
 }
 
 func (a *captureAdapter) Chat(ctx context.Context, provider Provider, providerModel string, req ChatCompletionRequest) (any, Usage, error) {
 	a.seenKey = provider.APIKey
+	a.seenOptions = provider.Options
 	return MockAdapter{}.Chat(ctx, provider, providerModel, req)
 }
 
 func (a *captureAdapter) ChatStream(ctx context.Context, provider Provider, providerModel string, req ChatCompletionRequest, w io.Writer) (Usage, error) {
 	a.seenKey = provider.APIKey
+	a.seenOptions = provider.Options
 	return MockAdapter{}.ChatStream(ctx, provider, providerModel, req, w)
 }
 
 func (a *captureAdapter) Responses(ctx context.Context, provider Provider, providerModel string, req ResponsesRequest) (any, Usage, error) {
 	a.seenKey = provider.APIKey
+	a.seenOptions = provider.Options
 	return MockAdapter{}.Responses(ctx, provider, providerModel, req)
 }
 
 func (a *captureAdapter) Embeddings(ctx context.Context, provider Provider, providerModel string, req EmbeddingsRequest) (any, Usage, error) {
 	a.seenKey = provider.APIKey
+	a.seenOptions = provider.Options
 	return MockAdapter{}.Embeddings(ctx, provider, providerModel, req)
+}
+
+func testJWT(claims map[string]any) string {
+	header, _ := json.Marshal(map[string]any{"alg": "none", "typ": "JWT"})
+	body, _ := json.Marshal(claims)
+	return base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(body) + ".sig"
 }
 
 type failingAdapter struct{}

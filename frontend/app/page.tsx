@@ -17,12 +17,14 @@ import {
   Copy,
   Database,
   FileText,
+  Fingerprint,
   Gauge,
   Globe2,
   GripVertical,
   KeyRound,
   LayoutDashboard,
   LogOut,
+  LockKeyhole,
   Eye,
   EyeOff,
   Moon,
@@ -37,6 +39,7 @@ import {
   Sparkles,
   Sun,
   Trash2,
+  UserRoundCheck,
   Users,
   WalletCards,
   X,
@@ -50,6 +53,7 @@ type Summary = {
   total_tokens: number;
   estimated_cost_usd: number;
   errors: number;
+  usage_record_count?: number;
   api_key_count?: number;
   route_count?: number;
   active_route_count?: number;
@@ -146,6 +150,8 @@ type ProviderResource = {
   rate_limit_rpm?: number;
   token_limit_tpm?: number;
   max_concurrency?: number;
+  options?: Record<string, string>;
+  credential_summary?: Record<string, string>;
   failure_count?: number;
   cooldown_until?: string;
   last_used_at?: string;
@@ -267,6 +273,15 @@ type AdminUser = {
   created_at?: string;
   updated_at?: string;
   last_login_at?: string;
+};
+
+type LoginIdentityProvider = {
+  id: string;
+  name: string;
+  display_name?: string;
+  provider_type: string;
+  issuer_url?: string;
+  icon_key?: string;
 };
 
 type AlertEvent = {
@@ -444,6 +459,7 @@ type ViewKey =
   | "models"
   | "routes"
   | "projects"
+  | "project-members"
   | "api-keys"
   | "teams"
   | "users"
@@ -478,6 +494,7 @@ const viewRoutes: Record<ViewKey, string> = {
   models: "/models",
   routes: "/routes",
   projects: "/projects",
+  "project-members": "/project-members",
   "api-keys": "/api-keys",
   teams: "/teams",
   users: "/users",
@@ -525,6 +542,8 @@ type NavParentItem = {
 
 type NavItem = NavLeafItem | NavParentItem;
 
+type AppRole = "admin" | "security" | "team_leader" | "user";
+
 type FieldType = "text" | "number" | "password" | "textarea" | "select" | "multi-select" | "tags" | "boolean";
 
 type FieldConfig = {
@@ -532,8 +551,9 @@ type FieldConfig = {
   label: string;
   type?: FieldType;
   options?: string[];
-  optionsFromData?: (data: AppData) => Array<{ value: string; label: string }>;
+  optionsFromData?: (data: AppData, currentUser?: AdminUser | null) => Array<{ value: string; label: string }>;
   placeholder?: string;
+  autoComplete?: string;
   required?: boolean;
   help?: string;
   readOnlyOnEdit?: boolean;
@@ -640,12 +660,34 @@ const languageOptions: Array<{ value: AppLanguage; label: string; nativeLabel: s
   { value: "ja", label: "Japanese", nativeLabel: "日本語" },
 ];
 
-let activeLanguage: AppLanguage = "zh-CN";
+let activeLanguage: AppLanguage = "en";
 
 const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>> = {
   en: {
     "总览": "Overview",
     "网关概览": "Gateway Overview",
+    "开始使用": "Get Started",
+    "我的资源": "My Resources",
+    "我的用量": "My Usage",
+    "团队工作台": "Team Workspace",
+    "团队总览": "Team Overview",
+    "团队报表": "Team Reports",
+    "成本归因": "Cost Attribution",
+    "项目治理": "Project Governance",
+    "可用模型": "Available Models",
+    "团队管理": "Team Management",
+    "团队成员": "Team Members",
+    "团队信息": "Team Profile",
+    "平台工作台": "Platform Workspace",
+    "平台总览": "Platform Overview",
+    "全局用量": "Global Usage",
+    "AI 资源": "AI Resources",
+    "组织治理": "Organization Governance",
+    "成本治理": "Cost Governance",
+    "安全审计导航": "Security Audit",
+    "安全总览": "Security Overview",
+    "告警导航": "Alerts",
+    "接入参考": "Integration Reference",
     "模型演练场": "Model Playground",
     "接口文档": "API Documentation",
     "AI 接入": "AI Access",
@@ -654,6 +696,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "路由策略": "Routing Policies",
     "企业治理": "Enterprise Governance",
     "项目空间": "Projects",
+    "Key 管理": "Key Management",
     "团队分组": "Teams",
     "用户管理": "Users",
     "审批记录": "Approval Records",
@@ -686,6 +729,8 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "查看告警 Webhook 发送结果、目标和失败原因。": "Review alert delivery results, targets, and failure reasons.",
     "处理 Key 发放、额度提升和模型开通等治理审批。": "Handle governance approvals such as key issuance, quota increases, and model access.",
     "登录控制台": "Login console",
+    "使用": "Use",
+    "登录": "login",
     "企业 AI 访问与成本治理平台": "Enterprise AI Access and Cost Governance",
     "账号 / 邮箱": "Account / Email",
     "密码": "Password",
@@ -722,6 +767,11 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "维护本团队成员账号和状态。": "Maintain team member accounts and status.",
     "查看用量": "View Usage",
     "查看当前权限范围内的请求量、Token 和成本。": "View requests, tokens, and cost within the current permission scope.",
+    "我的用量概览": "My Usage Overview",
+    "个人范围": "Personal scope",
+    "可见项目": "Visible Projects",
+    "条用量记录": "usage records",
+    "按当前账号权限汇总": "Summarized by current account permissions",
     "查看账单": "View Billing",
     "查看当前权限范围内的成本归因。": "View cost attribution within the current permission scope.",
     "日志与治理": "Logs and Governance",
@@ -749,6 +799,34 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "新增": "Create",
     "新增模型": "Create Model",
     "新增 Provider": "Create Provider",
+    "账号集成": "Account Integration",
+    "Provider 账号资源": "Provider Account Resources",
+    "OpenAI 账号资源": "OpenAI Account Resource",
+    "添加账号资源": "Add Account Resource",
+    "账号资源": "Account Resources",
+    "账号类型": "Account Type",
+    "认证方式": "Authentication",
+    "访问 Token": "Access Token",
+    "刷新 Token": "Refresh Token",
+    "ID Token": "ID Token",
+    "账号邮箱": "Account Email",
+    "账号 ID": "Account ID",
+    "组织 ID": "Organization ID",
+    "计划类型": "Plan Type",
+    "已保存刷新 Token": "Refresh token saved",
+    "未保存刷新 Token": "No refresh token",
+    "普通 API Key 资源": "API Key Resource",
+    "OpenAI Subscription 账号": "OpenAI Subscription Account",
+    "OAuth 账号": "OAuth Account",
+    "Personal Access Token": "Personal Access Token",
+    "把 OpenAI subscription、PAT 或普通 API Key 作为 Provider 资源实例加入账号池，并参与路由权重、并发和限流调度。": "Add OpenAI subscriptions, PATs, or API keys as Provider resource accounts for route weighting, concurrency, and rate-limit scheduling.",
+    "OpenAI subscription / Codex OAuth access token 或 PAT；保存后不会再次显示。": "OpenAI subscription / Codex OAuth access token or PAT. It will not be shown again after saving.",
+    "可选，保存到加密凭据中，用于后续自动刷新能力。": "Optional. Stored in encrypted credentials for future token refresh support.",
+    "可选。填写后会自动提取账号邮箱、账号 ID、组织 ID 和计划类型。": "Optional. TokenHub extracts account email, account ID, organization ID, and plan type when provided.",
+    "普通资源实例的上游 API Key；编辑时留空表示不修改。": "Upstream API key for a regular resource instance. Leave empty while editing to keep the current key.",
+    "分组": "Group",
+    "RPM 限制": "RPM Limit",
+    "TPM 限制": "TPM Limit",
     "配置": "Configure",
     "配置路由": "Configure Routes",
     "编辑": "Edit",
@@ -781,6 +859,12 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "请先新增 Provider 渠道，再配置路由策略。": "Create a Provider channel before configuring routing policies.",
     "请先维护模型目录，再新增路由策略。": "Maintain the model catalog before creating routing policies.",
     "新 Key 仅展示一次：": "New key is shown only once: ",
+    "新 Key 已生成": "New Key Generated",
+    "请现在复制并保存这个 Key。关闭弹窗后将无法再次查看完整 Key，只能通过轮换生成新的 Key。": "Copy and save this key now. After closing this dialog, the full key cannot be viewed again. You can only generate a new one by rotating it.",
+    "完整 Key": "Full Key",
+    "已复制": "Copied",
+    "复制 Key": "Copy Key",
+    "我已保存，关闭": "Saved, Close",
     "第": "Items",
     "条，共": "of",
     "每页": "Per page",
@@ -832,6 +916,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "条线路": "routes",
     "未配置线路": "No routes configured",
     "官方资源": "Official resource",
+    "可访问": "Accessible",
     "能力": "Capability",
     "最近路由": "Last Route",
     "待请求": "Not requested",
@@ -1013,6 +1098,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     " 和项目 API Key；": " and project API Keys; ",
     " 仅用于控制台管理。": " is only for console administration.",
     "当前权限下还没有可展示模型，请先确认模型目录和路由策略。": "No models are available under the current permissions. Check the model catalog and routing policies.",
+    "当前后台还没有启用可用模型路由，请让管理员在路由策略里启用模型。": "No available model routes are enabled yet. Ask an administrator to enable models in routing policies.",
     "示例模型": "Sample Model",
     "当前配置": "Current Config",
     "启用路由": "Active Routes",
@@ -1513,6 +1599,28 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
   ja: {
     "总览": "概要",
     "网关概览": "ゲートウェイ概要",
+    "开始使用": "はじめに",
+    "我的资源": "自分のリソース",
+    "我的用量": "自分の利用量",
+    "团队工作台": "チームワークスペース",
+    "团队总览": "チーム概要",
+    "团队报表": "チームレポート",
+    "成本归因": "コスト配賦",
+    "项目治理": "プロジェクトガバナンス",
+    "可用模型": "利用可能モデル",
+    "团队管理": "チーム管理",
+    "团队成员": "チームメンバー",
+    "团队信息": "チーム情報",
+    "平台工作台": "プラットフォームワークスペース",
+    "平台总览": "プラットフォーム概要",
+    "全局用量": "全体利用量",
+    "AI 资源": "AI リソース",
+    "组织治理": "組織ガバナンス",
+    "成本治理": "コストガバナンス",
+    "安全审计导航": "セキュリティ監査",
+    "安全总览": "セキュリティ概要",
+    "告警导航": "アラート",
+    "接入参考": "接続リファレンス",
     "模型演练场": "モデルプレイグラウンド",
     "接口文档": "API ドキュメント",
     "AI 接入": "AI 接続",
@@ -1521,6 +1629,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "路由策略": "ルーティングポリシー",
     "企业治理": "企業ガバナンス",
     "项目空间": "プロジェクト",
+    "Key 管理": "Key 管理",
     "团队分组": "チーム",
     "用户管理": "ユーザー管理",
     "审批记录": "承認記録",
@@ -1553,6 +1662,8 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "查看告警 Webhook 发送结果、目标和失败原因。": "アラート通知の送信結果、宛先、失敗理由を確認します。",
     "处理 Key 发放、额度提升和模型开通等治理审批。": "Key 発行、クォータ増額、モデル開通などの承認を処理します。",
     "登录控制台": "ログインコンソール",
+    "使用": "使用",
+    "登录": "ログイン",
     "企业 AI 访问与成本治理平台": "企業向け AI アクセス・コストガバナンス",
     "账号 / 邮箱": "アカウント / メール",
     "密码": "パスワード",
@@ -1589,6 +1700,11 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "维护本团队成员账号和状态。": "チームメンバーのアカウントと状態を管理します。",
     "查看用量": "利用量確認",
     "查看当前权限范围内的请求量、Token 和成本。": "現在の権限範囲内のリクエスト、Token、コストを確認します。",
+    "我的用量概览": "自分の利用概要",
+    "个人范围": "個人範囲",
+    "可见项目": "表示可能なプロジェクト",
+    "条用量记录": "件の利用記録",
+    "按当前账号权限汇总": "現在のアカウント権限で集計",
     "查看账单": "請求確認",
     "查看当前权限范围内的成本归因。": "現在の権限範囲内のコスト帰属を確認します。",
     "日志与治理": "ログとガバナンス",
@@ -1616,6 +1732,34 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "新增": "作成",
     "新增模型": "モデル作成",
     "新增 Provider": "Provider 作成",
+    "账号集成": "アカウント連携",
+    "Provider 账号资源": "Provider アカウントリソース",
+    "OpenAI 账号资源": "OpenAI アカウントリソース",
+    "添加账号资源": "アカウントリソースを追加",
+    "账号资源": "アカウントリソース",
+    "账号类型": "アカウント種別",
+    "认证方式": "認証方式",
+    "访问 Token": "アクセストークン",
+    "刷新 Token": "リフレッシュトークン",
+    "ID Token": "ID トークン",
+    "账号邮箱": "アカウントメール",
+    "账号 ID": "アカウント ID",
+    "组织 ID": "組織 ID",
+    "计划类型": "プラン種別",
+    "已保存刷新 Token": "リフレッシュトークン保存済み",
+    "未保存刷新 Token": "リフレッシュトークンなし",
+    "普通 API Key 资源": "API Key リソース",
+    "OpenAI Subscription 账号": "OpenAI Subscription アカウント",
+    "OAuth 账号": "OAuth アカウント",
+    "Personal Access Token": "Personal Access Token",
+    "把 OpenAI subscription、PAT 或普通 API Key 作为 Provider 资源实例加入账号池，并参与路由权重、并发和限流调度。": "OpenAI subscription、PAT、通常の API Key を Provider リソースアカウントとして追加し、ルート重み、同時実行数、レート制限の調整に参加させます。",
+    "OpenAI subscription / Codex OAuth access token 或 PAT；保存后不会再次显示。": "OpenAI subscription / Codex OAuth アクセストークンまたは PAT。保存後は再表示されません。",
+    "可选，保存到加密凭据中，用于后续自动刷新能力。": "任意。今後の自動更新に備えて暗号化された認証情報として保存します。",
+    "可选。填写后会自动提取账号邮箱、账号 ID、组织 ID 和计划类型。": "任意。入力するとアカウントメール、アカウント ID、組織 ID、プラン種別を自動抽出します。",
+    "普通资源实例的上游 API Key；编辑时留空表示不修改。": "通常リソースインスタンスの上流 API Key。編集時に空のままなら変更しません。",
+    "分组": "グループ",
+    "RPM 限制": "RPM 制限",
+    "TPM 限制": "TPM 制限",
     "配置": "設定",
     "配置路由": "ルート設定",
     "编辑": "編集",
@@ -1648,6 +1792,12 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "请先新增 Provider 渠道，再配置路由策略。": "先に Provider チャネルを作成してからルートを設定してください。",
     "请先维护模型目录，再新增路由策略。": "先にモデルカタログを整備してからルートを作成してください。",
     "新 Key 仅展示一次：": "新しい Key は一度だけ表示されます: ",
+    "新 Key 已生成": "新しい Key を生成しました",
+    "请现在复制并保存这个 Key。关闭弹窗后将无法再次查看完整 Key，只能通过轮换生成新的 Key。": "この Key を今すぐコピーして保存してください。ダイアログを閉じると完全な Key は再表示できず、ローテーションで新しい Key を生成する必要があります。",
+    "完整 Key": "完全な Key",
+    "已复制": "コピー済み",
+    "复制 Key": "Key をコピー",
+    "我已保存，关闭": "保存して閉じる",
     "第": "項目",
     "条，共": "/",
     "每页": "件/ページ",
@@ -1699,6 +1849,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "条线路": "件のルート",
     "未配置线路": "ルート未設定",
     "官方资源": "公式リソース",
+    "可访问": "アクセス可",
     "能力": "機能",
     "最近路由": "最近のルート",
     "待请求": "未リクエスト",
@@ -1880,6 +2031,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     " 和项目 API Key；": " とプロジェクト API Key のみを使用し、",
     " 仅用于控制台管理。": " はコンソール管理専用です。",
     "当前权限下还没有可展示模型，请先确认模型目录和路由策略。": "現在の権限では表示可能なモデルがありません。モデルカタログとルーティングポリシーを確認してください。",
+    "当前后台还没有启用可用模型路由，请让管理员在路由策略里启用模型。": "利用可能なモデルルートがまだ有効化されていません。管理者にルーティングポリシーでモデルを有効化してもらってください。",
     "示例模型": "サンプルモデル",
     "当前配置": "現在の設定",
     "启用路由": "有効ルート",
@@ -2380,9 +2532,9 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
 };
 
 function readSavedLanguage(): AppLanguage {
-  if (typeof window === "undefined") return "zh-CN";
+  if (typeof window === "undefined") return "en";
   const saved = window.localStorage.getItem(languageStorageKey);
-  return saved === "en" || saved === "ja" || saved === "zh-CN" ? saved : "zh-CN";
+  return saved === "en" || saved === "ja" || saved === "zh-CN" ? saved : "en";
 }
 
 function setActiveLanguage(language: AppLanguage) {
@@ -2434,11 +2586,21 @@ function translateGeneratedText(value: string, language: Exclude<AppLanguage, "z
   }
   const routeOrderMatch = value.match(/^已更新 (.+) 的 Provider 调用顺序$/);
   if (routeOrderMatch) return language === "ja" ? `${routeOrderMatch[1]} の Provider 呼び出し順を更新しました` : `Updated Provider call order for ${routeOrderMatch[1]}`;
+  const enabledRoutesMatch = value.match(/^(\d+)\/(\d+) 启用 · (.+)$/);
+  if (enabledRoutesMatch) {
+    return language === "ja"
+      ? `${enabledRoutesMatch[1]}/${enabledRoutesMatch[2]} 有効 · ${enabledRoutesMatch[3]}`
+      : `${enabledRoutesMatch[1]}/${enabledRoutesMatch[2]} enabled · ${enabledRoutesMatch[3]}`;
+  }
   return undefined;
 }
 
 function displayText(value: string | undefined | null) {
   return tx(value);
+}
+
+function isIssuedAPIKey(value: string) {
+  return value.trim().startsWith("thk_");
 }
 
 function translatedCell(value: React.ReactNode) {
@@ -2513,20 +2675,76 @@ function routeAttemptCountText(count: number) {
   return countWithUnit(count, "次", "attempt", "回");
 }
 
-const navGroups: Array<{
+type NavGroup = {
   title: string;
   items: NavItem[];
-}> = [
+};
+
+const userNavGroups: NavGroup[] = [
   {
-    title: "总览",
+    title: "开始使用",
     items: [
-      { view: "overview", label: "网关概览", icon: LayoutDashboard },
-      { view: "playground", label: "模型演练场", icon: Send },
+      { view: "overview", label: "总览", icon: LayoutDashboard },
       { view: "gateway", label: "接口文档", icon: Sparkles },
+      { view: "playground", label: "模型演练场", icon: Send },
     ],
   },
   {
-    title: "AI 接入",
+    title: "我的资源",
+    items: [
+      { view: "api-keys", label: "Key 管理", icon: KeyRound },
+      { view: "models", label: "可用模型", icon: Boxes },
+    ],
+  },
+  {
+    title: "我的用量",
+    items: [
+      { view: "usage", label: "用量统计", icon: BarChart3 },
+      { view: "audit", label: "请求日志", icon: FileText },
+    ],
+  },
+];
+
+const teamLeaderNavGroups: NavGroup[] = [
+  {
+    title: "团队工作台",
+    items: [
+      { view: "overview", label: "团队总览", icon: LayoutDashboard },
+      { view: "usage", label: "团队报表", icon: BarChart3 },
+      { view: "billing", label: "成本归因", icon: WalletCards },
+    ],
+  },
+  {
+    title: "项目治理",
+    items: [
+      { view: "projects", label: "项目空间", icon: LayoutDashboard },
+      { view: "api-keys", label: "Key 管理", icon: KeyRound },
+      { view: "models", label: "可用模型", icon: Boxes },
+      { view: "approvals", label: "审批记录", icon: ShieldCheck },
+    ],
+  },
+  {
+    title: "团队管理",
+    items: [
+      { view: "users", label: "团队成员", icon: Users },
+      { view: "teams", label: "团队信息", icon: Users },
+      { view: "audit", label: "请求日志", icon: FileText },
+      { view: "gateway", label: "接口文档", icon: Sparkles },
+    ],
+  },
+];
+
+const adminNavGroups: NavGroup[] = [
+  {
+    title: "平台工作台",
+    items: [
+      { view: "overview", label: "平台总览", icon: LayoutDashboard },
+      { view: "usage", label: "全局用量", icon: BarChart3 },
+      { view: "reports", label: "导出报表", icon: BarChart3 },
+    ],
+  },
+  {
+    title: "AI 资源",
     items: [
       { view: "providers", label: "Provider 渠道", icon: Server },
       { view: "models", label: "模型目录", icon: Boxes },
@@ -2534,23 +2752,20 @@ const navGroups: Array<{
     ],
   },
   {
-    title: "企业治理",
+    title: "组织治理",
     items: [
       { view: "projects", label: "项目空间", icon: LayoutDashboard },
-      { view: "api-keys", label: "API Key", icon: KeyRound },
+      { view: "api-keys", label: "Key 管理", icon: KeyRound },
       { view: "teams", label: "团队分组", icon: Users },
       { view: "users", label: "用户管理", icon: Users },
       { view: "approvals", label: "审批记录", icon: ShieldCheck },
     ],
   },
   {
-    title: "成本审计",
+    title: "成本治理",
     items: [
-      { view: "usage", label: "用量统计", icon: BarChart3 },
-      { view: "audit", label: "请求日志", icon: FileText },
       { view: "billing", label: "成本账单", icon: WalletCards },
       { view: "cost-centers", label: "成本中心", icon: Database },
-      { view: "reports", label: "导出报表", icon: BarChart3 },
     ],
   },
   {
@@ -2574,6 +2789,43 @@ const navGroups: Array<{
     ],
   },
 ];
+
+const securityNavGroups: NavGroup[] = [
+  {
+    title: "安全审计导航",
+    items: [
+      { view: "overview", label: "安全总览", icon: LayoutDashboard },
+      { view: "usage", label: "用量统计", icon: BarChart3 },
+      { view: "audit", label: "请求日志", icon: FileText },
+      { view: "approvals", label: "审批记录", icon: ShieldCheck },
+      { view: "security-policies", label: "安全策略", icon: ShieldCheck },
+    ],
+  },
+  {
+    title: "告警导航",
+    items: [
+      { view: "alerts", label: "告警规则", icon: AlertCircle },
+      { view: "alert-events", label: "告警事件", icon: AlertCircle },
+      { view: "notification-channels", label: "通知渠道", icon: Bell },
+      { view: "alert-deliveries", label: "通知记录", icon: Bell },
+    ],
+  },
+  {
+    title: "接入参考",
+    items: [
+      { view: "gateway", label: "接口文档", icon: Sparkles },
+    ],
+  },
+];
+
+const navGroupsByRole: Record<AppRole, NavGroup[]> = {
+  admin: adminNavGroups,
+  security: securityNavGroups,
+  team_leader: teamLeaderNavGroups,
+  user: userNavGroups,
+};
+
+const allNavGroupTitles = Array.from(new Set(Object.values(navGroupsByRole).flatMap((groups) => groups.map((group) => group.title))));
 
 const standaloneViewMeta: Partial<Record<ViewKey, { title: string; description: string }>> = {
   overview: {
@@ -2614,15 +2866,13 @@ const standaloneViewMeta: Partial<Record<ViewKey, { title: string; description: 
   },
 };
 
-type AppRole = "admin" | "security" | "team_leader" | "user";
-
 const roleViewAccess: Record<AppRole, ViewKey[]> = {
   admin: (Object.keys(viewRoutes) as ViewKey[]).filter(
-    (view) => view !== "quota-policies" && view !== "approval-flows" && view !== "budgets" && view !== "chargebacks" && view !== "invoices",
+    (view) => view !== "project-members" && view !== "quota-policies" && view !== "approval-flows" && view !== "budgets" && view !== "chargebacks" && view !== "invoices",
   ),
   security: ["overview", "gateway", "usage", "audit", "alerts", "alert-events", "notification-channels", "alert-deliveries", "security-policies", "approvals"],
-  team_leader: ["overview", "gateway", "api-keys", "teams", "users", "usage", "billing", "audit"],
-  user: ["overview", "gateway", "api-keys", "usage", "audit"],
+  team_leader: ["overview", "gateway", "playground", "models", "projects", "api-keys", "teams", "users", "usage", "billing", "audit", "approvals"],
+  user: ["overview", "gateway", "playground", "models", "api-keys", "usage", "audit"],
 };
 
 function appRole(role: string): AppRole {
@@ -2635,6 +2885,10 @@ function appRole(role: string): AppRole {
 
 function canAccessView(user: AdminUser, view: ViewKey) {
   return roleViewAccess[appRole(user.role)].includes(view);
+}
+
+function navGroupsForUser(user: AdminUser) {
+  return navGroupsByRole[appRole(user.role)];
 }
 
 function isNavParentItem(item: NavItem): item is NavParentItem {
@@ -2741,8 +2995,10 @@ function loadPlanForView(user: AdminUser, view: ViewKey): LoadPlan {
       plan.breakdown = true;
       plan.timeseries = true;
       plan.users = can("users") || appRole(user.role) === "team_leader";
-      addResourceDependency(plan, "teams");
-      addResourceDependency(plan, "cost-centers");
+      if (appRole(user.role) !== "user") {
+        addResourceDependency(plan, "teams");
+        addResourceDependency(plan, "cost-centers");
+      }
       break;
     case "billing":
       plan.breakdown = true;
@@ -2762,7 +3018,7 @@ function loadPlanForView(user: AdminUser, view: ViewKey): LoadPlan {
       break;
     case "models":
       plan.overview = true;
-      plan.routes = true;
+      plan.routes = can("routes");
       break;
     case "routes":
       plan.overview = true;
@@ -2771,12 +3027,27 @@ function loadPlanForView(user: AdminUser, view: ViewKey): LoadPlan {
     case "projects":
       plan.overview = true;
       plan.logs = true;
+      plan.users = can("users") || appRole(user.role) === "team_leader";
       plan.approvals = can("approvals");
+      addResourceDependency(plan, "teams");
+      addResourceDependency(plan, "cost-centers");
       addResourceDependency(plan, "quota-policies");
+      addResourceDependency(plan, "project-members");
+      break;
+    case "project-members":
+      plan.overview = true;
+      plan.users = true;
+      addResourceDependency(plan, "teams");
+      addResourceDependency(plan, "project-members");
       break;
     case "api-keys":
       plan.overview = true;
       plan.keys = true;
+      plan.users = can("users") || appRole(user.role) === "team_leader";
+      if (appRole(user.role) !== "user") {
+        addResourceDependency(plan, "teams");
+      }
+      addResourceDependency(plan, "project-members");
       break;
     case "teams":
       plan.users = true;
@@ -2858,10 +3129,12 @@ export default function AdminHome() {
   const [baseURL, setBaseURL] = useState(defaultBaseURL);
   const [adminToken, setAdminToken] = useState("");
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
+  const [loginIdentityProviders, setLoginIdentityProviders] = useState<LoginIdentityProvider[]>([]);
+  const [oauthReturnURL, setOAuthReturnURL] = useState(viewRoutes.overview);
   const [bootstrapped, setBootstrapped] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [openNavGroups, setOpenNavGroups] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(navGroups.map((group) => [group.title, true])),
+    Object.fromEntries(allNavGroupTitles.map((title) => [title, true])),
   );
   const [activeView, setActiveView] = useState<ViewKey>(() => initialView());
   const [data, setData] = useState<AppData>(emptyData());
@@ -2897,6 +3170,7 @@ export default function AdminHome() {
     if (view !== activeView) {
       setNotice("");
       setError("");
+      setIssuedKey("");
       setModelCategoryFilter(view === "notification-channels" ? "webhook" : "all");
     }
     setActiveView(view);
@@ -2912,14 +3186,82 @@ export default function AdminHome() {
   }
 
   useEffect(() => {
-    const saved = readSavedSession();
-    if (saved) {
-      setBaseURL(saved.baseURL);
-      setAdminToken(saved.token);
-      setCurrentUser(saved.user);
+    let cancelled = false;
+    async function bootstrapSession() {
+      const saved = readSavedSession();
+      const oauth = readOAuthLoginResult();
+      const sessionBaseURL = saved?.baseURL ?? defaultBaseURL;
+      if (oauth?.error) {
+        clearOAuthLoginResult();
+        setError(tx("OAuth 登录失败"));
+      }
+      if (oauth?.token) {
+        setBaseURL(sessionBaseURL);
+        setLoading(true);
+        try {
+          const resp = await fetch(`${sessionBaseURL.replace(/\/$/, "")}/api/admin/auth/me`, {
+            headers: { authorization: `Bearer ${oauth.token}` },
+          });
+          if (!resp.ok) throw new Error(`oauth me ${resp.status}`);
+          const payload = (await resp.json()) as { user: AdminUser };
+          const expiresAt = oauth.expiresAt || new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+          if (cancelled) return;
+          setData(emptyData());
+          setAdminToken(oauth.token);
+          setCurrentUser(payload.user);
+          saveSession({ baseURL: sessionBaseURL, token: oauth.token, user: payload.user, expiresAt });
+          setError("");
+        } catch (err) {
+          if (!cancelled) setError(err instanceof Error ? err.message : tx("OAuth 登录失败"));
+        } finally {
+          clearOAuthLoginResult();
+          if (!cancelled) {
+            setLoading(false);
+            setBootstrapped(true);
+          }
+        }
+        return;
+      }
+      if (saved) {
+        setBaseURL(saved.baseURL);
+        setAdminToken(saved.token);
+        setCurrentUser(saved.user);
+      }
+      setBootstrapped(true);
     }
-    setBootstrapped(true);
+    void bootstrapSession();
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setOAuthReturnURL(`${window.location.origin}${viewRoutes.overview}`);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!bootstrapped || currentUser) return;
+    let cancelled = false;
+    async function loadLoginIdentityProviders() {
+      try {
+        const resp = await fetch(`${baseURL.replace(/\/$/, "")}/api/admin/auth/identity-providers`);
+        if (!resp.ok) {
+          if (!cancelled) setLoginIdentityProviders([]);
+          return;
+        }
+        const payload = (await resp.json()) as { data?: LoginIdentityProvider[] };
+        if (!cancelled) setLoginIdentityProviders(payload.data ?? []);
+      } catch {
+        if (!cancelled) setLoginIdentityProviders([]);
+      }
+    }
+    void loadLoginIdentityProviders();
+    return () => {
+      cancelled = true;
+    };
+  }, [baseURL, bootstrapped, currentUser]);
 
   useEffect(() => {
     setActiveLanguage(language);
@@ -3000,7 +3342,14 @@ export default function AdminHome() {
   useEffect(() => {
     function onIssuedKey(event: Event) {
       const detail = (event as CustomEvent<string>).detail;
-      if (detail) setIssuedKey(detail);
+      if (!detail) return;
+      if (isIssuedAPIKey(detail)) {
+        setNotice("");
+        setIssuedKey(detail);
+      } else {
+        setIssuedKey("");
+        setNotice(detail);
+      }
     }
     window.addEventListener("tokenhub-issued-key", onIssuedKey);
     return () => window.removeEventListener("tokenhub-issued-key", onIssuedKey);
@@ -3194,6 +3543,7 @@ export default function AdminHome() {
     setError("");
     try {
       await config.remove(api, item);
+      setIssuedKey("");
       setConfirmDelete(null);
       await load();
     } catch (err) {
@@ -3280,6 +3630,9 @@ export default function AdminHome() {
       setModal({ config: activeConfig, initialValues: notificationChannelDefaults(modelCategoryFilter) });
       return;
     }
+    if (activeConfig.view === "api-keys") {
+      setIssuedKey("");
+    }
     setModal({ config: activeConfig });
   }
 
@@ -3338,6 +3691,9 @@ export default function AdminHome() {
       <LoginView
         loading={loading}
         error={error}
+        baseURL={baseURL}
+        identityProviders={loginIdentityProviders}
+        oauthReturnURL={oauthReturnURL}
         theme={theme}
         onThemeToggle={toggleTheme}
         onLogin={(identity, password) => void login(identity, password)}
@@ -3384,9 +3740,9 @@ export default function AdminHome() {
           {activeView === "overview" ? (
             <OverviewView data={data} user={currentUser} />
           ) : activeView === "playground" ? (
-            <PlaygroundPage api={api} data={data} />
+            <PlaygroundPage api={api} data={data} canViewRoutes={canAccessView(currentUser, "routes")} />
           ) : activeView === "gateway" ? (
-            <GatewayView api={api} data={data} />
+            <GatewayView api={api} data={data} language={language} onLanguageChange={changeLanguage} />
           ) : activeView === "usage" ? (
             <UsageView data={data} user={currentUser} />
           ) : activeView === "billing" ? (
@@ -3420,6 +3776,7 @@ export default function AdminHome() {
             <ModelCatalogView
               config={activeConfig as ResourceConfig<Model>}
               data={data}
+              readOnly={!canAccessView(currentUser, "routes")}
               onCreate={() => setModal({ config: activeConfig })}
               onEdit={(item) => setModal({ config: activeConfig, item })}
               onDelete={(item) => setConfirmDelete({ config: activeConfig, item })}
@@ -3445,7 +3802,6 @@ export default function AdminHome() {
               totalItems={filteredItems.length}
               query={query}
               pagination={crudPagination}
-              issuedKey={activeView === "api-keys" || activeView === "approvals" ? issuedKey : ""}
               categoryFilter={modelCategoryFilter}
               onCategoryFilter={setModelCategoryFilter}
               onQuery={setQuery}
@@ -3459,6 +3815,9 @@ export default function AdminHome() {
               }}
               onDelete={(item) => setConfirmDelete({ config: activeConfig, item })}
               onAction={(action, item) => void runResourceAction(action, item, data)}
+              onProjectMemberCreate={(project) => setModal({ config: projectMemberConfig(), initialValues: projectMemberInitialValues(project) })}
+              onProjectMemberEdit={(member) => setModal({ config: projectMemberConfig(), item: member })}
+              onProjectMemberDelete={(member) => setConfirmDelete({ config: projectMemberConfig(), item: member })}
               onToolbarAction={(action) => void runToolbarAction(action, filteredItems)}
             />
           ) : null}
@@ -3469,11 +3828,12 @@ export default function AdminHome() {
         <EditModal
           state={modal}
           data={data}
+          currentUser={currentUser}
           loading={loading}
           onClose={() => setModal(null)}
           onSave={(values) => {
             if (modal.config.view === "api-keys" && !modal.item) {
-              void createKeyWithCapture(api, values, setIssuedKey, load, setLoading, setError, setModal);
+              void createKeyWithCapture(api, values, setIssuedKey, setNotice, load, setLoading, setError, setModal);
               return;
             }
             void saveModal(values);
@@ -3534,6 +3894,13 @@ export default function AdminHome() {
           loading={loading}
           onCancel={() => setConfirmDelete(null)}
           onConfirm={() => void deleteItem(confirmDelete.config, confirmDelete.item)}
+        />
+      ) : null}
+
+      {issuedKey ? (
+        <IssuedKeyModal
+          value={issuedKey}
+          onClose={() => setIssuedKey("")}
         />
       ) : null}
 
@@ -3612,15 +3979,158 @@ export default function AdminHome() {
   }
 }
 
+const identityProviderIconOptions = [
+  "auto",
+  "gitlab",
+  "github",
+  "google",
+  "microsoft",
+  "okta",
+  "keycloak",
+  "oidc",
+  "oauth2",
+  "saml",
+  "ldap",
+  "sso",
+];
+
+type LoginIdentityProviderIconComponent = React.ComponentType<{ size?: number }>;
+
+function identityProviderLoginURL(baseURL: string, provider: LoginIdentityProvider, returnURL: string) {
+  const target = new URL(`${baseURL.replace(/\/$/, "")}/api/admin/auth/oauth/start`);
+  target.searchParams.set("id", provider.id);
+  target.searchParams.set("return_url", returnURL);
+  return target.toString();
+}
+
+function loginIdentityProviderDisplayName(provider: LoginIdentityProvider) {
+  if (provider.display_name) return provider.display_name;
+  const iconKey = loginIdentityProviderIconKey(provider);
+  const label = identityProviderIconLabel(iconKey);
+  if (label !== "自动" && label !== "SSO" && label !== "OIDC" && label !== "OAuth2" && label !== "SAML" && label !== "LDAP") {
+    return label;
+  }
+  return provider.name;
+}
+
+function LoginIdentityProviderIcon({ provider }: { provider: LoginIdentityProvider }) {
+  const iconKey = loginIdentityProviderIconKey(provider);
+  const iconConfig = loginIdentityProviderIconConfig(iconKey);
+  const Icon = iconConfig.icon;
+  return (
+    <span className={`login-sso-icon ${iconConfig.key}`} aria-hidden="true">
+      <Icon size={15} />
+    </span>
+  );
+}
+
+function loginIdentityProviderIconKey(provider: LoginIdentityProvider) {
+  const configured = normalizedIdentityProviderIconKey(provider.icon_key);
+  if (configured && configured !== "auto") return configured;
+  const providerType = stringifyValue(provider.provider_type).trim().toLowerCase();
+  const fingerprint = `${provider.name} ${provider.issuer_url ?? ""} ${providerType}`.toLowerCase();
+  for (const key of ["gitlab", "github", "google", "microsoft", "azure", "entra", "okta", "keycloak"]) {
+    if (fingerprint.includes(key)) {
+      return key === "azure" || key === "entra" ? "microsoft" : key;
+    }
+  }
+  return normalizedIdentityProviderIconKey(providerType) || "sso";
+}
+
+function normalizedIdentityProviderIconKey(value: string | undefined) {
+  const normalized = stringifyValue(value).trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  return identityProviderIconOptions.includes(normalized) ? normalized : "";
+}
+
+function GoogleBrandIcon({ size = 15 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
+      <path fill="#4285f4" d="M22.6 12.2c0-.8-.1-1.6-.2-2.3H12v4.4h5.9c-.3 1.4-1.1 2.6-2.3 3.4v2.8h3.7c2.1-2 3.3-4.8 3.3-8.3z" />
+      <path fill="#34a853" d="M12 23c3 0 5.5-1 7.3-2.6l-3.7-2.8c-1 .7-2.2 1.1-3.6 1.1-2.8 0-5.2-1.9-6.1-4.5H2.1V17C3.9 20.6 7.6 23 12 23z" />
+      <path fill="#fbbc05" d="M5.9 14.2c-.2-.7-.4-1.4-.4-2.2s.1-1.5.4-2.2V7H2.1C1.4 8.5 1 10.2 1 12s.4 3.5 1.1 5l3.8-2.8z" />
+      <path fill="#ea4335" d="M12 5.3c1.6 0 3.1.6 4.2 1.7l3.2-3.2C17.5 2 15 1 12 1 7.6 1 3.9 3.4 2.1 7l3.8 2.8C6.8 7.2 9.2 5.3 12 5.3z" />
+    </svg>
+  );
+}
+
+function GitLabBrandIcon({ size = 15 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
+      <path fill="#fc6d26" d="M12 22 3.2 8.7h5.3L12 22z" />
+      <path fill="#e24329" d="M3.2 8.7 4.8 3.9c.2-.6 1-.6 1.2 0l2.5 4.8H3.2z" />
+      <path fill="#fca326" d="M12 22 20.8 8.7h-5.3L12 22z" />
+      <path fill="#e24329" d="m20.8 8.7-1.6-4.8c-.2-.6-1-.6-1.2 0l-2.5 4.8h5.3z" />
+      <path fill="#fc6d26" d="M8.5 8.7h7L12 22 8.5 8.7z" />
+    </svg>
+  );
+}
+
+function GitHubBrandIcon({ size = 15 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M12 1.8C6.4 1.8 1.8 6.4 1.8 12c0 4.5 2.9 8.3 7 9.7.5.1.7-.2.7-.5v-1.8c-2.8.6-3.4-1.2-3.4-1.2-.5-1.1-1.1-1.4-1.1-1.4-.9-.6.1-.6.1-.6 1 0 1.6 1.1 1.6 1.1.9 1.6 2.4 1.1 2.9.9.1-.7.4-1.1.7-1.4-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1.1-2.8-.1-.3-.5-1.3.1-2.7 0 0 .9-.3 2.9 1.1.8-.2 1.7-.3 2.6-.3s1.8.1 2.6.3c2-1.4 2.9-1.1 2.9-1.1.6 1.4.2 2.4.1 2.7.7.8 1.1 1.7 1.1 2.8 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.8v2.6c0 .3.2.6.7.5 4.1-1.4 7-5.2 7-9.7C22.2 6.4 17.6 1.8 12 1.8z"
+      />
+    </svg>
+  );
+}
+
+function MicrosoftBrandIcon({ size = 15 }: { size?: number }) {
+  const gap = 1.2;
+  const cell = (24 - gap) / 2;
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
+      <rect x="0" y="0" width={cell} height={cell} fill="#f25022" />
+      <rect x={cell + gap} y="0" width={cell} height={cell} fill="#7fba00" />
+      <rect x="0" y={cell + gap} width={cell} height={cell} fill="#00a4ef" />
+      <rect x={cell + gap} y={cell + gap} width={cell} height={cell} fill="#ffb900" />
+    </svg>
+  );
+}
+
+function loginIdentityProviderIconConfig(key: string): { key: string; icon: LoginIdentityProviderIconComponent } {
+  switch (key) {
+    case "gitlab":
+      return { key, icon: GitLabBrandIcon };
+    case "github":
+      return { key, icon: GitHubBrandIcon };
+    case "google":
+      return { key, icon: GoogleBrandIcon };
+    case "microsoft":
+      return { key, icon: MicrosoftBrandIcon };
+    case "okta":
+      return { key, icon: UserRoundCheck };
+    case "keycloak":
+      return { key, icon: LockKeyhole };
+    case "oidc":
+      return { key, icon: Fingerprint };
+    case "oauth2":
+      return { key, icon: KeyRound };
+    case "saml":
+      return { key, icon: ShieldCheck };
+    case "ldap":
+      return { key, icon: Users };
+    default:
+      return { key: "sso", icon: ShieldCheck };
+  }
+}
+
 function LoginView({
   loading,
   error,
+  baseURL,
+  identityProviders,
+  oauthReturnURL,
   theme,
   onThemeToggle,
   onLogin,
 }: {
   loading: boolean;
   error: string;
+  baseURL: string;
+  identityProviders: LoginIdentityProvider[];
+  oauthReturnURL: string;
   theme: "light" | "dark";
   onThemeToggle: () => void;
   onLogin: (identity: string, password: string) => void;
@@ -3633,6 +4143,12 @@ function LoginView({
     event.preventDefault();
     onLogin(identity, password);
   }
+
+  const ssoListClassName = [
+    "login-sso-list",
+    identityProviders.length > 1 ? "multi" : "",
+    identityProviders.length > 1 ? `count-${Math.min(identityProviders.length, 3)}` : "",
+  ].filter(Boolean).join(" ");
 
   return (
     <main className="login-shell" data-theme={theme}>
@@ -3774,6 +4290,37 @@ function LoginView({
           <button className="button login-submit" disabled={loading} type="submit">
             {loading ? tx("登录中") : tx("登录控制台")}
           </button>
+          {identityProviders.length > 0 ? (
+            <>
+              <div className="login-divider" aria-hidden="true">
+                <span />
+                <small>{tx("或")}</small>
+                <span />
+              </div>
+              <div className={ssoListClassName}>
+                {identityProviders.map((provider) => {
+                  const displayName = loginIdentityProviderDisplayName(provider);
+                  return (
+                    <a
+                      aria-disabled={loading}
+                      aria-label={`${tx("使用")} ${displayName} ${tx("登录")}`}
+                      className="login-sso-button"
+                      href={identityProviderLoginURL(baseURL, provider, oauthReturnURL)}
+                      key={provider.id}
+                      onClick={(event) => {
+                        if (loading) event.preventDefault();
+                      }}
+                    >
+                      <LoginIdentityProviderIcon provider={provider} />
+                      <span className="login-sso-label">
+                        {identityProviders.length > 1 ? displayName : `${tx("使用")} ${displayName} ${tx("登录")}`}
+                      </span>
+                    </a>
+                  );
+                })}
+              </div>
+            </>
+          ) : null}
         </form>
       </section>
     </main>
@@ -3878,7 +4425,7 @@ function Sidebar({
   openGroups: Record<string, boolean>;
   onToggleGroup: (title: string) => void;
 }) {
-  const visibleGroups = navGroups
+  const visibleGroups = navGroupsForUser(user)
     .map((group) => ({ ...group, items: group.items.map((item) => filterNavItemByAccess(item, user)).filter((item): item is NavItem => Boolean(item)) }))
     .filter((group) => group.items.length > 0);
   return (
@@ -4493,70 +5040,98 @@ function overviewTopModelRows(data: AppData) {
   }));
 }
 
-function GatewayView({ api, data }: { api: ApiContext; data: AppData }) {
+function GatewayView({
+  api,
+  data,
+  language,
+  onLanguageChange,
+}: {
+  api: ApiContext;
+  data: AppData;
+  language: AppLanguage;
+  onLanguageChange: (language: AppLanguage) => void;
+}) {
   const baseURL = apiGatewayBaseURL(api.baseURL);
   const activeRoutes = data.routes.filter((route) => route.status === "active").length;
   const callableModels = playgroundModels(data);
   const sampleModel = callableModels.find((model) => activeRouteCount(model.name, data) > 0)?.name ?? callableModels[0]?.name ?? "gpt-4.1-mini";
   const keyHint = data.keys[0] ? `${data.keys[0].key_prefix}...${data.keys[0].key_suffix}` : "YOUR_TOKENHUB_API_KEY";
-  const docGroups = gatewayDocGroups({ baseURL, keyHint, sampleModel, activeRoutes, data });
-  const [activeDocID, setActiveDocID] = useState("quickstart");
-  const allDocs = docGroups.flatMap((group) => group.items);
+  const docBundle = gatewayDocBundle({ language, baseURL, keyHint, sampleModel, activeRoutes, data, callableModels });
+  const [activeDocID, setActiveDocID] = useState("user-guide");
+  const allDocs = docBundle.groups.flatMap((group) => group.items);
   const activeDoc = allDocs.find((item) => item.id === activeDocID) ?? allDocs[0]!;
+
+  useEffect(() => {
+    if (!allDocs.some((item) => item.id === activeDocID)) {
+      setActiveDocID(allDocs[0]?.id ?? "user-guide");
+    }
+  }, [activeDocID, allDocs]);
 
   return (
     <div className="gateway-docs">
       <div className="api-doc-shell">
-        <GatewayDocNav groups={docGroups} activeID={activeDoc.id} onSelect={setActiveDocID} />
+        <GatewayDocNav groups={docBundle.groups} activeID={activeDoc.id} onSelect={setActiveDocID} ui={docBundle.nav} />
         <section className="api-doc-main">
           <header className="api-doc-main-head">
             <div>
-              <p className="eyebrow">Model API</p>
-              <h2>{tx("接口文档")}</h2>
-              <p>
-                {tx("面向业务开发者的模型 API 调用说明。业务侧只使用 ")}<code>/v1/*</code>{tx(" 和项目 API Key；")}<code>/api/admin/*</code>{tx(" 仅用于控制台管理。")}
-              </p>
+              <p className="eyebrow">{docBundle.eyebrow}</p>
+              <h2>{docBundle.title}</h2>
+              <p>{docBundle.description}</p>
             </div>
-            <a href="https://docs.newapi.pro/zh/docs/api" target="_blank" rel="noreferrer">
-              <Globe2 size={15} />
-              {tx("OpenAI 兼容协议")}
-            </a>
+            <div className="api-doc-language-switcher" aria-label={docBundle.languageLabel}>
+              {languageOptions.map((option) => (
+                <button
+                  aria-pressed={language === option.value}
+                  className={language === option.value ? "active" : ""}
+                  key={option.value}
+                  onClick={() => onLanguageChange(option.value)}
+                  type="button"
+                >
+                  {gatewayLanguageLabel(option.value)}
+                </button>
+              ))}
+            </div>
           </header>
 
-          <section className="api-doc-quick-grid" aria-label={tx("接口基础信息")}>
-            <GatewayCopyCard label="Base URL" value={baseURL} />
-            <GatewayCopyCard label="Authorization" value={`Bearer ${keyHint}`} />
-            <GatewayCopyCard label="示例模型" value={sampleModel} />
+          <section className="api-doc-quick-grid" aria-label={docBundle.quickInfoLabel}>
+            <GatewayCopyCard label={docBundle.quickCards.baseURL} value={baseURL} />
+            <GatewayCopyCard label={docBundle.quickCards.authorization} value={`Bearer ${keyHint}`} />
+            <GatewayCopyCard label={docBundle.quickCards.sampleModel} value={sampleModel} />
             <article className="gateway-copy-card api-doc-config-card">
-              <span>{tx("当前配置")}</span>
-              <strong>{countWithUnit(activeRoutes || data.summary.active_route_count || 0, "条启用路由", "active route", "件の有効ルート")}</strong>
-              <small>{countWithUnit(data.keys.length || data.summary.api_key_count || 0, "个 API Key", "API Key", "件の API Key")}</small>
+              <span>{docBundle.quickCards.currentConfig}</span>
+              <strong>{docBundle.quickCards.activeRoutes}</strong>
+              <small>{docBundle.quickCards.apiKeys}</small>
             </article>
           </section>
 
-          <GatewayDocContent doc={activeDoc} data={data} callableModels={callableModels} baseURL={baseURL} modelName={sampleModel} />
+          <GatewayDocContent doc={activeDoc} />
         </section>
       </div>
     </div>
   );
 }
 
+type GatewayDocTable = {
+  title: string;
+  columns: string[];
+  rows: React.ReactNode[][];
+};
+
 type GatewayDocItem = {
   id: string;
   group: string;
   title: string;
   description: string;
+  badge?: string;
   method?: string;
   path?: string;
-  status?: string;
   details?: Array<{ label: string; value: string }>;
+  notesTitle?: string;
   notes?: string[];
-  params?: React.ReactNode[][];
+  params?: GatewayDocTable;
+  table?: GatewayDocTable;
+  examplesTitle?: string;
   examples?: Array<{ title: string; code: string }>;
-  table?: {
-    columns: string[];
-    rows: React.ReactNode[][];
-  };
 };
 
 type GatewayDocGroup = {
@@ -4564,28 +5139,80 @@ type GatewayDocGroup = {
   items: GatewayDocItem[];
 };
 
+type GatewayDocNavCopy = {
+  title: string;
+  subtitle: string;
+  searchPlaceholder: string;
+  noResults: string;
+};
+
+type GatewayDocBundle = {
+  nav: GatewayDocNavCopy;
+  eyebrow: string;
+  title: string;
+  description: string;
+  languageLabel: string;
+  quickInfoLabel: string;
+  quickCards: {
+    baseURL: string;
+    authorization: string;
+    sampleModel: string;
+    currentConfig: string;
+    activeRoutes: string;
+    apiKeys: string;
+  };
+  groups: GatewayDocGroup[];
+};
+
 function GatewayDocNav({
   groups,
   activeID,
   onSelect,
+  ui,
 }: {
   groups: GatewayDocGroup[];
   activeID: string;
   onSelect: (id: string) => void;
+  ui: GatewayDocNavCopy;
 }) {
+  const [searchText, setSearchText] = useState("");
+  const normalizedSearch = searchText.trim().toLowerCase();
+  const visibleGroups = normalizedSearch
+    ? groups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) =>
+          [group.title, item.title, item.description, item.path, item.badge, item.group]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(normalizedSearch),
+        ),
+      }))
+      .filter((group) => group.items.length > 0)
+    : groups;
+
   return (
-    <aside className="api-doc-nav" aria-label={tx("API 导航")}>
+    <aside className="api-doc-nav" aria-label={ui.title}>
       <div className="api-doc-nav-head">
         <FileText size={16} />
         <div>
-          <strong>{tx("API 导航")}</strong>
-          <span>{tx("按接口类型查看详细说明")}</span>
+          <strong>{ui.title}</strong>
+          <span>{ui.subtitle}</span>
         </div>
       </div>
+      <label className="api-doc-search">
+        <Search size={15} />
+        <input
+          value={searchText}
+          onChange={(event) => setSearchText(event.target.value)}
+          placeholder={ui.searchPlaceholder}
+        />
+      </label>
       <div className="api-doc-nav-list">
-        {groups.map((group) => (
+        {visibleGroups.length ? visibleGroups.map((group) => (
           <section className="api-doc-nav-group" key={group.title}>
-            <h3>{tx(group.title)}</h3>
+            <h3>{group.title}</h3>
             {group.items.map((item) => (
               <button
                 aria-selected={activeID === item.id}
@@ -4594,62 +5221,21 @@ function GatewayDocNav({
                 onClick={() => onSelect(item.id)}
                 type="button"
               >
-                {item.method ? <span className={`api-method ${apiMethodClass(item.method)}`}>{item.method}</span> : <span className="api-method muted">DOC</span>}
+                {item.method ? <span className={`api-method ${apiMethodClass(item.method)}`}>{item.method}</span> : <span className="api-method muted">{item.badge ?? "DOC"}</span>}
                 <span>
-                  <strong>{tx(item.title)}</strong>
-                  {item.path ? <em>{item.path}</em> : <em>{tx(item.description)}</em>}
+                  <strong>{item.title}</strong>
+                  {item.path ? <em>{item.path}</em> : <em>{item.description}</em>}
                 </span>
               </button>
             ))}
           </section>
-        ))}
+        )) : <div className="api-doc-empty">{ui.noResults}</div>}
       </div>
     </aside>
   );
 }
 
-function GatewayDocContent({
-  doc,
-  data,
-  callableModels,
-  baseURL,
-  modelName,
-}: {
-  doc: GatewayDocItem;
-  data: AppData;
-  callableModels: Model[];
-  baseURL: string;
-  modelName: string;
-}) {
-  if (doc.id === "sdk") {
-    return (
-      <article className="api-doc-content-card">
-        <GatewayDocTitle doc={doc} />
-        <PlaygroundAPIExamples baseURL={baseURL} modelName={modelName} />
-      </article>
-    );
-  }
-
-  if (doc.id === "models-current") {
-    return (
-      <article className="api-doc-content-card">
-        <GatewayDocTitle doc={doc} />
-        {callableModels.length > 0 ? (
-          <div className="gateway-model-list api-doc-model-list">
-            {callableModels.slice(0, 18).map((model) => (
-              <span key={model.name}>
-                {model.name}
-                <em>{countWithUnit(activeRouteCount(model.name, data), "条路由", "route", "件のルート")}</em>
-              </span>
-            ))}
-          </div>
-        ) : (
-          <div className="empty">{tx("当前权限下还没有可展示模型，请先确认模型目录和路由策略。")}</div>
-        )}
-      </article>
-    );
-  }
-
+function GatewayDocContent({ doc }: { doc: GatewayDocItem }) {
   return (
     <article className="api-doc-content-card">
       <GatewayDocTitle doc={doc} />
@@ -4657,39 +5243,39 @@ function GatewayDocContent({
         <div className="api-doc-detail-grid">
           {doc.details.map((item) => (
             <div key={item.label}>
-              <span>{tx(item.label)}</span>
-              <strong>{tx(item.value)}</strong>
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
             </div>
           ))}
         </div>
       ) : null}
       {doc.notes ? (
         <section className="api-doc-panel">
-          <h3>{tx("说明")}</h3>
+          <h3>{doc.notesTitle ?? "Notes"}</h3>
           <ul className="api-doc-notes">
-            {doc.notes.map((note) => <li key={note}>{tx(note)}</li>)}
+            {doc.notes.map((note) => <li key={note}>{note}</li>)}
           </ul>
         </section>
       ) : null}
       {doc.params ? (
         <section className="api-doc-panel">
-          <h3>{tx("请求参数")}</h3>
-          <SimpleTable columns={["字段", "类型", "必填", "说明"]} rows={doc.params} />
+          <h3>{doc.params.title}</h3>
+          <SimpleTable columns={doc.params.columns} rows={doc.params.rows} />
         </section>
       ) : null}
       {doc.table ? (
         <section className="api-doc-panel">
-          <h3>{tx("明细")}</h3>
+          <h3>{doc.table.title}</h3>
           <SimpleTable columns={doc.table.columns} rows={doc.table.rows} />
         </section>
       ) : null}
       {doc.examples ? (
         <section className="api-doc-panel">
-          <h3>{tx("示例")}</h3>
+          <h3>{doc.examplesTitle ?? "Examples"}</h3>
           <div className="api-doc-code-grid">
             {doc.examples.map((example) => (
               <div className="api-doc-code-card" key={example.title}>
-                <strong>{tx(example.title)}</strong>
+                <strong>{example.title}</strong>
                 <GatewayCodeBlock code={example.code} />
               </div>
             ))}
@@ -4704,20 +5290,701 @@ function GatewayDocTitle({ doc }: { doc: GatewayDocItem }) {
   return (
     <div className="api-doc-title">
       <div>
-        <span>{tx(doc.group)}</span>
-        <h2>{tx(doc.title)}</h2>
-        <p>{tx(doc.description)}</p>
+        <span>{doc.group}</span>
+        <h2>{doc.title}</h2>
+        <p>{doc.description}</p>
       </div>
       {doc.path ? (
         <div className="api-doc-endpoint">
           <span className={`api-method ${apiMethodClass(doc.method)}`}>{doc.method}</span>
           <code>{doc.path}</code>
         </div>
-      ) : doc.status ? (
-        <StatusPill status={doc.status} label={doc.status} />
       ) : null}
     </div>
   );
+}
+
+function gatewayDocBundle({
+  language,
+  baseURL,
+  keyHint,
+  sampleModel,
+  activeRoutes,
+  data,
+  callableModels,
+}: {
+  language: AppLanguage;
+  baseURL: string;
+  keyHint: string;
+  sampleModel: string;
+  activeRoutes: number;
+  data: AppData;
+  callableModels: Model[];
+}): GatewayDocBundle {
+  const authHeader = `Authorization: Bearer ${keyHint}`;
+  const activeRouteCountValue = activeRoutes || data.summary.active_route_count || 0;
+  const apiKeyCount = data.keys.length || data.summary.api_key_count || 0;
+  const projectCount = data.projects.length;
+  const userCount = data.users.length || data.summary.user_count || 0;
+  const providerCount = data.providers.length;
+  const routeCount = data.routes.length;
+  const requestLogCount = data.logs.length;
+  const visibleModelCount = callableModels.length;
+  const chatCurl = `curl -X POST "${baseURL}/chat/completions" \\
+  -H "${authHeader}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "${sampleModel}",
+    "messages": [
+      {"role": "system", "content": "You are an internal enterprise AI assistant."},
+      {"role": "user", "content": "Introduce TokenHub in two concise sentences."}
+    ],
+    "temperature": 0.7,
+    "stream": false
+  }'`;
+
+  const commonEN = gatewayEnglishDocs({
+    baseURL,
+    sampleModel,
+    chatCurl,
+    activeRouteCountValue,
+    apiKeyCount,
+    projectCount,
+    userCount,
+    providerCount,
+    routeCount,
+    requestLogCount,
+    visibleModelCount,
+  });
+  if (language === "zh-CN") return gatewayChineseDocs(commonEN);
+  if (language === "ja") return gatewayJapaneseDocs(commonEN);
+  return commonEN;
+}
+
+type GatewayDocStats = {
+  baseURL: string;
+  sampleModel: string;
+  chatCurl: string;
+  activeRouteCountValue: number;
+  apiKeyCount: number;
+  projectCount: number;
+  userCount: number;
+  providerCount: number;
+  routeCount: number;
+  requestLogCount: number;
+  visibleModelCount: number;
+};
+
+function gatewayEnglishDocs(stats: GatewayDocStats): GatewayDocBundle {
+  return {
+    nav: {
+      title: "Documentation",
+      subtitle: "Role-based guides and API references",
+      searchPlaceholder: "Search guides, APIs, or error codes",
+      noResults: "No matching documents",
+    },
+    eyebrow: "TokenHub Docs",
+    title: "Role-Based Gateway Guides",
+    description: "TokenHub is documented around three enterprise roles: users call approved models, team leaders manage projects and members, and administrators govern providers, routing, identity, audit, and cost.",
+    languageLabel: "Documentation language",
+    quickInfoLabel: "API basics",
+    quickCards: {
+      baseURL: "Base URL",
+      authorization: "Authorization",
+      sampleModel: "Sample model",
+      currentConfig: "Current configuration",
+      activeRoutes: `${formatNumber(stats.activeRouteCountValue)} active route${stats.activeRouteCountValue === 1 ? "" : "s"}`,
+      apiKeys: `${formatNumber(stats.apiKeyCount)} API Key${stats.apiKeyCount === 1 ? "" : "s"}`,
+    },
+    groups: [
+      {
+        title: "Introduction",
+        items: [
+          {
+            id: "overview",
+            group: "Introduction",
+            badge: "DOC",
+            title: "Platform Overview",
+            description: "Understand how TokenHub connects models, projects, keys, routing, audit, and cost attribution into one governed AI access path.",
+            details: [
+              { label: "Primary entry points", value: "Model Playground / Key Management / Usage Analytics" },
+              { label: "Application API", value: "/v1/*" },
+              { label: "Admin API", value: "/api/admin/*" },
+              { label: "Data scope", value: "Personal / Team / Platform" },
+            ],
+            notesTitle: "First steps",
+            notes: [
+              "Users start with available models, key management, personal usage, and request logs; they do not need provider credentials.",
+              "Team leaders work from project spaces and use the project detail panel to manage members, keys, quotas, and attribution.",
+              "Administrators connect providers, publish model catalog entries, enable routing rules, configure identity sources, and monitor audit and cost controls.",
+            ],
+          },
+          {
+            id: "concepts",
+            group: "Introduction",
+            badge: "DOC",
+            title: "Core Concepts",
+            description: "A shared vocabulary for the resource and permission boundaries in the enterprise AI gateway.",
+            table: {
+              title: "Concepts",
+              columns: ["Concept", "Meaning"],
+              rows: [
+                ["Project", "An internal application or business space. It is the basic unit for keys, quota, members, and cost attribution."],
+                ["API Key", "A credential attached to a project and used by applications to call /v1/* model endpoints."],
+                ["Model Catalog", "The standard model list shown to users. A model is callable only when it has an enabled route."],
+                ["Routing Rule", "Maps a standard model to an upstream provider model and defines priority, weight, and strategy."],
+                ["Provider", "An upstream model service or internal model resource with Base URL, credentials, and health state."],
+                ["Usage Attribution", "Requests, tokens, and cost are attributed to users, projects, teams, and cost centers."],
+              ],
+            },
+          },
+        ],
+      },
+      {
+        title: "Role Guides",
+        items: [
+          {
+            id: "user-guide",
+            group: "Role Guides",
+            badge: "USER",
+            title: "User Guide",
+            description: "Users focus on available models, project keys, API examples, personal usage, and request logs.",
+            details: [
+              { label: "Default menu", value: "Overview / API Documentation / Model Playground" },
+              { label: "Resource scope", value: `${formatNumber(stats.visibleModelCount)} visible models` },
+              { label: "Key ownership", value: "Assigned project" },
+              { label: "Report scope", value: "Personal usage" },
+            ],
+            notesTitle: "Daily workflow",
+            notes: [
+              "Open Available Models or Model Playground to confirm which models are callable for your account.",
+              "Open Key Management, choose an assigned project, and create or copy an application API key.",
+              "Applications should call model endpoints such as /v1/chat/completions, /v1/responses, and /v1/embeddings.",
+              "For 401, 403, or 429 responses, copy request_id into Request Logs or ask your team leader to adjust project access.",
+            ],
+            table: {
+              title: "What users can do",
+              columns: ["Task", "Where", "Notes"],
+              rows: [
+                ["Review models", "Available Models", "Shows the models callable by the current account."],
+                ["Test prompts", "Model Playground", "Checks prompts, responses, routing, and estimated cost."],
+                ["Manage keys", "Key Management", "Keys must be created under an assigned project."],
+                ["Review usage", "Usage Analytics", "Shows only requests, tokens, and cost visible to the current account."],
+              ],
+            },
+          },
+          {
+            id: "team-leader-guide",
+            group: "Role Guides",
+            badge: "LEAD",
+            title: "Team Leader Guide",
+            description: "Team leaders manage project spaces, project members, key issuance, team reports, and project-level cost attribution.",
+            details: [
+              { label: "Default menu", value: "Team Overview / Projects / Key Management" },
+              { label: "Projects", value: `${formatNumber(stats.projectCount)} projects` },
+              { label: "Member management", value: "Project detail side panel" },
+              { label: "Report scope", value: "Team and project usage" },
+            ],
+            notesTitle: "Project governance workflow",
+            notes: [
+              "Create or select a project in Project Spaces. A project is the boundary for members, keys, quota, and cost attribution.",
+              "Click a project to open the right-side detail panel, then view, add, edit, or remove project members there.",
+              "When issuing keys, use project membership roles to decide whether a user can create application keys.",
+              "Use Team Reports to compare usage by member, project, model, and cost center.",
+            ],
+            table: {
+              title: "Project membership roles",
+              columns: ["Role", "Default capability"],
+              rows: [
+                ["Owner", "Manages project settings, members, keys, and quota."],
+                ["Maintainer", "Maintains members and keys; suitable for project technical owners."],
+                ["Developer", "Creates and uses project keys; suitable for application developers."],
+                ["Viewer", "Views project data and usage but cannot issue keys."],
+              ],
+            },
+          },
+          {
+            id: "administrator-guide",
+            group: "Role Guides",
+            badge: "ADMIN",
+            title: "Administrator Guide",
+            description: "Administrators govern providers, model catalog, routing policies, identity sources, RBAC, audit, security, and cost controls.",
+            details: [
+              { label: "Default menu", value: "Platform Overview / Providers / Routes / Settings" },
+              { label: "Providers", value: `${formatNumber(stats.providerCount)} providers` },
+              { label: "Routing rules", value: `${formatNumber(stats.routeCount)} rules` },
+              { label: "Users", value: `${formatNumber(stats.userCount)} users` },
+            ],
+            notesTitle: "Production setup order",
+            notes: [
+              "Configure upstream Base URLs, credentials, resource groups, and health checks in Provider Channels.",
+              "Maintain standard public model names, capability tags, context windows, and price units in Model Catalog.",
+              "Create at least one enabled routing rule for every model that should be visible and callable.",
+              "Configure identity providers, role permissions, default policies, audit retention, and enterprise integrations in System Settings.",
+            ],
+            table: {
+              title: "Administrator checklist",
+              columns: ["Area", "Check"],
+              rows: [
+                ["Identity", "Configure at least one enterprise identity source and retain a controlled administrator account."],
+                ["Routing", "Models without configured routes must be visually distinguished in the admin model catalog."],
+                ["Security", "API keys are shown once; rotation and deletion must leave audit records."],
+                ["Cost", "Provider, project, team, and cost center attribution should remain traceable."],
+              ],
+            },
+          },
+        ],
+      },
+      {
+        title: "API Reference",
+        items: [
+          {
+            id: "model-api",
+            group: "API Reference",
+            title: "Model API",
+            method: "POST",
+            path: "/v1/chat/completions",
+            description: "Call OpenAI-compatible model endpoints with a project API key.",
+            params: {
+              title: "Request parameters",
+              columns: ["Field", "Type", "Required", "Description"],
+              rows: [
+                ["Authorization", "header", "Yes", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["model", "string", "Yes", `Standard model name, for example ${stats.sampleModel}`],
+                ["messages", "array", "Yes", "system/user/assistant message array"],
+                ["stream", "boolean", "No", "When true, returns an SSE streaming response"],
+              ],
+            },
+            examplesTitle: "English examples",
+            examples: [{ title: "Chat completion", code: stats.chatCurl }],
+          },
+          {
+            id: "keys-projects",
+            group: "API Reference",
+            badge: "REF",
+            title: "Keys and Projects",
+            description: "Keys always belong to projects. One person can belong to multiple projects and chooses the project when creating a key.",
+            table: {
+              title: "Assignment model",
+              columns: ["Object", "Managed by", "Notes"],
+              rows: [
+                ["Project", "Administrator or team leader", "Contains members, keys, quota, and cost attribution."],
+                ["Membership", "Project Owner or Maintainer", "Controls whether a user can view the project or issue keys."],
+                ["API Key", "Authorized project member", "Can call only models visible to the project and backed by enabled routes."],
+              ],
+            },
+          },
+          {
+            id: "troubleshooting",
+            group: "API Reference",
+            badge: "REF",
+            title: "Troubleshooting",
+            description: "Use status codes to locate API key, project membership, model routing, and quota problems.",
+            table: {
+              title: "Common errors",
+              columns: ["Status", "Code", "Fix"],
+              rows: [
+                ["401", "invalid_api_key", "Check that Authorization uses a TokenHub API key."],
+                ["403", "project_forbidden / model_not_allowed", "Check project membership and whether the model is open to the project."],
+                ["404/503", "provider_unavailable", "Enable a route for the model or check upstream provider health."],
+                ["429", "quota_exceeded", "Check project quota, concurrency limits, and provider resource limits."],
+                ["500", "upstream_error", `Inspect request_id in Request Logs; current log sample is ${formatNumber(stats.requestLogCount)} records.`],
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function gatewayChineseDocs(stats: GatewayDocBundle): GatewayDocBundle {
+  return {
+    nav: {
+      title: "文档导航",
+      subtitle: "按角色和任务查看指南",
+      searchPlaceholder: "搜索指南、API 或错误码",
+      noResults: "没有匹配的文档",
+    },
+    eyebrow: "TokenHub Docs",
+    title: "面向三种角色的网关指南",
+    description: "TokenHub 文档按企业角色组织：普通用户调用已批准模型，团队负责人管理项目和成员，管理员治理 Provider、路由、身份源、审计和成本。",
+    languageLabel: "文档语言",
+    quickInfoLabel: "接口基础信息",
+    quickCards: {
+      ...stats.quickCards,
+      sampleModel: "示例模型",
+      currentConfig: "当前配置",
+      activeRoutes: stats.quickCards.activeRoutes.replace("active routes", "条启用路由").replace("active route", "条启用路由"),
+      apiKeys: stats.quickCards.apiKeys.replace("API Keys", "个 API Key").replace("API Key", "个 API Key"),
+    },
+    groups: [
+      {
+        title: "开始",
+        items: [
+          {
+            id: "overview",
+            group: "开始",
+            badge: "DOC",
+            title: "平台概览",
+            description: "理解 TokenHub 如何把模型、项目、Key、路由、审计和成本归因放在同一条治理链路里。",
+            details: [
+              { label: "主要入口", value: "Model Playground / Key Management / Usage Analytics" },
+              { label: "业务接口", value: "/v1/*" },
+              { label: "管理接口", value: "/api/admin/*" },
+              { label: "数据范围", value: "Personal / Team / Platform" },
+            ],
+            notesTitle: "上手路径",
+            notes: [
+              "普通用户从可用模型、Key 管理、个人用量和请求日志开始，不需要理解 Provider 凭证。",
+              "团队负责人围绕项目空间工作，在项目详情侧边栏维护成员、Key、额度和费用归属。",
+              "管理员接入 Provider，发布模型目录，启用路由策略，配置身份源，并监控审计和成本治理。",
+            ],
+          },
+          {
+            ...stats.groups[0].items[1],
+            group: "开始",
+            title: "核心概念",
+            description: "用统一术语解释企业 AI 网关中的资源边界和权限边界。",
+            table: {
+              title: "概念表",
+              columns: ["概念", "含义"],
+              rows: [
+                ["Project", "企业内部应用或业务空间，是 Key、额度、成员和成本归因的基本单元。"],
+                ["API Key", "绑定到 Project 的调用凭证，用于业务应用访问 /v1/* 模型接口。"],
+                ["Model Catalog", "对用户展示的标准模型目录，只有配置了启用路由的模型才可调用。"],
+                ["Routing Rule", "把标准模型映射到上游 Provider 模型，并定义优先级、权重和策略。"],
+                ["Provider", "上游模型服务商或内部模型服务资源，包含 Base URL、凭证和健康状态。"],
+                ["Usage Attribution", "请求、Token 和成本会归因到个人、Project、Team 和成本中心。"],
+              ],
+            },
+          },
+        ],
+      },
+      {
+        title: "角色指南",
+        items: [
+          {
+            ...stats.groups[1].items[0],
+            group: "角色指南",
+            title: "普通用户指南",
+            description: "普通用户关注可用模型、项目 Key、调用示例、个人用量和请求日志。",
+            notesTitle: "日常流程",
+            notes: [
+              "先在 Available Models 或 Model Playground 确认可调用模型。",
+              "在 Key Management 中选择被分配的 Project，再创建或复制业务 API Key。",
+              "业务应用只调用 /v1/chat/completions、/v1/responses、/v1/embeddings 等模型接口。",
+              "遇到 401/403/429 时，复制 request_id 到 Request Logs 查看原因，或联系团队负责人调整项目权限。",
+            ],
+            table: {
+              title: "普通用户能做什么",
+              columns: ["任务", "位置", "说明"],
+              rows: [
+                ["查看模型", "Available Models", "显示当前账号可调用的模型。"],
+                ["测试模型", "Model Playground", "验证提示词、模型返回、路由和成本估算。"],
+                ["管理 Key", "Key Management", "Key 必须选择已分配的 Project。"],
+                ["查看用量", "Usage Analytics", "只展示当前账号可见的请求、Token 和成本。"],
+              ],
+            },
+          },
+          {
+            ...stats.groups[1].items[1],
+            group: "角色指南",
+            title: "团队负责人指南",
+            description: "团队负责人负责项目空间、项目成员、Key 发放、团队报表和项目级成本归因。",
+            notesTitle: "项目治理流程",
+            notes: [
+              "在 Project Spaces 中创建或选择项目，项目是成员、Key、额度和成本归属的边界。",
+              "点击项目后，在右侧详情栏查看、添加、编辑或移除项目成员。",
+              "为项目发放 Key 时，根据成员角色决定是否允许创建业务 Key。",
+              "用 Team Reports 查看成员、项目、模型和成本中心维度的消费归因。",
+            ],
+            table: {
+              title: "项目成员角色",
+              columns: ["角色", "默认能力"],
+              rows: [
+                ["Owner", "管理项目设置、成员、Key 和额度。"],
+                ["Maintainer", "维护成员和 Key，适合项目技术负责人。"],
+                ["Developer", "可以创建和使用项目 Key，适合应用开发者。"],
+                ["Viewer", "只能查看项目和用量，不能发放 Key。"],
+              ],
+            },
+          },
+          {
+            ...stats.groups[1].items[2],
+            group: "角色指南",
+            title: "管理员指南",
+            description: "管理员负责全局 Provider、模型目录、路由策略、身份源、角色权限、安全审计和成本治理。",
+            notesTitle: "上线顺序",
+            notes: [
+              "先在 Provider Channels 配置上游 Base URL、凭证、资源组和健康检查。",
+              "在 Model Catalog 中维护对业务开放的标准模型名、能力标签和价格口径。",
+              "在 Routing Policies 中为每个可用模型配置至少一条启用路由。",
+              "在 System Settings 中配置身份源、角色权限、默认策略、审计保留和企业集成。",
+            ],
+            table: {
+              title: "管理员检查清单",
+              columns: ["领域", "检查项"],
+              rows: [
+                ["Identity", "至少配置一个企业身份源，并保留可控的管理员账号。"],
+                ["Routing", "未配置路由的模型需要在后台以不同背景色提示。"],
+                ["Security", "API Key 只展示一次，轮换和删除需要审计记录。"],
+                ["Cost", "Provider、Project、Team 和 Cost Center 都需要可追踪。"],
+              ],
+            },
+          },
+        ],
+      },
+      {
+        title: "API 参考",
+        items: [
+          {
+            ...stats.groups[2].items[0],
+            group: "API 参考",
+            title: "模型 API",
+            description: "使用项目 API Key 调用 OpenAI 兼容的模型接口。",
+            params: {
+              title: "请求参数",
+              columns: ["字段", "类型", "必填", "说明"],
+              rows: [
+                ["Authorization", "header", "是", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["model", "string", "是", "统一模型名，例如示例模型卡片中的模型名称"],
+                ["messages", "array", "是", "system/user/assistant 消息数组"],
+                ["stream", "boolean", "否", "true 时返回 SSE 流式响应"],
+              ],
+            },
+            examplesTitle: "英文样例",
+          },
+          {
+            ...stats.groups[2].items[1],
+            group: "API 参考",
+            title: "Key 与项目",
+            description: "Key 始终属于 Project；一个人可以加入多个 Project，并在创建 Key 时选择归属项目。",
+            table: {
+              title: "分配模型",
+              columns: ["对象", "谁来管理", "说明"],
+              rows: [
+                ["Project", "管理员或团队负责人", "承载成员、Key、额度和成本归因。"],
+                ["Membership", "项目 Owner 或 Maintainer", "决定用户是否可查看项目或发放 Key。"],
+                ["API Key", "有权限的项目成员", "只允许调用项目可见且已配置路由的模型。"],
+              ],
+            },
+          },
+          {
+            ...stats.groups[2].items[2],
+            group: "API 参考",
+            title: "错误排查",
+            description: "按状态码定位 API Key、项目成员、模型路由和额度问题。",
+            table: {
+              title: "常见错误",
+              columns: ["状态", "错误码", "处理方式"],
+              rows: [
+                ["401", "invalid_api_key", "检查 Authorization 是否使用 TokenHub API Key。"],
+                ["403", "project_forbidden / model_not_allowed", "检查用户是否在项目中，以及模型是否对项目开放。"],
+                ["404/503", "provider_unavailable", "为模型配置启用路由，或检查上游 Provider 健康状态。"],
+                ["429", "quota_exceeded", "检查项目额度、并发限制和 Provider 资源限制。"],
+                ["500", "upstream_error", "在 Request Logs 中查看 request_id。"],
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function gatewayJapaneseDocs(stats: GatewayDocBundle): GatewayDocBundle {
+  return {
+    ...gatewayChineseDocs(stats),
+    nav: {
+      title: "ドキュメント",
+      subtitle: "ロールとタスク別に確認",
+      searchPlaceholder: "ガイド、API、エラーコードを検索",
+      noResults: "一致するドキュメントはありません",
+    },
+    title: "3 つのロール別ゲートウェイガイド",
+    description: "TokenHub のドキュメントは、利用者、チームリーダー、管理者の 3 つの企業ロールを中心に整理しています。",
+    languageLabel: "ドキュメント言語",
+    quickInfoLabel: "API 基本情報",
+    quickCards: {
+      ...stats.quickCards,
+      sampleModel: "サンプルモデル",
+      currentConfig: "現在の設定",
+      activeRoutes: stats.quickCards.activeRoutes.replace("active routes", "件の有効ルート").replace("active route", "件の有効ルート"),
+      apiKeys: stats.quickCards.apiKeys.replace("API Keys", "件の API Key").replace("API Key", "件の API Key"),
+    },
+    groups: [
+      {
+        title: "はじめに",
+        items: [
+          {
+            ...stats.groups[0].items[0],
+            group: "はじめに",
+            title: "プラットフォーム概要",
+            description: "TokenHub がモデル、プロジェクト、Key、ルーティング、監査、コスト配賦を 1 つの統制フローにまとめる仕組みを説明します。",
+            notesTitle: "開始手順",
+            notes: [
+              "利用者は利用可能モデル、Key 管理、個人利用量から始めます。Provider 認証情報を理解する必要はありません。",
+              "チームリーダーはプロジェクトスペースを中心に、詳細サイドパネルでメンバー、Key、コスト帰属を管理します。",
+              "管理者は Provider、モデルカタログ、ルーティング、ID プロバイダー、監査とコスト統制を設定します。",
+            ],
+          },
+          {
+            ...stats.groups[0].items[1],
+            group: "はじめに",
+            title: "主要概念",
+            description: "企業 AI ゲートウェイのリソース境界と権限境界を共通語彙で整理します。",
+            table: {
+              title: "概念一覧",
+              columns: ["概念", "意味"],
+              rows: [
+                ["Project", "社内アプリケーションまたは業務スペース。Key、クォータ、メンバー、コスト配賦の基本単位です。"],
+                ["API Key", "Project に紐づく呼び出し認証情報。業務アプリが /v1/* を呼び出すために使います。"],
+                ["Model Catalog", "ユーザーに表示する標準モデル一覧。有効なルートがあるモデルだけ呼び出せます。"],
+                ["Routing Rule", "標準モデルを上流 Provider モデルへ割り当て、優先度、重み、戦略を定義します。"],
+                ["Provider", "上流モデルサービスまたは社内モデルリソース。Base URL、認証情報、ヘルス状態を持ちます。"],
+                ["Usage Attribution", "リクエスト、Token、コストを個人、Project、Team、Cost Center に配賦します。"],
+              ],
+            },
+          },
+        ],
+      },
+      {
+        title: "ロールガイド",
+        items: [
+          {
+            ...stats.groups[1].items[0],
+            group: "ロールガイド",
+            title: "利用者ガイド",
+            description: "利用者は利用可能モデル、プロジェクト Key、呼び出し例、個人利用量、リクエストログを確認します。",
+            notesTitle: "日常フロー",
+            notes: [
+              "Available Models または Model Playground で呼び出せるモデルを確認します。",
+              "Key Management で割り当て済み Project を選び、業務 API Key を作成またはコピーします。",
+              "業務アプリは /v1/chat/completions、/v1/responses、/v1/embeddings などのモデル API だけを呼び出します。",
+              "401/403/429 が出た場合は request_id を Request Logs で検索し、必要に応じてチームリーダーに権限調整を依頼します。",
+            ],
+            table: {
+              title: "利用者の操作",
+              columns: ["タスク", "画面", "説明"],
+              rows: [
+                ["モデル確認", "Available Models", "現在のアカウントで呼び出せるモデルを表示します。"],
+                ["モデル検証", "Model Playground", "プロンプト、応答、ルーティング、コスト見積もりを確認します。"],
+                ["Key 管理", "Key Management", "Key 作成時は割り当て済み Project を選択します。"],
+                ["利用量確認", "Usage Analytics", "現在のアカウントに見えるリクエスト、Token、コストだけを表示します。"],
+              ],
+            },
+          },
+          {
+            ...stats.groups[1].items[1],
+            group: "ロールガイド",
+            title: "チームリーダーガイド",
+            description: "チームリーダーはプロジェクト、メンバー、Key 発行、チームレポート、プロジェクト別コスト配賦を管理します。",
+            notesTitle: "プロジェクト統制フロー",
+            notes: [
+              "Project Spaces でプロジェクトを作成または選択します。Project はメンバー、Key、クォータ、コスト帰属の境界です。",
+              "プロジェクトをクリックし、右側の詳細パネルでメンバーの表示、追加、編集、削除を行います。",
+              "プロジェクトに Key を発行するときは、メンバーのロールに応じて Key 作成可否を決めます。",
+              "Team Reports でメンバー、Project、モデル、Cost Center 別の利用量とコストを確認します。",
+            ],
+            table: {
+              title: "プロジェクトメンバーのロール",
+              columns: ["ロール", "既定能力"],
+              rows: [
+                ["Owner", "プロジェクト設定、メンバー、Key、クォータを管理します。"],
+                ["Maintainer", "メンバーと Key を保守します。プロジェクトの技術責任者に適しています。"],
+                ["Developer", "プロジェクト Key を作成、利用できます。アプリ開発者に適しています。"],
+                ["Viewer", "プロジェクトと利用量のみ閲覧でき、Key は発行できません。"],
+              ],
+            },
+          },
+          {
+            ...stats.groups[1].items[2],
+            group: "ロールガイド",
+            title: "管理者ガイド",
+            description: "管理者は Provider、モデルカタログ、ルーティング、ID プロバイダー、権限、監査、コスト統制を管理します。",
+            notesTitle: "公開前チェック",
+            notes: [
+              "Provider Channels で上流 Base URL、認証情報、リソースグループ、ヘルスチェックを設定します。",
+              "Model Catalog で業務に公開する標準モデル名、能力タグ、価格単位を管理します。",
+              "Routing Policies で公開モデルごとに少なくとも 1 つの有効ルートを設定します。",
+              "System Settings で ID プロバイダー、ロール権限、既定ポリシー、監査保持期間、企業連携を設定します。",
+            ],
+            table: {
+              title: "管理者チェックリスト",
+              columns: ["領域", "確認項目"],
+              rows: [
+                ["Identity", "少なくとも 1 つの企業 ID プロバイダーを設定し、管理者アカウントを保持します。"],
+                ["Routing", "ルート未設定モデルは管理画面で異なる背景色で表示します。"],
+                ["Security", "API Key は一度だけ表示し、ローテーションと削除は監査します。"],
+                ["Cost", "Provider、Project、Team、Cost Center を追跡可能にします。"],
+              ],
+            },
+          },
+        ],
+      },
+      {
+        title: "API リファレンス",
+        items: [
+          {
+            ...stats.groups[2].items[0],
+            group: "API リファレンス",
+            title: "モデル API",
+            description: "Project API Key で OpenAI 互換のモデル API を呼び出します。",
+            params: {
+              title: "リクエストパラメーター",
+              columns: ["フィールド", "型", "必須", "説明"],
+              rows: [
+                ["Authorization", "header", "はい", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["model", "string", "はい", "標準モデル名"],
+                ["messages", "array", "はい", "system/user/assistant のメッセージ配列"],
+                ["stream", "boolean", "いいえ", "true の場合は SSE ストリーミングレスポンスを返します"],
+              ],
+            },
+            examplesTitle: "英語サンプル",
+          },
+          {
+            ...stats.groups[2].items[1],
+            group: "API リファレンス",
+            title: "Key と Project",
+            description: "Key は常に Project に属します。1 人のユーザーは複数 Project に参加でき、Key 作成時に所属 Project を選びます。",
+            table: {
+              title: "割り当てモデル",
+              columns: ["対象", "管理者", "説明"],
+              rows: [
+                ["Project", "管理者またはチームリーダー", "メンバー、Key、クォータ、コスト配賦を持ちます。"],
+                ["Membership", "Project Owner または Maintainer", "ユーザーが Project を閲覧できるか、Key を発行できるかを決めます。"],
+                ["API Key", "権限を持つ Project メンバー", "Project に見えて、有効ルートがあるモデルだけ呼び出せます。"],
+              ],
+            },
+          },
+          {
+            ...stats.groups[2].items[2],
+            group: "API リファレンス",
+            title: "トラブルシューティング",
+            description: "ステータスコードから API Key、Project メンバー、モデルルート、クォータの問題を切り分けます。",
+            table: {
+              title: "よくあるエラー",
+              columns: ["ステータス", "エラーコード", "対応"],
+              rows: [
+                ["401", "invalid_api_key", "Authorization に TokenHub API Key を指定しているか確認します。"],
+                ["403", "project_forbidden / model_not_allowed", "ユーザーが Project に所属しているか、モデルが Project に公開されているか確認します。"],
+                ["404/503", "provider_unavailable", "モデルに有効ルートを設定するか、上流 Provider のヘルスを確認します。"],
+                ["429", "quota_exceeded", "Project クォータ、同時実行制限、Provider リソース制限を確認します。"],
+                ["500", "upstream_error", "Request Logs で request_id を確認します。"],
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function gatewayLanguageLabel(language: AppLanguage) {
+  if (language === "zh-CN") return "中文";
+  if (language === "ja") return "日本語";
+  return "English";
 }
 
 function gatewayDocGroups({
@@ -4732,7 +5999,7 @@ function gatewayDocGroups({
   sampleModel: string;
   activeRoutes: number;
   data: AppData;
-}): GatewayDocGroup[] {
+}): any[] {
   const authHeader = `Authorization: Bearer ${keyHint}`;
   const sampleSystemPrompt = tx("你是企业内部 AI 助手。");
   const sampleIntroPrompt = tx("用两句话介绍 TokenHub");
@@ -5017,7 +6284,7 @@ function GatewayCopyCard({ label, value }: { label: string; value: string }) {
   }
   return (
     <article className="gateway-copy-card">
-      <span>{tx(label)}</span>
+      <span>{label}</span>
       <strong>{value}</strong>
       <button className="icon-button subtle" onClick={() => void copyValue()} type="button" title={tx("复制")}>
         {copied ? <Check size={15} /> : <Copy size={15} />}
@@ -5050,9 +6317,10 @@ function GatewayCodeBlock({ code }: { code: string }) {
 function UsageView({ data, user }: { data: AppData; user: AdminUser }) {
   const modelBreakdown = data.breakdown.models ?? [];
   const showMemberBreakdown = appRole(user.role) === "team_leader";
+  const showExecutiveReport = appRole(user.role) !== "user";
   return (
     <>
-      <ExecutiveUsageReport data={data} />
+      {showExecutiveReport ? <ExecutiveUsageReport data={data} /> : <PersonalUsageSummary data={data} />}
       <div className="two-column">
         <DataSection title="模型用量">
           <SimpleTable
@@ -5094,6 +6362,30 @@ function UsageView({ data, user }: { data: AppData; user: AdminUser }) {
         </DataSection>
       ) : null}
     </>
+  );
+}
+
+function PersonalUsageSummary({ data }: { data: AppData }) {
+  return (
+    <section className="executive-report personal-usage-report">
+      <header className="executive-report-head">
+        <div>
+          <p className="eyebrow">Personal Usage</p>
+          <h2>{tx("我的用量概览")}</h2>
+        </div>
+        <div className="executive-report-tools">
+          <span>{tx("个人范围")}</span>
+          <span>{tx("Token 口径")}</span>
+        </div>
+      </header>
+
+      <div className="executive-kpi-grid">
+        <ExecutiveKPI label="总 Token 消耗" value={compactNumber(data.summary.total_tokens)} detail={`${tx("输入")} ${compactNumber(data.summary.input_tokens)} / ${tx("输出")} ${compactNumber(data.summary.output_tokens)}`} />
+        <ExecutiveKPI label="请求数" value={formatNumber(data.summary.request_count)} detail={countWithUnit(data.summary.usage_record_count ?? 0, "条用量记录", "usage record", "件の利用記録")} />
+        <ExecutiveKPI label="估算成本" value={`$${formatMoney(data.summary.estimated_cost_usd)}`} detail={countWithUnit(data.summary.errors, "个错误", "error", "件のエラー")} />
+        <ExecutiveKPI label="可见项目" value={formatNumber(data.projects.length)} detail={tx("按当前账号权限汇总")} />
+      </div>
+    </section>
   );
 }
 
@@ -5968,7 +7260,6 @@ function CrudView<T>({
   totalItems,
   query,
   pagination,
-  issuedKey,
   categoryFilter,
   onCategoryFilter,
   onQuery,
@@ -5976,6 +7267,9 @@ function CrudView<T>({
   onEdit,
   onDelete,
   onAction,
+  onProjectMemberCreate,
+  onProjectMemberEdit,
+  onProjectMemberDelete,
   onToolbarAction,
 }: {
   config: ResourceConfig<T>;
@@ -5984,7 +7278,6 @@ function CrudView<T>({
   totalItems: number;
   query: string;
   pagination: PaginationState;
-  issuedKey: string;
   categoryFilter: string;
   onCategoryFilter: (value: string) => void;
   onQuery: (value: string) => void;
@@ -5992,6 +7285,9 @@ function CrudView<T>({
   onEdit: (item: T) => void;
   onDelete: (item: T) => void;
   onAction: (action: ResourceAction<T>, item: T) => void;
+  onProjectMemberCreate?: (project: Project) => void;
+  onProjectMemberEdit?: (member: AdminResource) => void;
+  onProjectMemberDelete?: (member: AdminResource) => void;
   onToolbarAction: (action: ToolbarAction) => void;
 }) {
   const [selectedTeamID, setSelectedTeamID] = useState("");
@@ -6061,7 +7357,6 @@ function CrudView<T>({
           ))}
         </div>
       </div>
-      {issuedKey ? <div className="secret">{tx("新 Key 仅展示一次：")}{issuedKey}</div> : null}
       <div className={detailPanelOpen ? "resource-detail-layout with-panel" : "resource-detail-layout"}>
         <div className="resource-table-pane">
           <EntityTable
@@ -6091,6 +7386,9 @@ function CrudView<T>({
             project={selectedProject}
             onClose={() => setSelectedProjectID("")}
             onAction={(action) => onAction(action as unknown as ResourceAction<T>, selectedProject as T)}
+            onCreateMember={() => onProjectMemberCreate?.(selectedProject)}
+            onEditMember={(member) => onProjectMemberEdit?.(member)}
+            onDeleteMember={(member) => onProjectMemberDelete?.(member)}
           />
         ) : null}
       </div>
@@ -6155,11 +7453,17 @@ function ProjectQuotaPanel({
   project,
   onClose,
   onAction,
+  onCreateMember,
+  onEditMember,
+  onDeleteMember,
 }: {
   data: AppData;
   project: Project;
   onClose: () => void;
   onAction: (action: ResourceAction<Project>) => void;
+  onCreateMember?: () => void;
+  onEditMember?: (member: AdminResource) => void;
+  onDeleteMember?: (member: AdminResource) => void;
 }) {
   const quota = projectQuotaPolicy(data, project);
   const [values, setValues] = useState<ProjectQuotaValues>(() => projectQuotaValues(quota));
@@ -6171,18 +7475,49 @@ function ProjectQuotaPanel({
   const hasQuota = Boolean(quota);
   const quotaIssue = projectQuotaIssue(data, project);
   const pendingApproval = pendingProjectQuotaApproval(data, project);
+  const members = projectMembersForProject(data, project.id);
   return (
-    <div className="project-quota-panel">
+    <div className="project-quota-panel project-detail-panel">
       <div className="project-quota-head">
         <div>
-          <span>{tx("项目额度")}</span>
+          <span>{tx("项目详情")}</span>
           <strong>{project.name || project.id}</strong>
         </div>
-        <button className="icon-button subtle" onClick={onClose} type="button" title={tx("关闭额度配置")}>
+        <button className="icon-button subtle" onClick={onClose} type="button" title={tx("关闭项目详情")}>
           <X size={15} />
         </button>
       </div>
       <div className="project-quota-body">
+        <div className="project-panel-section-head">
+          <div>
+            <strong>{tx("项目成员")}</strong>
+            <span>{countWithUnit(members.length, "人", "member", "人")}</span>
+          </div>
+          <button className="secondary-button compact-button" onClick={onCreateMember} type="button">
+            <Plus size={15} />
+            {tx("添加成员")}
+          </button>
+        </div>
+        <div className="project-member-list">
+          {members.length === 0 ? (
+            <div className="empty compact-empty">{tx("暂无项目成员")}</div>
+          ) : members.map((member) => (
+            <ProjectMemberRow
+              key={member.id}
+              data={data}
+              member={member}
+              onEdit={() => onEditMember?.(member)}
+              onDelete={() => onDeleteMember?.(member)}
+            />
+          ))}
+        </div>
+
+        <div className="project-panel-section-head">
+          <div>
+            <strong>{tx("项目额度")}</strong>
+            <span>{hasQuota ? tx("已配置项目专属额度") : tx("未配置项目专属额度")}</span>
+          </div>
+        </div>
         <div className="quota-status-row">
           <div>
             <strong>{hasQuota ? tx("已配置项目专属额度") : tx("未配置项目专属额度")}</strong>
@@ -6260,6 +7595,40 @@ function ProjectQuotaPanel({
             {tx("保存额度")}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ProjectMemberRow({
+  data,
+  member,
+  onEdit,
+  onDelete,
+}: {
+  data: AppData;
+  member: AdminResource;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const userID = stringifyValue(member.fields?.user_id);
+  const user = data.users.find((item) => item.id === userID);
+  const title = user ? user.name || user.username : userID || "-";
+  const subtitle = user ? [user.email, user.username].filter(Boolean).join(" / ") : userID;
+  return (
+    <div className="project-member-row">
+      <div className="project-member-user">
+        <span className="project-member-avatar"><UserRoundCheck size={16} /></span>
+        <div>
+          <strong>{title}</strong>
+          <span>{subtitle || "-"}</span>
+        </div>
+      </div>
+      <div className="project-member-actions">
+        <button className="text-button" onClick={onEdit} type="button">{tx("编辑")}</button>
+        <button className="danger-button" onClick={onDelete} type="button" title={tx("删除")}>
+          <Trash2 size={15} />
+        </button>
       </div>
     </div>
   );
@@ -6379,7 +7748,7 @@ function ModelCategoryTabs({
           onClick={() => onChange(tab.key)}
           type="button"
         >
-          <span>{tab.label}</span>
+          <span>{tx(tab.label)}</span>
           <em>{tab.count}</em>
         </button>
       ))}
@@ -6419,6 +7788,7 @@ function NotificationChannelTabs({
 function ModelCatalogView({
   config,
   data,
+  readOnly = false,
   onCreate,
   onEdit,
   onDelete,
@@ -6426,6 +7796,7 @@ function ModelCatalogView({
 }: {
   config: ResourceConfig<Model>;
   data: AppData;
+  readOnly?: boolean;
   onCreate: () => void;
   onEdit: (item: Model) => void;
   onDelete: (item: Model) => void;
@@ -6492,10 +7863,12 @@ function ModelCatalogView({
                   placeholder={tx("搜索模型名称或 ID")}
                 />
               </div>
-              <button className="button" onClick={onCreate} type="button">
-                <Plus size={17} />
-                {tx(config.createLabel ?? "新增模型")}
-              </button>
+              {!readOnly ? (
+                <button className="button" onClick={onCreate} type="button">
+                  <Plus size={17} />
+                  {tx(config.createLabel ?? "新增模型")}
+                </button>
+              ) : null}
             </div>
           </div>
 
@@ -6506,7 +7879,11 @@ function ModelCatalogView({
           </div>
 
           {filtered.length === 0 ? (
-            <div className="empty model-catalog-empty">{tx("没有匹配的模型")}</div>
+            <div className="empty model-catalog-empty">
+              {data.models.length === 0 && readOnly
+                ? tx("当前后台还没有启用可用模型路由，请让管理员在路由策略里启用模型。")
+                : tx("没有匹配的模型")}
+            </div>
           ) : (
             <div className="model-card-grid">
               {filtered.map((model) => (
@@ -6514,10 +7891,11 @@ function ModelCatalogView({
                   key={model.name}
                   model={model}
                   data={data}
-                  actions={config.actions ?? []}
+                  readOnly={readOnly}
+                  actions={readOnly ? [] : config.actions ?? []}
                   onAction={onAction}
-                  onEdit={onEdit}
-                  onDelete={onDelete}
+                  onEdit={readOnly ? undefined : onEdit}
+                  onDelete={readOnly ? undefined : onDelete}
                 />
               ))}
             </div>
@@ -6792,6 +8170,7 @@ function RouteProviderRow({
 function ModelCatalogCard({
   model,
   data,
+  readOnly = false,
   actions,
   onAction,
   onEdit,
@@ -6799,15 +8178,18 @@ function ModelCatalogCard({
 }: {
   model: Model;
   data: AppData;
+  readOnly?: boolean;
   actions: ResourceAction<Model>[];
   onAction: (action: ResourceAction<Model>, item: Model) => void;
-  onEdit: (item: Model) => void;
-  onDelete: (item: Model) => void;
+  onEdit?: (item: Model) => void;
+  onDelete?: (item: Model) => void;
 }) {
   const category = modelCategory(model);
   const routeCount = activeRouteCount(model.name, data);
+  const hasConfiguredRoute = routeCount > 0;
+  const cardClassName = !readOnly && !hasConfiguredRoute ? "model-card unrouted" : "model-card";
   return (
-    <article className="model-card">
+    <article className={cardClassName}>
       <div className="model-card-head">
         <div className="model-card-brand">
           <span>{modelCategoryInitial(category, modelCategoryLabel(category))}</span>
@@ -6823,8 +8205,14 @@ function ModelCatalogCard({
 
       <div className="model-card-tags">
         <span>{modelCapabilityLabel(model)}</span>
-        <span>{routeCount > 0 ? `${routeCount} ${tx("条线路")}` : tx("未配置线路")}</span>
-        {hasThirdPartyRoute(model, data) ? <span className="third">{tx("三方资源")}</span> : <span className="official">{tx("官方资源")}</span>}
+        {readOnly ? (
+          <span className="official">{tx("可访问")}</span>
+        ) : (
+          <>
+            <span className={hasConfiguredRoute ? undefined : "unrouted-tag"}>{hasConfiguredRoute ? `${routeCount} ${tx("条线路")}` : tx("未配置线路")}</span>
+            {hasThirdPartyRoute(model, data) ? <span className="third">{tx("三方资源")}</span> : <span className="official">{tx("官方资源")}</span>}
+          </>
+        )}
       </div>
 
       <div className="model-card-pricing">
@@ -6834,21 +8222,27 @@ function ModelCatalogCard({
         <ModelMetric label="Embedding" value={priceMetric(model.embedding_price_usd_per_1m)} muted={!model.embedding_price_usd_per_1m} />
       </div>
 
-      <div className="model-card-routes">
-        <ModelRouteProviders model={model} data={data} />
-      </div>
+      {!readOnly ? (
+        <div className="model-card-routes">
+          <ModelRouteProviders model={model} data={data} />
+        </div>
+      ) : null}
 
-      <div className="model-card-actions">
-        {actions.map((action) => (
-          <button className="text-button" key={action.label} onClick={() => onAction(action, model)} type="button">
-            {tx(action.label)}
-          </button>
-        ))}
-        <button className="text-button" onClick={() => onEdit(model)} type="button">{tx("编辑")}</button>
-        <button className="danger-button" onClick={() => onDelete(model)} title={tx("删除")} type="button">
-          <Trash2 size={15} />
-        </button>
-      </div>
+      {actions.length > 0 || onEdit || onDelete ? (
+        <div className="model-card-actions">
+          {actions.map((action) => (
+            <button className="text-button" key={action.label} onClick={() => onAction(action, model)} type="button">
+              {tx(action.label)}
+            </button>
+          ))}
+          {onEdit ? <button className="text-button" onClick={() => onEdit(model)} type="button">{tx("编辑")}</button> : null}
+          {onDelete ? (
+            <button className="danger-button" onClick={() => onDelete(model)} title={tx("删除")} type="button">
+              <Trash2 size={15} />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -6921,7 +8315,6 @@ function SettingsView({
         totalItems={filteredItems.length}
         query={query}
         pagination={pagination}
-        issuedKey=""
         categoryFilter="all"
         onCategoryFilter={() => undefined}
         onQuery={(value) => setQueries((current) => ({ ...current, [activeConfig.view]: value }))}
@@ -7230,18 +8623,20 @@ function PaginationControls({
 function EditModal<T>({
   state,
   data,
+  currentUser,
   loading,
   onClose,
   onSave,
 }: {
   state: ModalState<T>;
   data: AppData;
+  currentUser?: AdminUser | null;
   loading: boolean;
   onClose: () => void;
   onSave: (values: Record<string, string>) => void;
 }) {
   const initial = {
-    ...(state.item ? state.config.toForm?.(state.item) ?? {} : defaultFormValues(state.config, data)),
+    ...(state.item ? state.config.toForm?.(state.item) ?? {} : defaultFormValues(state.config, data, currentUser)),
     ...(state.initialValues ?? {}),
   };
   const [values, setValues] = useState<Record<string, string>>(initial);
@@ -7267,6 +8662,7 @@ function EditModal<T>({
               key={field.key}
               field={field}
               data={data}
+              currentUser={currentUser}
               value={values[field.key] ?? ""}
               editing={Boolean(state.item)}
               onChange={(value) => setValues((prev) => ({ ...prev, [field.key]: value }))}
@@ -7335,10 +8731,10 @@ function UserImportModal({
   );
 }
 
-function PlaygroundPage({ api, data }: { api: ApiContext; data: AppData }) {
+function PlaygroundPage({ api, data, canViewRoutes }: { api: ApiContext; data: AppData; canViewRoutes: boolean }) {
   return (
     <section className="playground-page">
-      <PlaygroundPanel api={api} data={data} />
+      <PlaygroundPanel api={api} data={data} canViewRoutes={canViewRoutes} />
     </section>
   );
 }
@@ -7346,11 +8742,13 @@ function PlaygroundPage({ api, data }: { api: ApiContext; data: AppData }) {
 function PlaygroundPanel({
   api,
   data,
+  canViewRoutes,
 }: {
   api: ApiContext;
   data: AppData;
+  canViewRoutes: boolean;
 }) {
-  const models = useMemo(() => playgroundModels(data), [data.models, data.routes]);
+  const models = useMemo(() => playgroundModels(data, canViewRoutes), [data.models, data.routes, canViewRoutes]);
   const [modelName, setModelName] = useState(models[0]?.name ?? "");
   const [messages, setMessages] = useState<PlaygroundMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -7368,7 +8766,7 @@ function PlaygroundPanel({
   const [error, setError] = useState("");
   const [lastResult, setLastResult] = useState<PlaygroundChatPayload | null>(null);
   const selectedModel = models.find((model) => model.name === modelName);
-  const selectedModelRouteCount = selectedModel ? activeRouteCount(selectedModel.name, data) : 0;
+  const selectedModelRouteCount = canViewRoutes && selectedModel ? activeRouteCount(selectedModel.name, data) : 0;
   const contextWindow = selectedModel?.context_window ?? 0;
   const maxTokenLimit = Math.max(4096, Math.min(contextWindow || 32768, 200000));
   const inputPrice = selectedModel?.input_price_usd_per_1m ?? 0;
@@ -7452,10 +8850,10 @@ function PlaygroundPanel({
           <select value={modelName} onChange={(event) => setModelName(event.target.value)} disabled={models.length === 0}>
             {models.length === 0 ? <option value="">{tx("暂无聊天模型")}</option> : null}
             {models.map((model) => {
-              const routeCount = activeRouteCount(model.name, data);
+              const routeCount = canViewRoutes ? activeRouteCount(model.name, data) : 0;
               return (
                 <option key={model.name} value={model.name}>
-                  {routeCount > 0 ? `${model.name} · ${countWithUnit(routeCount, "条路由", "route", "件のルート")}` : `${model.name} · ${tx("未配置路由")}`}
+                  {!canViewRoutes ? model.name : routeCount > 0 ? `${model.name} · ${countWithUnit(routeCount, "条路由", "route", "件のルート")}` : `${model.name} · ${tx("未配置路由")}`}
                 </option>
               );
             })}
@@ -7503,8 +8901,12 @@ function PlaygroundPanel({
               ${formatMoney(inputPrice)}/Mt {tx("输入")}
               <em />
               ${formatMoney(outputPrice)}/Mt {tx("输出")}
-              <em />
-              {countWithUnit(selectedModelRouteCount, "条启用路由", "active route", "件の有効ルート")}
+              {canViewRoutes ? (
+                <>
+                  <em />
+                  {countWithUnit(selectedModelRouteCount, "条启用路由", "active route", "件の有効ルート")}
+                </>
+              ) : null}
             </span>
           </div>
           <div className="playground-actions">
@@ -7553,7 +8955,7 @@ function PlaygroundPanel({
             <div className="playground-empty">
               <Sparkles size={22} />
               <strong>{tx("试用")} {modelName || tx("当前模型")}</strong>
-              <span>{data.routes.length === 0 ? tx("当前还没有配置模型路由。") : tx("体验一下，看看模型在 TokenHub 网关上的表现")}</span>
+              <span>{canViewRoutes && data.routes.length === 0 ? tx("当前还没有配置模型路由。") : tx("体验一下，看看模型在 TokenHub 网关上的表现")}</span>
             </div>
           ) : (
             messages.map((message) => (
@@ -8143,22 +9545,69 @@ function ConfirmDialog({
   );
 }
 
+function IssuedKeyModal({ value, onClose }: { value: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyKey() {
+    try {
+      await navigator.clipboard?.writeText(value);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <div className="confirm-modal issued-key-modal" role="dialog" aria-modal="true" aria-labelledby="issued-key-title">
+        <div className="issued-key-icon" aria-hidden="true">
+          <KeyRound size={18} />
+        </div>
+        <div>
+          <p className="eyebrow">{tx("新 Key 仅展示一次：")}</p>
+          <h2 id="issued-key-title">{tx("新 Key 已生成")}</h2>
+          <p>{tx("请现在复制并保存这个 Key。关闭弹窗后将无法再次查看完整 Key，只能通过轮换生成新的 Key。")}</p>
+        </div>
+        <label className="issued-key-field">
+          <span>{tx("完整 Key")}</span>
+          <textarea
+            readOnly
+            value={value}
+            onFocus={(event) => event.currentTarget.select()}
+          />
+        </label>
+        <div className="modal-actions">
+          <button className="secondary-button" onClick={() => void copyKey()} type="button">
+            {copied ? <Check size={16} /> : <Copy size={16} />}
+            {copied ? tx("已复制") : tx("复制 Key")}
+          </button>
+          <button className="button" onClick={onClose} type="button">{tx("我已保存，关闭")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function FieldInput({
   field,
   data,
+  currentUser,
   value,
   editing,
   onChange,
 }: {
   field: FieldConfig;
   data: AppData;
+  currentUser?: AdminUser | null;
   value: string;
   editing: boolean;
   onChange: (value: string) => void;
 }) {
   const [filter, setFilter] = useState("");
   const readOnly = editing && field.readOnlyOnEdit;
-  let options = field.optionsFromData?.(data) ?? (field.options ?? []).map((option) => ({ value: option, label: enumOptionLabel(field.key, option) }));
+  const autoComplete = field.autoComplete ?? "off";
+  const inputName = `tokenhub-${field.key}`;
+  let options = field.optionsFromData?.(data, currentUser) ?? (field.options ?? []).map((option) => ({ value: option, label: enumOptionLabel(field.key, option) }));
   if (value && !options.some((option) => option.value === value)) {
     options = [...options, { value, label: value }];
   }
@@ -8236,7 +9685,17 @@ function FieldInput({
     return (
       <label className="field">
         <span>{tx(field.label)}</span>
-        <textarea value={value} onChange={(event) => onChange(event.target.value)} placeholder={tx(field.placeholder)} required={field.required} readOnly={readOnly} />
+        <textarea
+          autoComplete={autoComplete}
+          data-1p-ignore={autoComplete === "off" || autoComplete === "new-password" ? "true" : undefined}
+          data-lpignore={autoComplete === "off" || autoComplete === "new-password" ? "true" : undefined}
+          name={inputName}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={tx(field.placeholder)}
+          required={field.required}
+          readOnly={readOnly}
+        />
         {field.help ? <small>{tx(field.help)}</small> : null}
       </label>
     );
@@ -8276,6 +9735,10 @@ function FieldInput({
     <label className="field">
       <span>{tx(field.label)}</span>
       <input
+        autoComplete={autoComplete}
+        data-1p-ignore={autoComplete === "off" || autoComplete === "new-password" ? "true" : undefined}
+        data-lpignore={autoComplete === "off" || autoComplete === "new-password" ? "true" : undefined}
+        name={inputName}
         value={value}
         type={field.type === "number" ? "number" : field.type === "password" ? "password" : "text"}
         onChange={(event) => onChange(event.target.value)}
@@ -8511,6 +9974,7 @@ const resourceConfigs: Partial<Record<ViewKey, ResourceConfig<any>>> = {
   models: modelConfig(),
   routes: routeConfig(),
   projects: projectConfig(),
+  "project-members": projectMemberConfig(),
   "api-keys": apiKeyConfig(),
   teams: teamConfig(),
   users: adminUserConfig(),
@@ -8567,12 +10031,15 @@ function systemSettingConfig(): ResourceConfig<AdminResource> {
 function identityProviderConfig(): ResourceConfig<AdminResource> {
   const fields: FieldConfig[] = [
     { key: "provider_type", label: "类型", type: "select", options: ["oidc", "oauth2", "saml", "ldap"], required: true },
+    { key: "icon_key", label: "登录图标", type: "select", options: identityProviderIconOptions, help: "auto 会根据名称、Issuer URL 和类型自动选择登录页图标。" },
+    { key: "login_label", label: "登录显示名称", placeholder: "Google", help: "登录按钮上的名称；留空时按图标、Issuer 或身份源名称自动推断。" },
     { key: "issuer_url", label: "Issuer URL" },
     { key: "client_id", label: "Client ID" },
     { key: "client_secret", label: "Client Secret", type: "password", help: "编辑时留空则不修改已保存密钥。" },
     { key: "authorize_url", label: "Authorize URL" },
     { key: "token_url", label: "Token URL" },
     { key: "userinfo_url", label: "UserInfo URL" },
+    { key: "redirect_uri", label: "Callback URL", help: "必须与 OAuth 应用中登记的 Redirect URI 完全一致；留空时按当前后端访问地址自动生成。" },
     { key: "scopes", label: "Scopes" },
     { key: "username_claim", label: "用户名字段" },
     { key: "email_claim", label: "邮箱字段" },
@@ -8586,6 +10053,8 @@ function identityProviderConfig(): ResourceConfig<AdminResource> {
     columns: [
       { key: "name", label: "名称" },
       { key: "provider_type", label: "类型", render: (item) => identityProviderTypeLabel(stringifyValue(item.fields?.provider_type)) },
+      { key: "icon_key", label: "图标", render: (item) => identityProviderIconLabel(stringifyValue(item.fields?.icon_key)) },
+      { key: "login_label", label: "登录显示", render: (item) => stringifyValue(item.fields?.login_label) || "-" },
       { key: "issuer_url", label: "Issuer", render: (item) => stringifyValue(item.fields?.issuer_url) || "-" },
       { key: "client_id", label: "Client ID", render: (item) => stringifyValue(item.fields?.client_id) || "-" },
       { key: "scopes", label: "Scopes", render: (item) => compactList(item.fields?.scopes) },
@@ -8805,6 +10274,7 @@ function providerConfig(): ResourceConfig<Provider> {
       { key: "type", label: "类型", render: (item) => providerTypeLabel(item.type) },
       { key: "base_url", label: "Base URL", render: (item) => item.base_url || "local mock" },
       { key: "routes", label: "路由线路", render: (item, ctx) => providerRouteSummary(item, ctx) },
+      { key: "account_resources", label: "账号资源", render: (item, ctx) => providerAccountResourceSummary(item, ctx) },
       { key: "priority", label: "优先级" },
       { key: "healthy", label: "健康", render: (item) => <StatusPill status={item.healthy ? "healthy" : "down"} /> },
       { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
@@ -8832,6 +10302,14 @@ function providerConfig(): ResourceConfig<Provider> {
         }),
       },
       {
+        label: "账号集成",
+        title: "为该 Provider 添加账号资源",
+        modal: (item) => ({
+          config: providerResourceConfig(item),
+          initialValues: providerResourceDefaults(item),
+        }),
+      },
+      {
         label: "测试",
         title: "检测 Provider 可用性",
         run: (ctx, item) => adminMutate(ctx, `/api/admin/providers/${item.id}/test`, "POST", {}),
@@ -8846,6 +10324,74 @@ function providerConfig(): ResourceConfig<Provider> {
       status: item.status,
       healthy: String(item.healthy),
     }),
+  };
+}
+
+function providerResourceConfig(provider?: Provider): ResourceConfig<ProviderResource> {
+  return {
+    view: "providers",
+    title: "账号集成",
+    eyebrow: "Provider 账号资源",
+    description: "把 OpenAI subscription、PAT 或普通 API Key 作为 Provider 资源实例加入账号池，并参与路由权重、并发和限流调度。",
+    createLabel: "添加账号资源",
+    columns: [
+      { key: "name", label: "名称" },
+      { key: "provider_id", label: "Provider", render: (item, ctx) => findProvider(ctx, item.provider_id)?.name || item.provider_id },
+      { key: "resource_type", label: "账号类型", render: (item) => resourceTypeLabel(item.resource_type) },
+      { key: "credential_summary", label: "账号邮箱", render: (item) => item.credential_summary?.account_email || item.credential_summary?.account_id || "-" },
+      { key: "weight", label: "权重" },
+      { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
+    ],
+    fields: [
+      { key: "provider_id", label: "Provider", type: "select", optionsFromData: providerSelectOptions, required: true, readOnlyOnEdit: Boolean(provider) },
+      { key: "name", label: "名称", required: true },
+      { key: "resource_type", label: "账号类型", type: "select", options: ["openai_subscription", "api_key"], required: true },
+      { key: "auth_type", label: "认证方式", type: "select", options: ["oauth", "personal_access_token", "api_key"], visible: openAIAccountFieldVisible },
+      { key: "access_token", label: "访问 Token", type: "password", autoComplete: "new-password", visible: openAIAccountFieldVisible, help: "OpenAI subscription / Codex OAuth access token 或 PAT；保存后不会再次显示。" },
+      { key: "refresh_token", label: "刷新 Token", type: "password", autoComplete: "new-password", visible: openAIAccountFieldVisible, help: "可选，保存到加密凭据中，用于后续自动刷新能力。" },
+      { key: "id_token", label: "ID Token", type: "textarea", autoComplete: "off", visible: openAIAccountFieldVisible, help: "可选。填写后会自动提取账号邮箱、账号 ID、组织 ID 和计划类型。" },
+      { key: "api_key", label: "API Key", type: "password", autoComplete: "new-password", visible: (values) => values.resource_type !== "openai_subscription", help: "普通资源实例的上游 API Key；编辑时留空表示不修改。" },
+      { key: "account_email", label: "账号邮箱", autoComplete: "off", visible: openAIAccountFieldVisible },
+      { key: "account_id", label: "账号 ID", autoComplete: "off", visible: openAIAccountFieldVisible },
+      { key: "organization_id", label: "组织 ID", autoComplete: "off", visible: openAIAccountFieldVisible },
+      { key: "plan_type", label: "计划类型", visible: openAIAccountFieldVisible },
+      { key: "base_url", label: "Base URL", placeholder: "https://api.openai.com/v1" },
+      { key: "group", label: "分组" },
+      { key: "priority", label: "优先级", type: "number" },
+      { key: "weight", label: "权重", type: "number" },
+      { key: "rate_limit_rpm", label: "RPM 限制", type: "number" },
+      { key: "token_limit_tpm", label: "TPM 限制", type: "number" },
+      { key: "max_concurrency", label: "最大并发", type: "number" },
+      { key: "status", label: "状态", type: "select", options: ["active", "disabled"], required: true },
+      { key: "healthy", label: "健康", type: "boolean" },
+    ],
+    list: (ctx) => ctx.providerResources.filter((item) => !provider || item.provider_id === provider.id),
+    create: (ctx, values) => adminMutate(ctx, "/api/admin/provider-resources", "POST", providerResourcePayload(values)),
+    update: (ctx, item, values) => adminMutate(ctx, `/api/admin/provider-resources/${item.id}`, "PATCH", providerResourceUpdatePayload(values)),
+    remove: (ctx, item) => adminDelete(ctx, `/api/admin/provider-resources/${item.id}`),
+    toForm: providerResourceToForm,
+  };
+}
+
+function openAIAccountFieldVisible(values: Record<string, string>) {
+  return values.resource_type === "openai_subscription";
+}
+
+function providerResourceDefaults(provider: Provider) {
+  return {
+    provider_id: provider.id,
+    name: `${provider.name || provider.id} OpenAI Account`,
+    resource_type: "openai_subscription",
+    auth_type: "oauth",
+    base_url: provider.base_url || "https://api.openai.com/v1",
+    group: "default",
+    priority: "1",
+    weight: "100",
+    rate_limit_rpm: "",
+    token_limit_tpm: "",
+    max_concurrency: "3",
+    status: "active",
+    healthy: "true",
   };
 }
 
@@ -8951,17 +10497,17 @@ function projectConfig(): ResourceConfig<Project> {
     createLabel: "新增项目",
     columns: [
       { key: "name", label: "项目" },
-      { key: "team_id", label: "团队" },
-      { key: "owner_user_id", label: "负责人" },
-      { key: "cost_center", label: "成本中心", render: (item) => item.cost_center || "-" },
+      { key: "team_id", label: "团队", render: (item, ctx) => teamLabel(ctx, item.team_id ?? "") },
+      { key: "owner_user_id", label: "负责人", render: (item, ctx) => ownerUserLabel(ctx, item.owner_user_id ?? "") },
+      { key: "cost_center", label: "成本中心", render: (item, ctx) => costCenterLabel(ctx, item.cost_center ?? "") },
       { key: "quota", label: "额度", render: (item, ctx) => projectQuotaSummary(ctx, item) },
       { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
     ],
     fields: [
       { key: "name", label: "项目名称", required: true },
-      { key: "team_id", label: "团队 ID" },
-      { key: "owner_user_id", label: "负责人用户 ID" },
-      { key: "cost_center", label: "成本中心" },
+      { key: "team_id", label: "所属团队", type: "select", optionsFromData: teamSelectOptions, help: "管理员分配项目归属团队；团队 Leader 创建时会自动固定为自己的团队。" },
+      { key: "owner_user_id", label: "项目负责人", type: "select", optionsFromData: userSelectOptions, help: "负责人默认拥有该项目的 Key 管理权限。" },
+      { key: "cost_center", label: "成本中心", type: "select", optionsFromData: costCenterSelectOptions },
       { key: "status", label: "状态", type: "select", options: ["active", "disabled"], required: true },
     ],
     list: (ctx) => ctx.projects,
@@ -8985,10 +10531,95 @@ function projectConfig(): ResourceConfig<Project> {
   };
 }
 
+function projectMemberConfig(): ResourceConfig<AdminResource> {
+  const fields: FieldConfig[] = [
+    {
+      key: "project_id",
+      label: "项目空间",
+      type: "select",
+      optionsFromData: projectMemberProjectSelectOptions,
+      required: true,
+      visible: () => false,
+    },
+    {
+      key: "user_id",
+      label: "用户",
+      type: "select",
+      optionsFromData: userSelectOptions,
+      required: true,
+      readOnlyOnEdit: true,
+    },
+    {
+      key: "role",
+      label: "项目角色",
+      type: "select",
+      optionsFromData: projectMemberRoleOptions,
+      required: true,
+      help: "owner/maintainer 可管理项目 Key；developer 可发放自己的 Key；viewer 只用于可见和统计。",
+    },
+    {
+      key: "can_issue_keys",
+      label: "允许发 Key",
+      type: "boolean",
+      help: "需要单独给 viewer 或特殊成员开放发 Key 时启用。",
+    },
+    { key: "status", label: "状态", type: "select", options: ["active", "disabled"], required: true },
+  ];
+  return {
+    view: "project-members",
+    title: "项目成员",
+    eyebrow: "项目成员",
+    description: "把用户分配到一个或多个项目空间，并控制项目内 Key 发放权限。",
+    createLabel: "分配项目成员",
+    columns: [
+      { key: "user_id", label: "用户", render: (item, ctx) => ownerUserLabel(ctx, stringifyValue(item.fields?.user_id)) },
+      { key: "role", label: "项目角色", render: (item) => projectMemberRoleLabel(stringifyValue(item.fields?.role)) },
+      { key: "can_issue_keys", label: "发 Key", render: (item) => projectMemberCanIssueLabel(item) },
+      { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
+    ],
+    fields,
+    list: (ctx) => ctx.resources["project-members"] ?? [],
+    create: (ctx, values, data) => adminMutate(ctx, "/api/admin/resources/project-members", "POST", projectMemberPayload(values, data)),
+    update: (ctx, item, values) => adminMutate(ctx, `/api/admin/resources/project-members/${item.id}`, "PATCH", projectMemberPayload(values, undefined, item)),
+    remove: (ctx, item) => adminDelete(ctx, `/api/admin/resources/project-members/${item.id}`),
+    toForm: (item) => ({
+      project_id: stringifyValue(item.fields?.project_id),
+      user_id: stringifyValue(item.fields?.user_id),
+      role: stringifyValue(item.fields?.role) || "developer",
+      can_issue_keys: stringifyValue(item.fields?.can_issue_keys || "false"),
+      status: item.status,
+    }),
+  };
+}
+
+function projectMemberInitialValues(project: Project): Record<string, string> {
+  return {
+    project_id: project.id,
+    role: "developer",
+    can_issue_keys: "false",
+    status: "active",
+  };
+}
+
+function projectMemberPayload(values: Record<string, string>, data?: AppData, existing?: AdminResource) {
+  const user = data?.users.find((item) => item.id === values.user_id);
+  const displayName = user ? user.name || user.username || user.email : values.user_id;
+  return {
+    name: existing?.name || `${displayName || "项目成员"} 项目成员`,
+    status: values.status || existing?.status || "active",
+    fields: {
+      project_id: values.project_id || stringifyValue(existing?.fields?.project_id),
+      user_id: values.user_id || stringifyValue(existing?.fields?.user_id),
+      role: values.role || stringifyValue(existing?.fields?.role) || "developer",
+      can_issue_keys: truthyValue(values.can_issue_keys),
+    },
+  };
+}
+
 function apiKeyConfig(): ResourceConfig<APIKey> {
   return {
     view: "api-keys",
-    title: "API Key",
+    title: "Key 管理",
     eyebrow: "内部 Key 列表",
     description: "按项目发放内部 API Key，限制模型白名单、额度、并发和有效期。",
     createLabel: "发放 Key",
@@ -9010,7 +10641,7 @@ function apiKeyConfig(): ResourceConfig<APIKey> {
         type: "select",
         required: true,
         optionsFromData: projectSelectOptions,
-        help: "Key 必须挂在已有项目下，用于该项目的内部应用调用网关。",
+        help: "只显示当前账号拥有发 Key 权限的项目；一个人可以被分配到多个项目。",
         readOnlyOnEdit: true,
       },
       { key: "name", label: "Key 名称", required: true },
@@ -9642,6 +11273,7 @@ async function createKeyWithCapture(
   ctx: ApiContext,
   values: Record<string, string>,
   setIssuedKey: (value: string) => void,
+  setNotice: (value: string) => void,
   load: () => Promise<void>,
   setLoading: (value: boolean) => void,
   setError: (value: string) => void,
@@ -9649,6 +11281,7 @@ async function createKeyWithCapture(
 ) {
   setLoading(true);
   setError("");
+  setNotice("");
   try {
     if (!values.project_id) {
       throw new Error("请选择项目空间后再发放 API Key");
@@ -9661,8 +11294,10 @@ async function createKeyWithCapture(
     if (!resp.ok) throw new Error(`create api key ${resp.status}`);
     const data = (await resp.json()) as { api_key?: string; approval_required?: boolean; approval?: ApprovalRequest };
     if (data.approval_required) {
-      setIssuedKey(`已提交审批：${data.approval?.id ?? ""}`);
+      setIssuedKey("");
+      setNotice(`已提交审批：${data.approval?.id ?? ""}`);
     } else if (data.api_key) {
+      setNotice("");
       setIssuedKey(data.api_key);
     }
     setModal(null);
@@ -9698,6 +11333,89 @@ function providerUpdatePayload(values: Record<string, string>) {
     delete payload.api_key;
   }
   return payload;
+}
+
+function providerResourcePayload(values: Record<string, string>) {
+  const isOpenAIAccount = values.resource_type === "openai_subscription";
+  const credentials = isOpenAIAccount
+    ? {
+        auth_type: values.auth_type || "oauth",
+        access_token: values.access_token,
+        refresh_token: values.refresh_token,
+        id_token: values.id_token,
+        email: values.account_email,
+        account_id: values.account_id,
+        organization_id: values.organization_id,
+        plan_type: values.plan_type,
+      }
+    : undefined;
+  return {
+    provider_id: values.provider_id,
+    name: values.name,
+    resource_type: values.resource_type || "api_key",
+    base_url: values.base_url,
+    api_key: isOpenAIAccount ? values.access_token : values.api_key,
+    group: values.group || "default",
+    status: values.status || "active",
+    healthy: values.healthy !== "false",
+    priority: numberOr(values.priority, 1),
+    weight: numberOr(values.weight, 100),
+    rate_limit_rpm: numberOr(values.rate_limit_rpm, 0),
+    token_limit_tpm: numberOr(values.token_limit_tpm, 0),
+    max_concurrency: numberOr(values.max_concurrency, 0),
+    credentials,
+    options: providerResourceOptions(values),
+  };
+}
+
+function providerResourceUpdatePayload(values: Record<string, string>) {
+  const payload = providerResourcePayload(values) as Record<string, unknown>;
+  const isOpenAIAccount = values.resource_type === "openai_subscription";
+  if (isOpenAIAccount && !values.access_token?.trim()) delete payload.api_key;
+  if (!isOpenAIAccount && !values.api_key?.trim()) delete payload.api_key;
+  if (isOpenAIAccount && !values.access_token?.trim() && !values.refresh_token?.trim() && !values.id_token?.trim()) {
+    delete payload.credentials;
+  }
+  return payload;
+}
+
+function providerResourceOptions(values: Record<string, string>) {
+  if (values.resource_type !== "openai_subscription") return {};
+  return {
+    credential_source: "openai_subscription",
+    auth_type: values.auth_type || "oauth",
+    account_email: values.account_email,
+    account_id: values.account_id,
+    organization_id: values.organization_id,
+    plan_type: values.plan_type,
+  };
+}
+
+function providerResourceToForm(item: ProviderResource) {
+  const summary = item.credential_summary ?? {};
+  return {
+    provider_id: item.provider_id,
+    name: item.name,
+    resource_type: item.resource_type,
+    auth_type: summary.auth_type || item.options?.auth_type || "oauth",
+    access_token: "",
+    refresh_token: "",
+    id_token: "",
+    api_key: "",
+    account_email: summary.account_email || "",
+    account_id: summary.account_id || "",
+    organization_id: summary.organization_id || "",
+    plan_type: summary.plan_type || "",
+    base_url: item.base_url ?? "",
+    group: item.group ?? "default",
+    priority: String(item.priority ?? 1),
+    weight: String(item.weight ?? 100),
+    rate_limit_rpm: String(item.rate_limit_rpm ?? ""),
+    token_limit_tpm: String(item.token_limit_tpm ?? ""),
+    max_concurrency: String(item.max_concurrency ?? ""),
+    status: item.status,
+    healthy: String(item.healthy),
+  };
 }
 
 function modelPayload(values: Record<string, string>) {
@@ -9911,7 +11629,7 @@ function parseApprovalPayload(payload?: string): Record<string, unknown> {
   }
 }
 
-function defaultFormValues<T>(config: ResourceConfig<T>, data: AppData) {
+function defaultFormValues<T>(config: ResourceConfig<T>, data: AppData, currentUser?: AdminUser | null) {
   const values: Record<string, string> = {};
   for (const field of config.fields) {
     if (field.key === "status") values[field.key] = "active";
@@ -9926,7 +11644,7 @@ function defaultFormValues<T>(config: ResourceConfig<T>, data: AppData) {
     if (field.key === "group") values[field.key] = "default";
     if (field.key === "resource_type") values[field.key] = "api_key";
     if (field.key === "environment") values[field.key] = "prod";
-    if (field.key === "project_id") values[field.key] = firstActiveProject(data)?.id ?? "";
+    if (field.key === "project_id") values[field.key] = config.view === "api-keys" ? firstIssueableProject(data, currentUser) : (firstActiveProject(data)?.id ?? "");
     if (field.key === "team_id") values[field.key] = firstActiveTeam(data)?.id ?? "";
     if (field.key === "allowed_models") values[field.key] = "";
     if (field.key === "daily_requests") values[field.key] = "1000";
@@ -9949,7 +11667,9 @@ function defaultFormValues<T>(config: ResourceConfig<T>, data: AppData) {
     if (field.key === "webhook_url") values[field.key] = "http://localhost:8081/tokenhub-alert";
     if (field.key === "protocol") values[field.key] = "direct";
     if (field.key === "notify_mode") values[field.key] = "silent";
-    if (field.key === "role") values[field.key] = "user";
+    if (field.key === "role") values[field.key] = config.view === "project-members" ? "developer" : "user";
+    if (field.key === "user_id") values[field.key] = firstActiveUser(data)?.id ?? "";
+    if (field.key === "can_issue_keys") values[field.key] = "false";
     if (field.key === "owner") values[field.key] = firstActiveUser(data)?.id ?? "";
     if (field.key === "cost_center") values[field.key] = firstCostCenterCode(data);
     if (field.key === "role_key") values[field.key] = "user";
@@ -9959,8 +11679,11 @@ function defaultFormValues<T>(config: ResourceConfig<T>, data: AppData) {
     if (field.key === "menu_scopes") values[field.key] = "overview, projects";
     if (field.key === "assignable") values[field.key] = "true";
     if (field.key === "provider_type") values[field.key] = "oidc";
+    if (field.key === "icon_key") values[field.key] = "auto";
+    if (field.key === "login_label") values[field.key] = "";
     if (field.key === "issuer_url") values[field.key] = "https://sso.example.com";
     if (field.key === "client_id") values[field.key] = "tokenhub-admin";
+    if (field.key === "redirect_uri") values[field.key] = "http://localhost:8080/api/admin/auth/oauth/callback";
     if (field.key === "scopes") values[field.key] = "openid, profile, email";
     if (field.key === "username_claim") values[field.key] = "preferred_username";
     if (field.key === "email_claim") values[field.key] = "email";
@@ -10716,6 +12439,10 @@ function firstActiveProject(data: AppData) {
     ?? data.projects[0];
 }
 
+function firstIssueableProject(data: AppData, currentUser?: AdminUser | null) {
+  return projectSelectOptions(data, currentUser)[0]?.value ?? "";
+}
+
 function firstActiveModel(data: AppData) {
   return data.models.find((model) => model.status === "active") ?? data.models[0];
 }
@@ -10739,11 +12466,29 @@ function firstCostCenterCode(data: AppData) {
   return stringifyValue(item.fields?.code) || item.id;
 }
 
-function projectSelectOptions(data: AppData) {
-  return data.projects.map((project) => ({
+function projectSelectOptions(data: AppData, currentUser?: AdminUser | null) {
+  return data.projects.filter((project) => projectCanIssueKey(data, project, currentUser)).map((project) => ({
     value: project.id,
-    label: projectOptionLabel(project),
+    label: projectOptionLabel(data, project),
   }));
+}
+
+function projectMemberProjectSelectOptions(data: AppData) {
+  return data.projects
+    .filter((project) => project.status === "active")
+    .map((project) => ({
+      value: project.id,
+      label: projectOptionLabel(data, project),
+    }));
+}
+
+function projectMemberRoleOptions() {
+  return [
+    { value: "owner", label: "负责人" },
+    { value: "maintainer", label: "维护者" },
+    { value: "developer", label: "开发者" },
+    { value: "viewer", label: "只读" },
+  ];
 }
 
 function modelSelectOptions(data: AppData) {
@@ -10831,10 +12576,71 @@ function costCenterSelectOptions(data: AppData) {
     });
 }
 
-function projectOptionLabel(project: Project) {
-  return [project.name || project.id, project.team_id ? `团队 ${project.team_id}` : "", project.owner_user_id ? `负责人 ${project.owner_user_id}` : ""]
+function projectOptionLabel(data: AppData, project: Project) {
+  return [
+    project.name || project.id,
+    project.team_id ? `团队 ${teamLabel(data, project.team_id)}` : "",
+    project.owner_user_id ? `负责人 ${ownerUserLabel(data, project.owner_user_id)}` : "",
+  ]
     .filter(Boolean)
     .join(" / ");
+}
+
+function projectCanIssueKey(data: AppData, project: Project, currentUser?: AdminUser | null) {
+  if (project.status !== "active") return false;
+  if (!currentUser) return true;
+  const role = appRole(currentUser.role);
+  if (role === "admin") return true;
+  if (role === "security") return false;
+  if (project.owner_user_id && project.owner_user_id === currentUser.id) return true;
+  if (role === "team_leader" && currentUser.team_id && project.team_id === currentUser.team_id) return true;
+  return projectIssueMembership(data, project.id, currentUser.id);
+}
+
+function projectIssueMembership(data: AppData, projectID: string, userID: string) {
+  return (data.resources["project-members"] ?? []).some((member) => {
+    if (member.status !== "active") return false;
+    if (stringifyValue(member.fields?.project_id) !== projectID || stringifyValue(member.fields?.user_id) !== userID) return false;
+    const role = stringifyValue(member.fields?.role).trim().toLowerCase();
+    return ["owner", "maintainer", "developer"].includes(role) || truthyValue(member.fields?.can_issue_keys);
+  });
+}
+
+function projectMembersForProject(data: AppData, projectID: string) {
+  return (data.resources["project-members"] ?? [])
+    .filter((member) => stringifyValue(member.fields?.project_id) === projectID)
+    .slice()
+    .sort((left, right) => {
+      const leftUser = data.users.find((user) => user.id === stringifyValue(left.fields?.user_id));
+      const rightUser = data.users.find((user) => user.id === stringifyValue(right.fields?.user_id));
+      return (leftUser?.name || leftUser?.username || stringifyValue(left.fields?.user_id))
+        .localeCompare(rightUser?.name || rightUser?.username || stringifyValue(right.fields?.user_id));
+    });
+}
+
+function projectMemberCanIssueLabel(item: AdminResource) {
+  const role = stringifyValue(item.fields?.role).trim().toLowerCase();
+  return ["owner", "maintainer", "developer"].includes(role) || truthyValue(item.fields?.can_issue_keys) ? tx("允许") : tx("不允许");
+}
+
+function projectMemberRoleLabel(role: string) {
+  switch (role.trim().toLowerCase()) {
+    case "owner":
+      return tx("负责人");
+    case "maintainer":
+      return tx("维护者");
+    case "developer":
+      return tx("开发者");
+    case "viewer":
+      return tx("只读");
+    default:
+      return role || "-";
+  }
+}
+
+function truthyValue(value: unknown) {
+  const text = stringifyValue(value).trim().toLowerCase();
+  return ["true", "1", "yes", "y", "on", "enabled"].includes(text);
 }
 
 function overviewAnnouncements(data: AppData, user: AdminUser) {
@@ -10910,12 +12716,12 @@ function projectName(data: AppData, projectID: string) {
 
 function projectOwnerLabel(data: AppData, projectID: string) {
   const project = findProject(data, projectID);
-  return project?.owner_user_id || "-";
+  return ownerUserLabel(data, project?.owner_user_id ?? "");
 }
 
 function projectTeamLabel(data: AppData, projectID: string) {
   const project = findProject(data, projectID);
-  return project?.team_id || "-";
+  return teamLabel(data, project?.team_id ?? "");
 }
 
 function modelRoutesFor(model: Model, data: AppData) {
@@ -10995,6 +12801,20 @@ function providerRouteSummary(provider: Provider, data: AppData) {
   const active = routes.filter((route) => route.status === "active").length;
   const models = Array.from(new Set(routes.map((route) => route.model_name))).slice(0, 3);
   return `${active}/${routes.length} 启用 · ${models.join(", ")}`;
+}
+
+function providerAccountResourceSummary(provider: Provider, data: AppData) {
+  const resources = data.providerResources.filter((resource) => resource.provider_id === provider.id && resource.resource_type === "openai_subscription");
+  if (resources.length === 0) return <span className="muted-inline">-</span>;
+  const active = resources.filter((resource) => resource.status === "active" && resource.healthy).length;
+  const first = resources[0]?.credential_summary;
+  const label = first?.account_email || first?.account_id || resources[0]?.name || "";
+  return (
+    <div className="model-name-cell">
+      <strong>{active}/{resources.length} {tx("启用")}</strong>
+      <span>{label || tx("OpenAI 账号资源")}</span>
+    </div>
+  );
 }
 
 function providerCostDetailRows(data: AppData) {
@@ -11156,6 +12976,25 @@ function identityProviderTypeLabel(type: string) {
   return labels[type] ?? (type || "-");
 }
 
+function identityProviderIconLabel(iconKey: string) {
+  const normalized = normalizedIdentityProviderIconKey(iconKey);
+  const labels: Record<string, string> = {
+    auto: "自动",
+    gitlab: "GitLab",
+    github: "GitHub",
+    google: "Google",
+    microsoft: "Microsoft",
+    okta: "Okta",
+    keycloak: "Keycloak",
+    oidc: "OIDC",
+    oauth2: "OAuth2",
+    saml: "SAML",
+    ldap: "LDAP",
+    sso: "SSO",
+  };
+  return labels[normalized] ?? (iconKey || "-");
+}
+
 function dataScopeLabel(scope: string) {
   const labels: Record<string, string> = {
     global: "全局",
@@ -11195,7 +13034,10 @@ function enumValueLabel(value: string | undefined) {
     unknown: "未知",
     global: "全局",
     project: "项目",
-    api_key: "API Key",
+    api_key: "普通 API Key 资源",
+    openai_subscription: "OpenAI Subscription 账号",
+    oauth: "OAuth 账号",
+    personal_access_token: "Personal Access Token",
     team: "团队",
     self: "本人",
     provider: "Provider",
@@ -11261,6 +13103,7 @@ function fieldValueLabel(fieldKey: string, value: unknown): string {
   if (normalizedKey.includes("role")) return roleLabel(text);
   if (normalizedKey.includes("scope")) return dataScopeLabel(text);
   if (normalizedKey.includes("provider_type")) return providerTypeLabel(text);
+  if (normalizedKey === "icon_key") return identityProviderIconLabel(text);
   if (normalizedKey === "status" || normalizedKey.includes("status")) return enumValueLabel(text);
   if (normalizedKey === "strategy") return routeStrategyLabel(text);
   if (normalizedKey === "trigger") return approvalTriggerLabel(text);
@@ -11533,11 +13376,11 @@ function viewFromPath(pathname: string): ViewKey {
   return routeViews[normalized] ?? "overview";
 }
 
-function playgroundModels(data: AppData) {
+function playgroundModels(data: AppData, sortByRoutes = data.routes.length > 0) {
   return data.models
     .filter((model) => model.status === "active" && (model.modality === "" || model.modality === "chat"))
     .sort((a, b) => {
-      const routeDiff = activeRouteCount(b.name, data) - activeRouteCount(a.name, data);
+      const routeDiff = sortByRoutes ? activeRouteCount(b.name, data) - activeRouteCount(a.name, data) : 0;
       return routeDiff || modelCategoryRank(a) - modelCategoryRank(b) || a.name.localeCompare(b.name);
     });
 }
@@ -11786,6 +13629,61 @@ type SavedSession = {
   user: AdminUser;
   expiresAt: string;
 };
+
+type OAuthLoginResult = {
+  token?: string;
+  expiresAt?: string;
+  error?: string;
+};
+
+function readOAuthLoginResult(): OAuthLoginResult | null {
+  if (typeof window === "undefined") return null;
+  const sources = [window.location.hash.replace(/^#/, ""), window.location.search.replace(/^\?/, "")];
+  for (const source of sources) {
+    if (!source) continue;
+    const params = new URLSearchParams(source);
+    const token = params.get("oauth_token") ?? "";
+    const error = params.get("oauth_error") ?? "";
+    if (token || error) {
+      return {
+        token,
+        error,
+        expiresAt: params.get("oauth_expires_at") ?? undefined,
+      };
+    }
+  }
+  return null;
+}
+
+function clearOAuthLoginResult() {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  let changed = false;
+  for (const key of ["oauth_token", "oauth_expires_at", "oauth_error"]) {
+    if (url.searchParams.has(key)) {
+      url.searchParams.delete(key);
+      changed = true;
+    }
+  }
+  if (url.hash) {
+    const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+    let hashChanged = false;
+    for (const key of ["oauth_token", "oauth_expires_at", "oauth_error"]) {
+      if (hashParams.has(key)) {
+        hashParams.delete(key);
+        hashChanged = true;
+      }
+    }
+    if (hashChanged) {
+      const nextHash = hashParams.toString();
+      url.hash = nextHash ? `#${nextHash}` : "";
+      changed = true;
+    }
+  }
+  if (changed) {
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+}
 
 function readSavedSession(): SavedSession | null {
   if (typeof window === "undefined") return null;

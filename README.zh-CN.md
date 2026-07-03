@@ -5,7 +5,7 @@
 <h1 align="center">TokenHub</h1>
 
 <p align="center">
-  TokenHub 是一个私有化 AI 网关，把 OpenAI-Compatible 模型 API、Provider 路由、API Key、用量统计和成本治理统一到一个简洁控制台。
+  TokenHub 是面向企业的私有化 AI 网关，围绕普通用户、团队负责人和平台管理员提供分角色工作台。
 </p>
 
 <p align="center">
@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  Language: <a href="README.md">English</a> | 简体中文 | <a href="README.ja.md">日本語</a>
+  <a href="README.md">English</a> | 简体中文 | <a href="README.ja.md">日本語</a>
 </p>
 
 ## 产品截图
@@ -35,17 +35,27 @@
 | 用量统计 | 系统设置 |
 | ![Usage Analytics](docs/assets/screenshots/usage-en.png) | ![System Settings](docs/assets/screenshots/settings-en.png) |
 
-## 核心能力
+## 围绕三大角色设计
+
+TokenHub 将日常模型使用、团队治理和平台运维拆成清晰的角色入口，让企业用户只看到和自己职责相关的工作流。
+
+| 角色 | 工作台重点 | 指南 |
+| --- | --- | --- |
+| 普通用户 | 查看可用模型、创建项目 Key、调用模型 API、查看个人用量 | [普通用户指南](docs/zh-CN/user-guide.md) |
+| 团队负责人 | 管理项目空间、项目成员、项目 Key、团队报表和项目成本归因 | [团队负责人指南](docs/zh-CN/team-leader-guide.md) |
+| 平台管理员 | 配置 Provider、模型目录、路由策略、身份源、RBAC、审计和成本管控 | [管理员指南](docs/zh-CN/administrator-guide.md) |
+
+## 平台能力
 
 - OpenAI-Compatible 模型 API：`/v1/chat/completions`、`/v1/responses`、`/v1/embeddings`。
 - Provider 渠道：OpenAI-Compatible、Azure OpenAI、Anthropic、Gemini、DeepSeek、Qwen、本地 vLLM/Ollama 和自定义上游。
-- 模型目录、路由优先级、路由权重和失败回退顺序。
-- API Key、项目、团队、模型白名单、额度和并发限制。
-- 请求日志、用量统计、成本账单、审批、健康检测、告警和通知渠道。
-- 领导视角用量看板：部门排行、个人排行、Token 消耗对比和 Provider 成本占比。
-- 简洁控制台：紧凑导航、全局搜索、黑白主题，以及左侧 API 导航 + 右侧详情的接口文档。
+- 模型目录和路由策略：支持优先级、权重、失败回退顺序和路由健康诊断。
+- 按项目归属的 Key 管理：支持团队归属、成员权限、额度和并发限制。
+- 用量统计和请求日志：可归因到用户、项目、团队、模型和成本中心。
+- 身份源配置：支持 OAuth/OIDC 企业登录，并配合 RBAC 和审计追踪。
+- 简洁控制台：分角色导航、全局搜索、黑白主题，以及左侧 API 导航 + 右侧详情的接口文档。
 - SQLite-first 私有化部署，内置 Docker Compose 一键部署。
-- 管理后台支持中文、英文、日文切换。
+- 管理后台支持英文、中文、日文切换。
 
 ## 快速开始
 
@@ -95,12 +105,11 @@ npm run test:deepseek
 ## 文档
 
 - [文档首页](docs/zh-CN/README.md)
-- [快速开始](docs/zh-CN/quick-start.md)
-- [模型 API](docs/zh-CN/model-api.md)
-- [管理后台](docs/zh-CN/admin-console.md)
-- [模型目录](docs/zh-CN/model-catalog.md)
-- [部署](docs/zh-CN/deployment.md)
-- [安全](docs/zh-CN/security.md)
+- [普通用户指南](docs/zh-CN/user-guide.md)
+- [团队负责人指南](docs/zh-CN/team-leader-guide.md)
+- [管理员指南](docs/zh-CN/administrator-guide.md)
+- [English documentation](docs/README.md)
+- [日本語ドキュメント](docs/ja/README.md)
 
 ## License
 

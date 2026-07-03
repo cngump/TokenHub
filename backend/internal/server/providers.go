@@ -205,6 +205,7 @@ func (a OpenAICompatibleAdapter) doRaw(ctx context.Context, provider Provider, m
 	if provider.APIKey != "" {
 		req.Header.Set("authorization", "Bearer "+provider.APIKey)
 	}
+	applyOpenAICompatibleAccountHeaders(req, provider)
 	for key, value := range provider.Headers {
 		req.Header.Set(key, value)
 	}
@@ -222,6 +223,21 @@ func (a OpenAICompatibleAdapter) doRaw(ctx context.Context, provider Provider, m
 		return nil, NewHTTPError(statusForProvider(resp.StatusCode), "provider_error", strings.TrimSpace(string(data)))
 	}
 	return resp, nil
+}
+
+func applyOpenAICompatibleAccountHeaders(req *http.Request, provider Provider) {
+	if req == nil || provider.Options == nil {
+		return
+	}
+	if value := strings.TrimSpace(provider.Options["organization_id"]); value != "" && req.Header.Get("OpenAI-Organization") == "" {
+		req.Header.Set("OpenAI-Organization", value)
+	}
+	if value := strings.TrimSpace(provider.Options["openai_project_id"]); value != "" && req.Header.Get("OpenAI-Project") == "" {
+		req.Header.Set("OpenAI-Project", value)
+	}
+	if value := strings.TrimSpace(provider.Options["account_id"]); value != "" && req.Header.Get("X-TokenHub-Upstream-Account") == "" {
+		req.Header.Set("X-TokenHub-Upstream-Account", value)
+	}
 }
 
 type AzureOpenAIAdapter struct {
