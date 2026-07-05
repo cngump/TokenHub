@@ -1,55 +1,75 @@
-# 团队负责人指南
+# 团队负责人大模型 API 接入指南
 
 Language: [English](../team-leader-guide.md) | 简体中文 | [日本語](../ja/team-leader-guide.md)
 
-本指南面向管理项目空间、项目成员、API Key 和团队报表的团队负责人。
+本指南面向帮助业务应用通过项目级 TokenHub API Key 调用已批准大语言模型的团队负责人。
 
-## 团队负责人范围
+## 团队负责人职责
 
-| 能力 | 说明 |
+| 范围 | 要管理什么 |
 | --- | --- |
-| Project Spaces | 创建或管理团队所属项目 |
-| Project Members | 打开项目后，在右侧详情栏管理成员 |
-| Key Management | 在项目角色允许时发放项目 Key |
-| Team Reports | 按成员、项目、模型和成本中心查看用量 |
-| Cost Attribution | 将消费归因到 `Payments Assistant`、`Customer Support Copilot` 等项目 |
+| Project | 成员、Key、额度和成本归因边界 |
+| Members | 在项目详情侧边栏添加应用负责人或开发者 |
+| API Keys | 在承担用量和成本的项目下发放 Key |
+| Models | 验证 Key 能看到预期模型列表 |
+| Reports | 按成员、项目、模型和成本中心复盘用量 |
 
-## 项目治理模型
+## 发放项目 Key
 
-项目是企业 AI 消费的边界。一个人可以加入多个项目，每个 API Key 只属于一个项目。
+1. 在 **项目空间** 中创建或选择项目。
+2. 点击项目，在右侧成员面板添加应用负责人。
+3. 打开 **Key 管理**，在该项目下创建 Key。
+4. 将 Key 限制到应用实际需要的模型和额度。
+5. 用 `GET /v1/models` 验证 Key 的模型范围。
+6. 通过内部密钥流程把 Key 交给应用负责人。
 
-| 项目成员角色 | 默认能力 |
+## 验证可用模型
+
+```bash
+curl --request GET \
+  --url "http://localhost:8080/v1/models" \
+  --header "Authorization: Bearer PROJECT_API_KEY" \
+  --header "Content-Type: application/json"
+```
+
+返回的 `data[].id` 就是应用可以使用的模型 ID。
+
+## 验证聊天调用
+
+```bash
+curl --request POST \
+  --url "http://localhost:8080/v1/chat/completions" \
+  --header "Authorization: Bearer PROJECT_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "model": "gpt-4.1-mini",
+    "messages": [
+      {"role": "user", "content": "Write a concise project onboarding checklist."}
+    ],
+    "stream": false
+  }'
+```
+
+## 治理检查
+
+| 检查项 | 为什么重要 |
 | --- | --- |
-| Owner | 管理项目设置、成员、API Key 和额度 |
-| Maintainer | 维护项目成员和 Key |
-| Developer | 创建和使用项目 API Key |
-| Viewer | 只能查看项目信息和用量 |
+| 项目 Owner | 用量和成本需要明确归属 |
+| 成员角色 | 只有可信项目成员可以发放或轮换 Key |
+| 模型范围 | Key 只应该暴露应用需要的模型 |
+| 额度 | 额度和并发要匹配预期流量 |
+| 日志 | 失败请求必须能通过 `request_id` 追踪 |
 
-## 管理成员
+## 常见错误
 
-1. 打开 **Project Spaces**。
-2. 选择项目，例如 `Payments Assistant`。
-3. 在右侧项目详情栏查看成员。
-4. 在详情栏里添加、编辑或移除用户。成员列表只展示用户；角色和 Key 权限在成员表单中编辑。
-5. 调整成员后查看团队用量，确保成本归属清晰。
-
-## 为项目发放 Key
-
-1. 打开 **Key Management**。
-2. 选择 Key 所属项目。
-3. 将 Key 限制到应用实际需要的模型和额度。
-4. 立即复制新 Key，TokenHub 只展示一次完整 Secret。
-5. 当应用负责人变化时，轮换或撤销 Key。
-
-## 报表检查
-
-| 问题 | 报表维度 |
+| 状态 | 团队负责人处理方式 |
 | --- | --- |
-| 谁消耗了预算？ | Member |
-| 哪个产品或应用消耗了预算？ | Project |
-| 哪个模型带来了主要成本？ | Model |
-| 哪个内部预算承担成本？ | Cost center |
+| 401 | 确认应用使用的是启用状态的项目 Key |
+| 403 | 检查项目成员和 Key 允许模型范围 |
+| 429 | 检查额度、并发和 Key/项目限制 |
+| 503 | 请管理员检查路由和 Provider 健康状态 |
+| 500 | 在请求日志中用 `request_id` 查看上游错误 |
 
 ## 截图
 
-![Overview](../assets/screenshots/overview-en.png)
+![Gateway documentation](../assets/screenshots/gateway-en.png)

@@ -1,55 +1,75 @@
-# チームリーダーガイド
+# チームリーダー LLM API 導入ガイド
 
 Language: [English](../team-leader-guide.md) | [简体中文](../zh-CN/team-leader-guide.md) | 日本語
 
-このガイドは、Project、Project メンバー、API Key、チーム利用レポートを管理するチームリーダー向けです。
+このガイドは、業務アプリケーションが Project 単位の TokenHub API Key で承認済み大規模言語モデルを呼び出せるようにするチームリーダー向けです。
 
-## チームリーダーの範囲
+## チームリーダーの責任
 
-| 能力 | 説明 |
+| 領域 | 管理するもの |
 | --- | --- |
-| Project Spaces | チーム所有の Project を作成または管理します |
-| Project Members | Project を開き、右側詳細パネルでメンバーを管理します |
-| Key Management | Project ロールが許可する場合に Project Key を発行します |
-| Team Reports | メンバー、Project、モデル、Cost Center 別に利用量を確認します |
-| Cost Attribution | 消費を `Payments Assistant`、`Customer Support Copilot` などの Project に配賦します |
-
-## Project 統制モデル
-
-Project は企業 AI 消費の境界です。1 人のユーザーは複数 Project に参加でき、各 API Key は必ず 1 つの Project に属します。
-
-| Project メンバーロール | 既定能力 |
-| --- | --- |
-| Owner | Project 設定、メンバー、API Key、クォータを管理します |
-| Maintainer | Project メンバーと Key を保守します |
-| Developer | Project API Key を作成、利用します |
-| Viewer | Project 情報と利用量のみ閲覧します |
-
-## メンバー管理
-
-1. **Project Spaces** を開きます。
-2. `Payments Assistant` などの Project を選択します。
-3. 右側の Project 詳細パネルでメンバーを確認します。
-4. 詳細パネルでユーザーを追加、編集、削除します。メンバー一覧はユーザーだけを表示し、ロールと Key 権限はメンバーフォームで編集します。
-5. メンバー変更後にチーム利用量を確認し、コスト所有者を明確にします。
+| Project | メンバー、Key、クォータ、コスト配賦の境界 |
+| Members | Project 詳細パネルでアプリ責任者または開発者を追加 |
+| API Keys | 利用量とコストを持つ Project で Key を発行 |
+| Models | Key が意図したモデル一覧を見られるか検証 |
+| Reports | メンバー、Project、モデル、Cost Center 別に利用量を確認 |
 
 ## Project Key の発行
 
-1. **Key Management** を開きます。
-2. Key の所属 Project を選びます。
-3. アプリケーションに必要なモデルとクォータだけを許可します。
-4. 新しい Key はすぐにコピーします。TokenHub は完全な Secret を一度だけ表示します。
-5. アプリケーション Owner が変わったら Key をローテーションまたは無効化します。
+1. **Project Spaces** で Project を作成または選択します。
+2. Project をクリックし、右側メンバーパネルでアプリ責任者を追加します。
+3. **Key Management** を開き、その Project で Key を作成します。
+4. Key をアプリケーションに必要なモデルとクォータに制限します。
+5. `GET /v1/models` で Key のモデル範囲を検証します。
+6. 社内のシークレット運用に従って Key をアプリ責任者へ渡します。
 
-## レポート確認
+## 利用可能モデルの検証
 
-| 質問 | レポートディメンション |
+```bash
+curl --request GET \
+  --url "http://localhost:8080/v1/models" \
+  --header "Authorization: Bearer PROJECT_API_KEY" \
+  --header "Content-Type: application/json"
+```
+
+返された `data[].id` がアプリケーションで利用できるモデル ID です。
+
+## Chat 呼び出しの検証
+
+```bash
+curl --request POST \
+  --url "http://localhost:8080/v1/chat/completions" \
+  --header "Authorization: Bearer PROJECT_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "model": "gpt-4.1-mini",
+    "messages": [
+      {"role": "user", "content": "Write a concise project onboarding checklist."}
+    ],
+    "stream": false
+  }'
+```
+
+## ガバナンスチェック
+
+| チェック | 重要な理由 |
 | --- | --- |
-| 誰が予算を消費したか？ | Member |
-| どの製品またはアプリが消費したか？ | Project |
-| どのモデルがコストを生んだか？ | Model |
-| どの内部予算が負担するか？ | Cost center |
+| Project owner | 利用量とコストの責任者を明確にするため |
+| Member role | 信頼できる Project メンバーだけが Key を発行またはローテーションするため |
+| Model scope | Key が必要なモデルだけを公開するため |
+| Quota | クォータと同時実行を想定トラフィックに合わせるため |
+| Logs | 失敗リクエストを `request_id` で追跡するため |
+
+## よくあるエラー
+
+| ステータス | チームリーダーの対応 |
+| --- | --- |
+| 401 | アプリが有効な Project Key を使っているか確認 |
+| 403 | Project メンバーと Key の許可モデル範囲を確認 |
+| 429 | クォータ、同時実行、Key/Project 制限を確認 |
+| 503 | 管理者にルートと Provider ヘルス確認を依頼 |
+| 500 | Request Logs で `request_id` から上流エラーを確認 |
 
 ## スクリーンショット
 
-![Overview](../assets/screenshots/overview-en.png)
+![Gateway documentation](../assets/screenshots/gateway-en.png)

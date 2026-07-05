@@ -1,56 +1,97 @@
-# 利用者ガイド
+# 利用者 LLM API ガイド
 
 Language: [English](../user-guide.md) | [简体中文](../zh-CN/user-guide.md) | 日本語
 
-このガイドは、TokenHub 経由で承認済み AI モデルを利用する社員とアプリケーション開発者向けです。
+このガイドは、TokenHub 経由で承認済み大規模言語モデルを呼び出す社員とアプリケーション開発者向けです。
 
-## 利用できる領域
+## 必要なもの
 
-| 領域 | 用途 |
+| 項目 | 用途 |
 | --- | --- |
-| Overview | 表示可能な Project、Key、最近のアクティビティを確認します |
-| API Documentation | Base URL をコピーし、モデル API 例とロール別ガイドを確認します |
-| Model Playground | アカウントで呼び出せるモデルを使ってプロンプトを試します |
-| Available Models | 有効なルーティングがあるモデルを確認します |
-| Key Management | 割り当て済み Project の API Key を作成またはコピーします |
-| Usage Analytics | 現在のアカウントに見えるリクエスト、Token、コストを確認します |
-| Request Logs | request ID で失敗した呼び出しを調査します |
+| Base URL | OpenAI 互換 endpoint root。例: `http://localhost:8080/v1` |
+| Project API Key | `Authorization: Bearer YOUR_TOKENHUB_API_KEY` で送信 |
+| Model ID | `GET /v1/models` で返り、`model` に指定 |
+| request_id | 失敗時に Request Logs で調査するために利用 |
 
-## 日常フロー
+コンソールログイントークンではモデル API を呼び出せません。**Key Management** の Project API Key を利用します。
 
-1. **Available Models** または **Model Playground** を開き、呼び出せるモデルを確認します。
-2. **Key Management** を開き、割り当て済み Project、たとえば `Payments Assistant` を選びます。
-3. アプリケーションに必要な場合だけ API Key を作成します。新しい Key は一度だけ表示されるため、すぐにコピーします。
-4. アプリケーションに TokenHub Base URL と Project API Key を設定します。
-5. **Usage Analytics** と **Request Logs** で自分のトラフィックを確認します。
+## 呼び出し順序
 
-## モデル API の呼び出し
+1. **Key Management** を開き、利用量とコストを持つ Project を選びます。
+2. Project API Key を作成またはコピーします。新しい Key は一度だけ表示されます。
+3. `GET /v1/models` で、その Key から利用できるモデル一覧を確認します。
+4. モデル ID を選び、`POST /v1/chat/completions`、`POST /v1/responses`、`POST /v1/embeddings` を呼び出します。
+5. **Usage Analytics** と **Request Logs** でリクエスト、Token、コスト、エラーを確認します。
 
-モデル通信には Project API Key を使います。コンソールログイントークンはモデル API では利用できません。
+## モデル一覧
 
 ```bash
-curl -X POST "http://localhost:8080/v1/chat/completions" \
-  -H "Authorization: Bearer YOUR_TOKENHUB_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
+curl --request GET \
+  --url "http://localhost:8080/v1/models" \
+  --header "Authorization: Bearer YOUR_TOKENHUB_API_KEY" \
+  --header "Content-Type: application/json"
+```
+
+主なモデルフィールド:
+
+| フィールド | 意味 |
+| --- | --- |
+| `id` | API 呼び出しで使うモデル ID |
+| `object` | オブジェクト種別。通常は `model` |
+| `context_size` | 設定済みの場合の最大コンテキスト長 |
+| `input_token_price_per_m` | 設定済みの場合の 100 万 input tokens あたり価格 |
+| `output_token_price_per_m` | 設定済みの場合の 100 万 output tokens あたり価格 |
+
+## Chat Completions
+
+```bash
+curl --request POST \
+  --url "http://localhost:8080/v1/chat/completions" \
+  --header "Authorization: Bearer YOUR_TOKENHUB_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{
     "model": "gpt-4.1-mini",
     "messages": [
       {"role": "system", "content": "You are an internal enterprise AI assistant."},
-      {"role": "user", "content": "Summarize today'\''s support tickets for the Payments project."}
+      {"role": "user", "content": "Summarize today'\''s support tickets."}
     ],
     "temperature": 0.7,
     "stream": false
   }'
 ```
 
+主なリクエストフィールド:
+
+| フィールド | 必須 | 説明 |
+| --- | --- | --- |
+| `model` | はい | `GET /v1/models` の ID |
+| `messages` | はい | `system`、`user`、`assistant` のメッセージ配列 |
+| `max_tokens` | いいえ | 最大生成 tokens |
+| `temperature` | いいえ | サンプリング温度 |
+| `stream` | いいえ | `true` の場合 SSE stream |
+| `tools` | いいえ | 上流モデル対応時の関数ツール |
+| `response_format` | いいえ | 上流モデル対応時の JSON object または JSON schema |
+
+## SDK 設定
+
+```ts
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: process.env.TOKENHUB_API_KEY,
+  baseURL: "http://localhost:8080/v1",
+});
+```
+
 ## トラブルシューティング
 
-| ステータス | 意味 | 対応 |
+| ステータス | 主な原因 | 対応 |
 | --- | --- | --- |
-| 401 | API Key が無効または不足 | `Authorization` header と Key の有効状態を確認します |
-| 403 | Project またはモデルが許可されていません | チームリーダーに Project メンバーシップとモデル権限を確認してもらいます |
-| 429 | クォータまたは同時実行制限 | クォータ期間の回復を待つか、クォータ増加を依頼します |
-| 503 | 健全なルートがありません | 管理者にルーティングと Provider ヘルスを確認してもらいます |
+| 401 | API Key の不足、形式不正、無効化、期限切れ | `Authorization` と Key 状態を確認 |
+| 403 | Project、Key、モデル権限がリクエストを許可しない | チームリーダーに Project メンバーとモデル権限の確認を依頼 |
+| 404/503 | モデルを処理できる健全なルートがない | 管理者にルートと Provider ヘルス確認を依頼 |
+| 429 | クォータ、同時実行、Provider リソース制限 | 回復を待つか、増枠を依頼 |
+| 500 | 上流 Provider またはルーティングエラー | Request Logs で `request_id` を検索 |
 
 ## スクリーンショット
 

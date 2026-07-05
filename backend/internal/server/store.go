@@ -381,7 +381,7 @@ func (s *GormStore) CreateAPIKey(projectID string, key APIKey, rawSecret string)
 		return APIKey{}, "", notFound(err, "project_not_found", "Project not found")
 	}
 	if rawSecret == "" {
-		rawSecret = GenerateAPIKey()
+		rawSecret = s.generateAPIKeySecret()
 	}
 	prefix, suffix := PrefixSuffix(rawSecret)
 	now := time.Now().UTC()
@@ -409,6 +409,34 @@ func (s *GormStore) CreateAPIKey(projectID string, key APIKey, rawSecret string)
 		return APIKey{}, "", writeConflict(err, "api_key_conflict", "API key already exists")
 	}
 	return publicKey(key), rawSecret, nil
+}
+
+func (s *GormStore) generateAPIKeySecret() string {
+	prefix, randomLength := s.apiKeyGenerationConfig()
+	return GenerateAPIKeyWithOptions(prefix, randomLength)
+}
+
+func (s *GormStore) apiKeyGenerationConfig() (string, int) {
+	var settings []AdminResource
+	_ = s.db.Where("kind = ? AND status = ?", "settings", StatusActive).Order("created_at asc").Find(&settings).Error
+	var fields map[string]any
+	for _, item := range settings {
+		if item.ID == "cfg_gateway" {
+			fields = item.Fields
+			break
+		}
+	}
+	if fields == nil && len(settings) > 0 {
+		fields = settings[0].Fields
+	}
+	prefix := stringField(fields, "api_key_prefix")
+	randomLength := DefaultAPIKeyRandomLength
+	if value := strings.TrimSpace(stringField(fields, "api_key_random_length")); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil {
+			randomLength = parsed
+		}
+	}
+	return NormalizeAPIKeyPrefix(prefix), NormalizeAPIKeyRandomLength(randomLength)
 }
 
 func (s *GormStore) ListProjectKeys(projectID string) []APIKey {
@@ -470,7 +498,7 @@ func (s *GormStore) RotateAPIKey(id string, graceUntil *time.Time) (APIKey, stri
 	}
 	hydrateAPIKey(&oldKey)
 	now := time.Now().UTC()
-	newSecret := GenerateAPIKey()
+	newSecret := s.generateAPIKeySecret()
 	prefix, suffix := PrefixSuffix(newSecret)
 	newKey := oldKey
 	newKey.ID = NewID("key")

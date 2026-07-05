@@ -1366,7 +1366,12 @@ func (s *Server) upsertOAuthAdminUser(provider AdminResource, claims map[string]
 	if name == "" {
 		name = username
 	}
-	teamID := s.oauthTeamID(firstOAuthClaim(claims, teamClaim))
+	claimedTeamID := s.oauthTeamID(firstOAuthClaim(claims, teamClaim))
+	defaultTeamID := s.oauthDefaultTeamID(provider)
+	teamID := claimedTeamID
+	if teamID == "" {
+		teamID = defaultTeamID
+	}
 	users := s.store.ListAdminUsers()
 	if existing, ok := findOAuthAdminUser(users, email, username); ok {
 		if existing.Status != StatusActive {
@@ -1380,20 +1385,32 @@ func (s *Server) upsertOAuthAdminUser(provider AdminResource, claims map[string]
 		if username != "" && !adminUsernameTaken(users, username, existing.ID) {
 			patch.Username = username
 		}
-		if teamID != "" {
-			patch.TeamID = teamID
+		if claimedTeamID != "" {
+			patch.TeamID = claimedTeamID
+		} else if strings.TrimSpace(patch.TeamID) == "" && defaultTeamID != "" {
+			patch.TeamID = defaultTeamID
 		}
-		return s.store.UpdateAdminUser(existing.ID, patch, "")
+		updated, err := s.store.UpdateAdminUser(existing.ID, patch, "")
+		if err != nil {
+			return AdminUser{}, err
+		}
+		s.assignOAuthDefaultProject(provider, updated)
+		return updated, nil
 	}
 	username = uniqueOAuthUsername(users, username, email)
-	return s.store.CreateAdminUser(AdminUser{
+	user, err := s.store.CreateAdminUser(AdminUser{
 		Username: username,
 		Name:     name,
 		Email:    email,
-		Role:     "user",
+		Role:     oauthDefaultRole(provider),
 		TeamID:   teamID,
 		Status:   StatusActive,
 	}, GenerateAdminSessionToken())
+	if err != nil {
+		return AdminUser{}, err
+	}
+	s.assignOAuthDefaultProject(provider, user)
+	return user, nil
 }
 
 func firstOAuthClaim(claims map[string]any, keys ...string) string {
@@ -1504,6 +1521,82 @@ func (s *Server) oauthTeamID(claimValue string) string {
 		}
 	}
 	return ""
+}
+
+func oauthDefaultRole(provider AdminResource) string {
+	role := normalizeAdminRole(stringField(provider.Fields, "default_role"))
+	switch role {
+	case "team_leader":
+		return "team_leader"
+	default:
+		return "user"
+	}
+}
+
+func (s *Server) oauthDefaultTeamID(provider AdminResource) string {
+	return s.oauthTeamID(firstStringField(provider.Fields, "default_team_id", "default_team", "default_team_name"))
+}
+
+func (s *Server) oauthDefaultProject(provider AdminResource) (Project, bool) {
+	return s.oauthProject(firstStringField(provider.Fields, "default_project_id", "default_project", "default_project_name"))
+}
+
+func (s *Server) oauthProject(value string) (Project, bool) {
+	normalized := normalizeScopeValue(value)
+	if normalized == "" {
+		return Project{}, false
+	}
+	for _, project := range s.store.ListProjects() {
+		if project.Status != "" && project.Status != StatusActive {
+			continue
+		}
+		for _, candidate := range []string{project.ID, project.Name} {
+			if normalizeScopeValue(candidate) == normalized {
+				return project, true
+			}
+		}
+	}
+	return Project{}, false
+}
+
+func oauthDefaultProjectRole(provider AdminResource) string {
+	role := strings.ToLower(strings.TrimSpace(stringField(provider.Fields, "default_project_role")))
+	switch role {
+	case "viewer", "developer", "maintainer":
+		return role
+	default:
+		return "developer"
+	}
+}
+
+func (s *Server) assignOAuthDefaultProject(provider AdminResource, user AdminUser) {
+	project, ok := s.oauthDefaultProject(provider)
+	if !ok || strings.TrimSpace(user.ID) == "" {
+		return
+	}
+	for _, item := range s.store.ListResources("project-members") {
+		if strings.TrimSpace(stringField(item.Fields, "project_id")) == project.ID &&
+			strings.TrimSpace(stringField(item.Fields, "user_id")) == user.ID {
+			return
+		}
+	}
+	role := oauthDefaultProjectRole(provider)
+	displayName := user.Name
+	if strings.TrimSpace(displayName) == "" {
+		displayName = user.Username
+	}
+	s.store.CreateResource("project-members", AdminResource{
+		Name:   fmt.Sprintf("%s / %s", project.Name, displayName),
+		Status: StatusActive,
+		Fields: map[string]any{
+			"project_id":      project.ID,
+			"user_id":         user.ID,
+			"role":            role,
+			"can_issue_keys":  projectMemberRoleCanIssueKey(role),
+			"provisioned_by":  "oauth_default_project",
+			"identity_source": provider.ID,
+		},
+	})
 }
 
 func oauthRedirectWithSession(returnURL string, session AdminSession) string {

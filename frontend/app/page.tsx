@@ -44,7 +44,7 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { type Dispatch, type FormEvent, type SetStateAction, useEffect, useMemo, useRef, useState } from "react";
 
 type Summary = {
   request_count: number;
@@ -544,6 +544,17 @@ type NavItem = NavLeafItem | NavParentItem;
 
 type AppRole = "admin" | "security" | "team_leader" | "user";
 
+type TopSearchItem = {
+  id: string;
+  view: ViewKey;
+  label: string;
+  group: string;
+  description: string;
+  icon: typeof Activity;
+  tone?: "page" | "entity" | "recent";
+  keywords: string;
+};
+
 type FieldType = "text" | "number" | "password" | "textarea" | "select" | "multi-select" | "tags" | "boolean";
 
 type FieldConfig = {
@@ -652,6 +663,7 @@ const sessionStorageKey = "tokenhub.admin.session";
 const oauthBaseURLStorageKey = "tokenhub.admin.oauth.base_url";
 const authExpiredEventName = "tokenhub-admin-auth-expired";
 const languageStorageKey = "tokenhub.admin.language";
+const recentViewsStorageKey = "tokenhub.admin.recent.views.v1";
 
 type AppLanguage = "zh-CN" | "en" | "ja";
 
@@ -901,7 +913,6 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "等待调用数据": "Waiting for usage data",
     "输入 Token": "Input Tokens",
     "输出 Token": "Output Tokens",
-    "错误请求": "Error Requests",
     "成本": "Cost",
     "估算成本": "Estimated Cost",
     "时间": "Time",
@@ -1077,6 +1088,38 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "用户导入失败": "User import failed",
     "搜索控制台": "Search console",
     "搜索模型、Provider、日志...": "Search models, providers, logs...",
+    "搜索结果": "Search results",
+    "打开": "Open",
+    "打开对应工作页面": "Open the corresponding workspace",
+    "没有找到匹配入口": "No matching entry",
+    "请尝试搜索模型、Key、用量、日志或设置。": "Try models, keys, usage, logs, or settings.",
+    "常用操作": "Common actions",
+    "当前位置": "Current location",
+    "全局平台范围": "Global platform scope",
+    "安全审计范围": "Security audit scope",
+    "团队和项目范围": "Team and project scope",
+    "个人可见范围": "Personal visible scope",
+    "健康 Provider": "Healthy Providers",
+    "Provider 需要关注": "Provider needs attention",
+    "错误请求": "Error Requests",
+    "记录": "Records",
+    "条匹配": "matches",
+    "没有匹配结果": "No matches",
+    "清空搜索或换一个关键词再试。": "Clear search or try another keyword.",
+    "还没有 Provider": "No Providers yet",
+    "先接入上游服务商，再为模型配置路由。": "Connect an upstream Provider before configuring model routes.",
+    "还没有模型路由": "No model routes yet",
+    "路由决定模型请求会被转发到哪个 Provider。": "Routes decide which Provider receives model requests.",
+    "还没有项目空间": "No projects yet",
+    "项目、Key、额度和成本归属": "Project, Key, quota, and cost ownership",
+    "项目是 Key、额度、成员和成本归属的基本单元。": "Projects are the base unit for Keys, quotas, members, and cost ownership.",
+    "还没有 Key": "No Keys yet",
+    "为项目发放 Key 后，业务应用才能调用网关。": "Issue a project Key before business apps can call the gateway.",
+    "还没有用户": "No users yet",
+    "可以手动创建，也可以从 CSV 批量导入。": "Create users manually or import them from CSV.",
+    "还没有身份源": "No identity sources yet",
+    "接入企业 OAuth/OIDC 后，用户可以使用 SSO 登录。": "Connect enterprise OAuth/OIDC so users can sign in with SSO.",
+    "当前视图还没有可展示的记录。": "This view has no records to show yet.",
     "报表时间范围": "Report time range",
     "7 天": "7 days",
     "30 天": "30 days",
@@ -1121,7 +1164,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "业务 API 使用项目下发的 API Key；控制台登录令牌不能替代业务 Key。": "Business APIs use project API Keys; console login tokens cannot replace business keys.",
     "格式": "Format",
     "当前 Key 数": "Current Keys",
-    "项目 API Key，格式为 Bearer thk_xxx": "Project API Key in Bearer thk_xxx format",
+    "项目 API Key，格式为 Bearer sk_xxx": "Project API Key in Bearer sk_xxx format",
     "POST 必填": "Required for POST",
     "JSON 请求使用 application/json": "Use application/json for JSON requests",
     "模型接口必填": "Required for model APIs",
@@ -1423,6 +1466,55 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "已提交审批：": "Approval submitted: ",
     "请选择项目空间后再发放 API Key": "Select a project before issuing an API Key",
     "发放 Key 失败": "Failed to issue Key",
+    "当前账号没有可发放 Key 的项目权限，请联系项目负责人或管理员把你加入项目。": "This account has no project that can issue Keys. Ask a project owner or admin to add you to a project.",
+    "创建内部调用 Key": "Create Internal API Key",
+    "创建 Key 步骤": "Key Creation Steps",
+    "选择项目": "Project",
+    "填写用途": "Purpose",
+    "模型范围": "Model Scope",
+    "安全护栏": "Guardrails",
+    "确认发放": "Review",
+    "选择 Key 归属项目": "Choose the Key project",
+    "Key 必须挂在项目空间下，用量和成本会归集到这个项目。": "Keys must belong to a project; usage and cost are attributed to that project.",
+    "说明用途和环境": "Describe purpose and environment",
+    "名称建议能看出调用方、环境和用途，后续审计会更容易定位。": "Use a name that shows the caller, environment, and purpose for easier auditing.",
+    "设置模型范围": "Set model scope",
+    "全部可路由模型": "All routed models",
+    "由平台路由策略决定最终可调用范围": "The platform routing policy decides the final callable scope.",
+    "指定模型白名单": "Specific model allowlist",
+    "只允许这个 Key 调用已勾选的模型": "This Key can call only the selected models.",
+    "当前没有可选择的启用模型。请先在模型目录和路由策略里启用模型。": "No enabled models are available. Enable models in the model catalog and routing policy first.",
+    "设置安全护栏": "Set guardrails",
+    "可以先使用默认额度，之后再按调用量调整。IP 白名单留空表示不限来源。": "You can start with the default limits and adjust later. Leave IP allowlist empty to allow any source.",
+    "确认后生成 Key": "Review and generate Key",
+    "完整 Key 只会展示一次。关闭弹窗后只能看到前后缀，后续需要通过轮换生成新 Key。": "The full Key is shown only once. After closing the modal, only the prefix and suffix are visible; rotate to generate a new Key later.",
+    "上一步": "Back",
+    "发放中": "Issuing",
+    "生成 Key": "Generate Key",
+    "普通用户看到的是当前账号可见的模型；实际调用还会受项目 Key 白名单和项目权限限制。": "Users see models visible to this account; actual calls are still limited by the project Key allowlist and project permissions.",
+    "可用模型需要同时满足：模型目录启用、至少一条路由启用、Provider 或账号资源健康。": "Available models require an enabled catalog entry, at least one enabled route, and a healthy Provider or account resource.",
+    "模型未启用": "Model disabled",
+    "模型目录状态不是启用，前台不会作为可调用模型。": "The model catalog status is not active, so it is not callable from the frontend.",
+    "按权限可见": "Visible by permission",
+    "当前账号可见此模型；实际调用还会受项目 Key 白名单和运行时路由策略限制。": "This model is visible to the account; actual calls are still limited by the project Key allowlist and runtime routing policy.",
+    "管理员需要在路由策略中把该模型映射到一个 Provider 上游模型。": "An admin needs to map this model to an upstream Provider model in routing policy.",
+    "路由未启用": "Route disabled",
+    "已有 Provider 线路，但线路状态未启用，运行时不会命中。": "Provider routes exist, but none are enabled, so runtime traffic will not hit them.",
+    "线路需检查": "Route needs attention",
+    "启用线路存在，但 Provider 或账号资源不是健康启用状态。": "Enabled routes exist, but the Provider or account resource is not active and healthy.",
+    "可调用": "Callable",
+    "当前没有可调用模型。通常原因是管理员还没有启用模型目录或路由策略，或你的项目/Key 未被授予模型范围。": "No callable models are available. Usually the model catalog or routing policy is not enabled, or your project/Key has no model scope.",
+    "当前还没有模型目录。请先维护模型目录，再配置路由策略。": "No model catalog exists yet. Maintain the model catalog first, then configure routing policy.",
+    "当前筛选下没有可见模型。可用性由模型目录、路由策略、项目成员和 Key 白名单共同决定。": "No visible models match the current filters. Availability is determined by the model catalog, routing policy, project membership, and Key allowlist.",
+    "当前没有可演练模型。请先在路由策略里启用至少一条模型线路。": "No playground-ready models are available. Enable at least one model route first.",
+    "选择身份源模板": "Choose Identity Source Template",
+    "选择后会自动填充协议、登录图标、Scope、Claim 和常见端点。": "Choosing a template fills protocol, login icon, scopes, claims, and common endpoints.",
+    "登录按钮": "Login Button",
+    "默认 Scope": "Default Scope",
+    "必填项": "Required Fields",
+    "Issuer、Client ID、Client Secret、Callback URL": "Issuer, Client ID, Client Secret, Callback URL",
+    "适合标准 OIDC 服务，填写 Issuer 后一般可自动发现端点。": "Best for standard OIDC services; endpoints can usually be discovered from the issuer.",
+    "适合非标准 OAuth2 服务，需要确认授权、Token 和用户信息端点。": "Best for non-standard OAuth2 services; verify authorization, token, and userinfo endpoints.",
     "请先填写至少一项希望提升后的目标额度": "Enter at least one target quota to increase",
     "不限额": "Unlimited",
     "项目空间内配置的专属模型调用额度": "Project-specific model call quota",
@@ -1483,6 +1575,10 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "公开 Base URL": "Public Base URL",
     "默认超时": "Default Timeout",
     "审计保留": "Audit Retention",
+    "API Key 前缀": "API Key Prefix",
+    "API Key 随机长度": "API Key Random Length",
+    "新建和轮换 Key 时使用；建议以 _ 结尾，例如 sk_。": "Used when creating and rotating Keys; ending with _ is recommended, for example sk_.",
+    "前缀后面的随机字符数，系统会限制在 24-128 之间。": "Number of random characters after the prefix. The system limits it to 24-128.",
     "用户名字段": "Username Claim",
     "邮箱字段": "Email Claim",
     "团队字段": "Team Claim",
@@ -1834,7 +1930,6 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "等待调用数据": "利用データ待ち",
     "输入 Token": "入力 Token",
     "输出 Token": "出力 Token",
-    "错误请求": "エラーリクエスト",
     "成本": "コスト",
     "估算成本": "推定コスト",
     "时间": "時間",
@@ -2010,6 +2105,38 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "用户导入失败": "ユーザーインポートに失敗しました",
     "搜索控制台": "コンソールを検索",
     "搜索模型、Provider、日志...": "モデル、Provider、ログを検索...",
+    "搜索结果": "検索結果",
+    "打开": "開く",
+    "打开对应工作页面": "該当ワークスペースを開く",
+    "没有找到匹配入口": "一致する入口がありません",
+    "请尝试搜索模型、Key、用量、日志或设置。": "モデル、Key、利用量、ログ、設定で検索してください。",
+    "常用操作": "よく使う操作",
+    "当前位置": "現在位置",
+    "全局平台范围": "全体プラットフォーム範囲",
+    "安全审计范围": "セキュリティ監査範囲",
+    "团队和项目范围": "チームとプロジェクト範囲",
+    "个人可见范围": "個人表示範囲",
+    "健康 Provider": "正常 Provider",
+    "Provider 需要关注": "Provider の確認が必要",
+    "错误请求": "エラーリクエスト",
+    "记录": "レコード",
+    "条匹配": "件一致",
+    "没有匹配结果": "一致する結果がありません",
+    "清空搜索或换一个关键词再试。": "検索をクリアするか別のキーワードを試してください。",
+    "还没有 Provider": "Provider がありません",
+    "先接入上游服务商，再为模型配置路由。": "上流 Provider を接続してからモデルルートを設定します。",
+    "还没有模型路由": "モデルルートがありません",
+    "路由决定模型请求会被转发到哪个 Provider。": "ルートはモデルリクエストの転送先 Provider を決定します。",
+    "还没有项目空间": "プロジェクトがありません",
+    "项目、Key、额度和成本归属": "プロジェクト、Key、クォータ、コスト帰属",
+    "项目是 Key、额度、成员和成本归属的基本单元。": "プロジェクトは Key、クォータ、メンバー、コスト帰属の基本単位です。",
+    "还没有 Key": "Key がありません",
+    "为项目发放 Key 后，业务应用才能调用网关。": "業務アプリがゲートウェイを呼び出すにはプロジェクト Key が必要です。",
+    "还没有用户": "ユーザーがいません",
+    "可以手动创建，也可以从 CSV 批量导入。": "手動作成または CSV 一括インポートができます。",
+    "还没有身份源": "ID ソースがありません",
+    "接入企业 OAuth/OIDC 后，用户可以使用 SSO 登录。": "企業 OAuth/OIDC を接続すると SSO ログインできます。",
+    "当前视图还没有可展示的记录。": "このビューに表示できるレコードはまだありません。",
     "报表时间范围": "レポート期間",
     "7 天": "7 日",
     "30 天": "30 日",
@@ -2054,7 +2181,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "业务 API 使用项目下发的 API Key；控制台登录令牌不能替代业务 Key。": "業務 API はプロジェクト発行の API Key を使います。コンソールログイントークンでは代替できません。",
     "格式": "形式",
     "当前 Key 数": "現在の Key 数",
-    "项目 API Key，格式为 Bearer thk_xxx": "プロジェクト API Key。形式は Bearer thk_xxx",
+    "项目 API Key，格式为 Bearer sk_xxx": "プロジェクト API Key。形式は Bearer sk_xxx",
     "POST 必填": "POST で必須",
     "JSON 请求使用 application/json": "JSON リクエストは application/json を使用",
     "模型接口必填": "モデル API で必須",
@@ -2356,6 +2483,41 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "已提交审批：": "承認申請済み: ",
     "请选择项目空间后再发放 API Key": "API Key 発行前にプロジェクトを選択してください",
     "发放 Key 失败": "Key 発行に失敗しました",
+    "当前账号没有可发放 Key 的项目权限，请联系项目负责人或管理员把你加入项目。": "このアカウントには Key を発行できるプロジェクト権限がありません。プロジェクト責任者または管理者に追加を依頼してください。",
+    "创建内部调用 Key": "内部呼び出し Key を作成",
+    "创建 Key 步骤": "Key 作成ステップ",
+    "选择项目": "プロジェクト選択",
+    "填写用途": "用途入力",
+    "模型范围": "モデル範囲",
+    "安全护栏": "ガードレール",
+    "确认发放": "確認",
+    "选择 Key 归属项目": "Key の所属プロジェクトを選択",
+    "Key 必须挂在项目空间下，用量和成本会归集到这个项目。": "Key はプロジェクトに紐づき、利用量とコストはそのプロジェクトに集計されます。",
+    "说明用途和环境": "用途と環境を記入",
+    "名称建议能看出调用方、环境和用途，后续审计会更容易定位。": "呼び出し元、環境、用途が分かる名前にすると、後の監査で特定しやすくなります。",
+    "设置模型范围": "モデル範囲を設定",
+    "全部可路由模型": "すべてのルーティング可能モデル",
+    "由平台路由策略决定最终可调用范围": "最終的な呼び出し範囲はプラットフォームのルーティングポリシーで決まります。",
+    "指定模型白名单": "モデル許可リストを指定",
+    "只允许这个 Key 调用已勾选的模型": "この Key は選択したモデルのみ呼び出せます。",
+    "设置安全护栏": "ガードレールを設定",
+    "确认后生成 Key": "確認して Key を生成",
+    "上一步": "戻る",
+    "发放中": "発行中",
+    "生成 Key": "Key を生成",
+    "可调用": "呼び出し可",
+    "模型未启用": "モデル無効",
+    "按权限可见": "権限により表示",
+    "路由未启用": "ルート無効",
+    "线路需检查": "ルート確認が必要",
+    "选择身份源模板": "ID ソーステンプレートを選択",
+    "选择后会自动填充协议、登录图标、Scope、Claim 和常见端点。": "選択するとプロトコル、ログインアイコン、Scope、Claim、一般的なエンドポイントを自動入力します。",
+    "登录按钮": "ログインボタン",
+    "默认 Scope": "デフォルト Scope",
+    "必填项": "必須項目",
+    "Issuer、Client ID、Client Secret、Callback URL": "Issuer、Client ID、Client Secret、Callback URL",
+    "适合标准 OIDC 服务，填写 Issuer 后一般可自动发现端点。": "標準 OIDC サービス向けです。Issuer 入力後、多くの場合エンドポイントを自動検出できます。",
+    "适合非标准 OAuth2 服务，需要确认授权、Token 和用户信息端点。": "非標準 OAuth2 サービス向けです。認可、Token、ユーザー情報エンドポイントを確認してください。",
     "请先填写至少一项希望提升后的目标额度": "増額後の目標クォータを少なくとも 1 つ入力してください",
     "不限额": "無制限",
     "项目空间内配置的专属模型调用额度": "プロジェクト内で設定する専用モデル呼び出しクォータ",
@@ -2416,6 +2578,10 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "公开 Base URL": "公開 Base URL",
     "默认超时": "デフォルトタイムアウト",
     "审计保留": "監査保持",
+    "API Key 前缀": "API Key プレフィックス",
+    "API Key 随机长度": "API Key ランダム長",
+    "新建和轮换 Key 时使用；建议以 _ 结尾，例如 sk_。": "Key の作成とローテーション時に使用します。sk_ のように _ で終えることを推奨します。",
+    "前缀后面的随机字符数，系统会限制在 24-128 之间。": "プレフィックス後のランダム文字数です。システムは 24-128 に制限します。",
     "用户名字段": "ユーザー名 Claim",
     "邮箱字段": "メール Claim",
     "团队字段": "チーム Claim",
@@ -2601,7 +2767,7 @@ function displayText(value: string | undefined | null) {
 }
 
 function isIssuedAPIKey(value: string) {
-  return value.trim().startsWith("thk_");
+  return /^[A-Za-z][A-Za-z0-9_-]{0,23}_[A-Za-z0-9_-]{24,}$/.test(value.trim());
 }
 
 function translatedCell(value: React.ReactNode) {
@@ -2920,6 +3086,211 @@ function defaultViewForRole(user: AdminUser): ViewKey {
   return roleViewAccess[appRole(user.role)][0] ?? "overview";
 }
 
+const topSearchPreferredViews: Record<AppRole, ViewKey[]> = {
+  admin: ["overview", "providers", "routes", "models", "projects", "api-keys", "usage", "settings"],
+  security: ["overview", "audit", "alert-events", "security-policies", "usage", "gateway"],
+  team_leader: ["overview", "projects", "api-keys", "usage", "billing", "gateway"],
+  user: ["overview", "gateway", "playground", "models", "api-keys", "usage"],
+};
+
+function topSearchItemsForUser(user: AdminUser, data: AppData): TopSearchItem[] {
+  const seen = new Set<ViewKey>();
+  const items: TopSearchItem[] = [];
+  for (const group of navGroupsForUser(user)) {
+    for (const item of group.items) {
+      const filtered = filterNavItemByAccess(item, user);
+      if (!filtered) continue;
+      if (isNavParentItem(filtered)) {
+        for (const child of filtered.children) {
+          addTopSearchItem(items, seen, child, `${group.title} / ${filtered.label}`);
+        }
+        continue;
+      }
+      addTopSearchItem(items, seen, filtered, group.title);
+    }
+  }
+  return [...items, ...topSearchEntityItems(user, data)];
+}
+
+function addTopSearchItem(items: TopSearchItem[], seen: Set<ViewKey>, item: NavLeafItem, group: string) {
+  if (seen.has(item.view)) return;
+  seen.add(item.view);
+  const meta = standaloneViewMeta[item.view];
+  const description = meta?.description || "打开对应工作页面";
+  const keywords = [
+    item.view,
+    viewRoutes[item.view],
+    item.label,
+    group,
+    meta?.title,
+    description,
+    tx(item.label),
+    tx(group),
+    meta?.title ? tx(meta.title) : "",
+    tx(description),
+  ].join(" ");
+  items.push({
+    id: `view:${item.view}`,
+    view: item.view,
+    label: item.label,
+    group,
+    description,
+    icon: item.icon,
+    tone: "page",
+    keywords,
+  });
+}
+
+function topSearchEntityItems(user: AdminUser, data: AppData): TopSearchItem[] {
+  const can = (view: ViewKey) => canAccessView(user, view);
+  const items: TopSearchItem[] = [];
+  if (can("models")) {
+    for (const model of data.models.slice(0, 80)) {
+      const label = model.name || model.id;
+      items.push({
+        id: `model:${model.id || model.name}`,
+        view: "models",
+        label,
+        group: "模型目录",
+        description: modelCapabilitySummary(model),
+        icon: Boxes,
+        tone: "entity",
+        keywords: [label, model.id, model.modality, model.family, model.capabilities?.join(" "), "model", "models", "模型", "可用模型"].join(" "),
+      });
+    }
+  }
+  if (can("providers")) {
+    for (const provider of data.providers.slice(0, 60)) {
+      const label = provider.name || provider.id;
+      items.push({
+        id: `provider:${provider.id}`,
+        view: "providers",
+        label,
+        group: "Provider 渠道",
+        description: provider.healthy ? "Provider 健康" : "Provider 需要关注",
+        icon: Server,
+        tone: "entity",
+        keywords: [label, provider.id, provider.base_url, provider.type, "provider", "渠道", "供应商"].join(" "),
+      });
+    }
+  }
+  if (can("projects")) {
+    for (const project of data.projects.slice(0, 80)) {
+      const label = project.name || project.id;
+      items.push({
+        id: `project:${project.id}`,
+        view: "projects",
+        label,
+        group: "项目空间",
+        description: "项目、Key、额度和成本归属",
+        icon: LayoutDashboard,
+        tone: "entity",
+        keywords: [label, project.id, project.team_id, project.status, "project", "项目"].join(" "),
+      });
+    }
+  }
+  if (can("audit")) {
+    for (const log of data.logs.slice(0, 50)) {
+      const label = log.request_id || log.id;
+      items.push({
+        id: `request:${log.request_id || log.id}`,
+        view: "audit",
+        label,
+        group: "请求日志",
+        description: `${log.model || "-"} · HTTP ${log.status_code || "-"}`,
+        icon: FileText,
+        tone: "entity",
+        keywords: [label, log.id, log.model, log.provider_id, log.provider_model, log.status_code, "request", "log", "日志"].join(" "),
+      });
+    }
+  }
+  return items;
+}
+
+function topSearchResults(items: TopSearchItem[], role: AppRole, normalizedQuery: string, recentViews: ViewKey[]) {
+  if (normalizedQuery) {
+    return items.filter((item) => normalizeSearchText(item.keywords).includes(normalizedQuery)).slice(0, 8);
+  }
+  const preferred = topSearchPreferredViews[role];
+  const recentItems = recentViews
+    .map((view) => items.find((item) => item.view === view && item.id.startsWith("view:")))
+    .filter((item): item is TopSearchItem => Boolean(item))
+    .map((item) => ({ ...item, tone: "recent" as const }));
+  const recentIDs = new Set(recentItems.map((item) => item.id));
+  const preferredItems = items
+    .filter((item) => item.id.startsWith("view:") && !recentIDs.has(item.id))
+    .slice()
+    .sort((left, right) => {
+      const leftIndex = preferred.indexOf(left.view);
+      const rightIndex = preferred.indexOf(right.view);
+      const leftRank = leftIndex === -1 ? 99 : leftIndex;
+      const rightRank = rightIndex === -1 ? 99 : rightIndex;
+      return leftRank - rightRank;
+    })
+    .slice(0, Math.max(0, 6 - recentItems.length));
+  return [...recentItems, ...preferredItems].slice(0, 6);
+}
+
+function normalizeSearchText(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function readRecentViews(): ViewKey[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(recentViewsStorageKey) || "[]");
+    return Array.isArray(parsed) ? parsed.filter((view): view is ViewKey => typeof view === "string" && view in viewRoutes).slice(0, 5) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberRecentView(view: ViewKey) {
+  if (typeof window === "undefined") return;
+  const next = [view, ...readRecentViews().filter((item) => item !== view)].slice(0, 5);
+  window.localStorage.setItem(recentViewsStorageKey, JSON.stringify(next));
+}
+
+function topQuickActionsForUser(user: AdminUser): NavLeafItem[] {
+  const role = appRole(user.role);
+  const candidates: Record<AppRole, NavLeafItem[]> = {
+    admin: [
+      { view: "providers", label: "Provider 渠道", icon: Server },
+      { view: "routes", label: "路由策略", icon: Gauge },
+      { view: "settings", label: "系统设置", icon: Settings },
+    ],
+    security: [
+      { view: "audit", label: "请求日志", icon: FileText },
+      { view: "alert-events", label: "告警事件", icon: AlertCircle },
+      { view: "security-policies", label: "安全策略", icon: ShieldCheck },
+    ],
+    team_leader: [
+      { view: "projects", label: "项目空间", icon: LayoutDashboard },
+      { view: "api-keys", label: "Key 管理", icon: KeyRound },
+      { view: "usage", label: "团队报表", icon: BarChart3 },
+    ],
+    user: [
+      { view: "gateway", label: "接口文档", icon: Sparkles },
+      { view: "playground", label: "模型演练场", icon: Send },
+      { view: "api-keys", label: "Key 管理", icon: KeyRound },
+    ],
+  };
+  return candidates[role].filter((item) => canAccessView(user, item.view));
+}
+
+function roleScopeDescription(user: AdminUser) {
+  switch (appRole(user.role)) {
+    case "admin":
+      return "全局平台范围";
+    case "security":
+      return "安全审计范围";
+    case "team_leader":
+      return "团队和项目范围";
+    default:
+      return "个人可见范围";
+  }
+}
+
 type LoadPlan = {
   overview: boolean;
   providers: boolean;
@@ -3148,6 +3519,8 @@ export default function AdminHome() {
   const [modal, setModal] = useState<ModalState<any> | null>(null);
   const [providerCreateOpen, setProviderCreateOpen] = useState(false);
   const [providerEditItem, setProviderEditItem] = useState<Provider | null>(null);
+  const [apiKeyWizardOpen, setApiKeyWizardOpen] = useState(false);
+  const [apiKeyWizardInitialValues, setApiKeyWizardInitialValues] = useState<Record<string, string>>({});
   const [userImportOpen, setUserImportOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<ConfirmState<any> | null>(null);
   const [issuedKey, setIssuedKey] = useState("");
@@ -3301,6 +3674,7 @@ export default function AdminHome() {
   useEffect(() => {
     if (!currentUser || typeof window === "undefined") return;
     if (!canAccessView(currentUser, activeView)) return;
+    rememberRecentView(activeView);
     const expectedPath = viewRoutes[activeView];
     if (window.location.pathname !== expectedPath) {
       window.history.replaceState({ view: activeView }, "", expectedPath);
@@ -3335,6 +3709,8 @@ export default function AdminHome() {
       setModal(null);
       setProviderCreateOpen(false);
       setProviderEditItem(null);
+      setApiKeyWizardOpen(false);
+      setApiKeyWizardInitialValues({});
       setUserImportOpen(false);
       setConfirmDelete(null);
       setIssuedKey("");
@@ -3370,7 +3746,7 @@ export default function AdminHome() {
     setError("");
     try {
       const plan = loadPlanForView(currentUser, view);
-      const requests: Array<{ name: string; request: Promise<Response> }> = [];
+      const requests: Array<{ name: string; request: Promise<Response>; optional?: boolean }> = [];
       const queue = (enabled: boolean, name: string, path: string) => {
         if (enabled) requests.push({ name, request: adminFetch(api, path) });
       };
@@ -3391,14 +3767,19 @@ export default function AdminHome() {
       queue(plan.users, "users", "/api/admin/users");
       queue(plan.providerCatalog, "provider-catalog", "/api/admin/provider-catalog");
       for (const kind of plan.resources) {
-        requests.push({ name: `resource:${kind}`, request: adminFetch(api, `/api/admin/resources/${kind}`) });
+        requests.push({ name: `resource:${kind}`, request: adminFetch(api, `/api/admin/resources/${kind}`), optional: true });
       }
 
       const responses = await Promise.all(requests.map((item) => item.request));
+      const skippedResources: string[] = [];
       for (let index = 0; index < responses.length; index += 1) {
         const resp = responses[index];
         if (!resp.ok) {
-          throw new Error(`${requests[index].name} ${resp.status}`);
+          if (resp.status === 403 && requests[index].optional) {
+            skippedResources.push(loadRequestLabel(requests[index].name));
+            continue;
+          }
+          throw new Error(await readLoadError(resp, requests[index].name));
         }
       }
 
@@ -3406,6 +3787,7 @@ export default function AdminHome() {
       for (let index = 0; index < responses.length; index += 1) {
         const name = requests[index].name;
         const resp = responses[index];
+        if (!resp.ok) continue;
         if (name === "overview") {
           const overview = await resp.json();
           loaded.summary = overview.summary ?? emptySummary();
@@ -3463,6 +3845,9 @@ export default function AdminHome() {
       }
 
       setData((current) => mergeLoadedData(current, loaded));
+      if (skippedResources.length > 0) {
+        setNotice(permissionPartialLoadMessage(skippedResources));
+      }
     } catch (err) {
       if (isAuthExpiredError(err)) return;
       setError(err instanceof Error ? err.message : tx("连接失败"));
@@ -3522,6 +3907,8 @@ export default function AdminHome() {
     setCurrentUser(null);
     setData(emptyData());
     setUserImportOpen(false);
+    setApiKeyWizardOpen(false);
+    setApiKeyWizardInitialValues({});
     selectView("overview", { replace: true });
   }
 
@@ -3634,12 +4021,20 @@ export default function AdminHome() {
       selectView("projects");
       return;
     }
+    if (activeConfig.view === "api-keys" && projectSelectOptions(data, currentUser).length === 0) {
+      setNotice("");
+      setError(tx("当前账号没有可发放 Key 的项目权限，请联系项目负责人或管理员把你加入项目。"));
+      return;
+    }
     if (activeConfig.view === "notification-channels") {
       setModal({ config: activeConfig, initialValues: notificationChannelDefaults(modelCategoryFilter) });
       return;
     }
     if (activeConfig.view === "api-keys") {
       setIssuedKey("");
+      setApiKeyWizardInitialValues({});
+      setApiKeyWizardOpen(true);
+      return;
     }
     setModal({ config: activeConfig });
   }
@@ -3726,31 +4121,34 @@ export default function AdminHome() {
 
       <section className="workspace">
         <TopNav
+          activeView={activeView}
+          data={data}
+          user={currentUser}
           theme={theme}
+          onSelectView={selectView}
           onThemeToggle={toggleTheme}
         />
 
         <div className={activeView === "playground" ? "content-panel playground-content-panel" : "content-panel"}>
           {activeView === "playground" || activeView === "overview" ? null : (
-            <header className="page-header">
-              <div>
-                <p className="eyebrow">Enterprise AI Gateway</p>
-                <h1>{tx(activeMeta.title)}</h1>
-              </div>
-            </header>
+            <PageHeader activeView={activeView} data={data} meta={activeMeta} user={currentUser} />
           )}
 
-          {error ? <div className="status-line error">{error}</div> : null}
-          {notice ? <div className="status-line success">{notice}</div> : null}
+          <StatusStack
+            error={error}
+            notice={notice}
+            onClearError={() => setError("")}
+            onClearNotice={() => setNotice("")}
+          />
 
           {activeView === "playground" ? null : <div className="divider" />}
 
           {activeView === "overview" ? (
-            <OverviewView data={data} user={currentUser} />
+            <OverviewView data={data} user={currentUser} onSelectView={selectView} />
           ) : activeView === "playground" ? (
             <PlaygroundPage api={api} data={data} canViewRoutes={canAccessView(currentUser, "routes")} />
           ) : activeView === "gateway" ? (
-            <GatewayView api={api} data={data} language={language} onLanguageChange={changeLanguage} />
+            <GatewayView api={api} data={data} user={currentUser} language={language} onLanguageChange={changeLanguage} />
           ) : activeView === "usage" ? (
             <UsageView data={data} user={currentUser} />
           ) : activeView === "billing" ? (
@@ -3808,6 +4206,7 @@ export default function AdminHome() {
               data={data}
               items={pagedItems}
               totalItems={filteredItems.length}
+              loading={loading}
               query={query}
               pagination={crudPagination}
               categoryFilter={modelCategoryFilter}
@@ -3841,7 +4240,7 @@ export default function AdminHome() {
           onClose={() => setModal(null)}
           onSave={(values) => {
             if (modal.config.view === "api-keys" && !modal.item) {
-              void createKeyWithCapture(api, values, setIssuedKey, setNotice, load, setLoading, setError, setModal);
+              void createKeyWithCapture(api, values, setIssuedKey, setNotice, load, setLoading, setError, () => setModal(null));
               return;
             }
             void saveModal(values);
@@ -3887,6 +4286,28 @@ export default function AdminHome() {
         />
       ) : null}
 
+      {apiKeyWizardOpen ? (
+        <APIKeyWizardModal
+          data={data}
+          currentUser={currentUser}
+          initialValues={apiKeyWizardInitialValues}
+          loading={loading}
+          onClose={() => {
+            if (!loading) {
+              setApiKeyWizardOpen(false);
+              setApiKeyWizardInitialValues({});
+            }
+          }}
+          onCreate={(values) => {
+            setIssuedKey("");
+            void createKeyWithCapture(api, values, setIssuedKey, setNotice, load, setLoading, setError, () => {
+              setApiKeyWizardOpen(false);
+              setApiKeyWizardInitialValues({});
+            });
+          }}
+        />
+      ) : null}
+
       {userImportOpen ? (
         <UserImportModal
           loading={loading}
@@ -3917,7 +4338,14 @@ export default function AdminHome() {
 
   async function runResourceAction<T>(action: ResourceAction<T>, item: T, appData: AppData) {
     if (action.modal) {
-      setModal(action.modal(item, appData));
+      const nextModal = action.modal(item, appData);
+      if (nextModal.config.view === "api-keys" && !nextModal.item) {
+        setIssuedKey("");
+        setApiKeyWizardInitialValues(nextModal.initialValues ?? {});
+        setApiKeyWizardOpen(true);
+        return;
+      }
+      setModal(nextModal);
       return;
     }
     if (!action.run) return;
@@ -4002,6 +4430,142 @@ const identityProviderIconOptions = [
   "sso",
 ];
 
+type IdentityProviderEndpointDefaults = {
+  authorize_url?: string;
+  token_url?: string;
+  userinfo_url?: string;
+};
+
+type IdentityProviderTemplate = {
+  key: string;
+  label: string;
+  providerType: "oidc" | "oauth2";
+  iconKey: string;
+  loginLabel: string;
+  issuerPlaceholder: string;
+  defaultIssuer?: string;
+  scopes: string;
+  usernameClaim: string;
+  emailClaim: string;
+  teamClaim: string;
+  endpoints?: (issuerURL: string) => IdentityProviderEndpointDefaults;
+};
+
+const identityProviderTemplates: IdentityProviderTemplate[] = [
+  {
+    key: "generic_oidc",
+    label: "通用 OIDC",
+    providerType: "oidc",
+    iconKey: "oidc",
+    loginLabel: "SSO",
+    issuerPlaceholder: "https://sso.example.com",
+    scopes: "openid, profile, email",
+    usernameClaim: "preferred_username",
+    emailClaim: "email",
+    teamClaim: "department",
+  },
+  {
+    key: "gitlab",
+    label: "GitLab",
+    providerType: "oauth2",
+    iconKey: "gitlab",
+    loginLabel: "GitLab",
+    issuerPlaceholder: "https://gitlab.example.com",
+    scopes: "openid profile email read_user",
+    usernameClaim: "username",
+    emailClaim: "email",
+    teamClaim: "department",
+    endpoints: (issuerURL) => issuerURL ? ({
+      authorize_url: `${issuerURL}/oauth/authorize`,
+      token_url: `${issuerURL}/oauth/token`,
+      userinfo_url: `${issuerURL}/api/v4/user`,
+    }) : {},
+  },
+  {
+    key: "google",
+    label: "Google",
+    providerType: "oidc",
+    iconKey: "google",
+    loginLabel: "Google",
+    issuerPlaceholder: "https://accounts.google.com",
+    defaultIssuer: "https://accounts.google.com",
+    scopes: "openid profile email",
+    usernameClaim: "email",
+    emailClaim: "email",
+    teamClaim: "hd",
+    endpoints: () => ({
+      authorize_url: "https://accounts.google.com/o/oauth2/v2/auth",
+      token_url: "https://oauth2.googleapis.com/token",
+      userinfo_url: "https://openidconnect.googleapis.com/v1/userinfo",
+    }),
+  },
+  {
+    key: "microsoft",
+    label: "Microsoft Entra ID",
+    providerType: "oidc",
+    iconKey: "microsoft",
+    loginLabel: "Microsoft",
+    issuerPlaceholder: "https://login.microsoftonline.com/{tenant}/v2.0",
+    scopes: "openid profile email User.Read",
+    usernameClaim: "preferred_username",
+    emailClaim: "email",
+    teamClaim: "department",
+    endpoints: (issuerURL) => issuerURL ? ({
+      authorize_url: `${issuerURL}/oauth2/v2.0/authorize`,
+      token_url: `${issuerURL}/oauth2/v2.0/token`,
+      userinfo_url: "https://graph.microsoft.com/oidc/userinfo",
+    }) : {},
+  },
+  {
+    key: "okta",
+    label: "Okta",
+    providerType: "oidc",
+    iconKey: "okta",
+    loginLabel: "Okta",
+    issuerPlaceholder: "https://company.okta.com/oauth2/default",
+    scopes: "openid profile email",
+    usernameClaim: "preferred_username",
+    emailClaim: "email",
+    teamClaim: "groups",
+    endpoints: (issuerURL) => issuerURL ? ({
+      authorize_url: `${issuerURL}/v1/authorize`,
+      token_url: `${issuerURL}/v1/token`,
+      userinfo_url: `${issuerURL}/v1/userinfo`,
+    }) : {},
+  },
+  {
+    key: "keycloak",
+    label: "Keycloak",
+    providerType: "oidc",
+    iconKey: "keycloak",
+    loginLabel: "Keycloak",
+    issuerPlaceholder: "https://keycloak.example.com/realms/company",
+    scopes: "openid profile email",
+    usernameClaim: "preferred_username",
+    emailClaim: "email",
+    teamClaim: "groups",
+    endpoints: (issuerURL) => issuerURL ? ({
+      authorize_url: `${issuerURL}/protocol/openid-connect/auth`,
+      token_url: `${issuerURL}/protocol/openid-connect/token`,
+      userinfo_url: `${issuerURL}/protocol/openid-connect/userinfo`,
+    }) : {},
+  },
+  {
+    key: "custom_oauth2",
+    label: "通用 OAuth2",
+    providerType: "oauth2",
+    iconKey: "oauth2",
+    loginLabel: "OAuth2",
+    issuerPlaceholder: "https://oauth.example.com",
+    scopes: "profile, email",
+    usernameClaim: "username",
+    emailClaim: "email",
+    teamClaim: "department",
+  },
+];
+
+const identityProviderTemplateOptions = identityProviderTemplates.map((template) => template.key);
+
 type LoginIdentityProviderIconComponent = React.ComponentType<{ size?: number }>;
 
 function identityProviderLoginURL(baseURL: string, provider: LoginIdentityProvider, returnURL: string) {
@@ -4053,6 +4617,105 @@ function loginIdentityProviderIconKey(provider: LoginIdentityProvider) {
 function normalizedIdentityProviderIconKey(value: string | undefined) {
   const normalized = stringifyValue(value).trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
   return identityProviderIconOptions.includes(normalized) ? normalized : "";
+}
+
+function normalizedIdentityProviderTemplateKey(value: string | undefined) {
+  const normalized = stringifyValue(value).trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  return identityProviderTemplates.some((template) => template.key === normalized) ? normalized : "";
+}
+
+function identityProviderTemplateByKey(value: string | undefined) {
+  const normalized = normalizedIdentityProviderTemplateKey(value);
+  return identityProviderTemplates.find((template) => template.key === normalized) ?? identityProviderTemplates[0];
+}
+
+function inferIdentityProviderTemplateKey(values: Record<string, string>) {
+  const configured = normalizedIdentityProviderTemplateKey(values.provider_template);
+  if (configured) return configured;
+  const iconKey = normalizedIdentityProviderIconKey(values.icon_key);
+  if (iconKey && identityProviderTemplates.some((template) => template.key === iconKey)) {
+    return iconKey;
+  }
+  const fingerprint = `${values.name ?? ""} ${values.login_label ?? ""} ${values.issuer_url ?? ""}`.toLowerCase();
+  for (const template of identityProviderTemplates) {
+    if (template.key !== "generic_oidc" && template.key !== "custom_oauth2" && fingerprint.includes(template.key)) {
+      return template.key;
+    }
+  }
+  return stringsEqual(values.provider_type, "oauth2") ? "custom_oauth2" : "generic_oidc";
+}
+
+function stringsEqual(left: string | undefined, right: string) {
+  return String(left ?? "").trim().toLowerCase() === right;
+}
+
+function normalizeIdentityProviderIssuer(value: string) {
+  return value.trim().replace(/\/+$/, "");
+}
+
+function identityProviderEndpointDefaults(template: IdentityProviderTemplate, issuerURL: string) {
+  return template.endpoints?.(normalizeIdentityProviderIssuer(issuerURL)) ?? {};
+}
+
+function applyIdentityProviderTemplate(values: Record<string, string>, templateKey: string, overwrite = true) {
+  const template = identityProviderTemplateByKey(templateKey);
+  const next: Record<string, string> = { ...values, provider_template: template.key };
+  next.provider_type = template.providerType;
+  next.icon_key = template.iconKey;
+  if (template.defaultIssuer && (overwrite || !next.issuer_url)) next.issuer_url = template.defaultIssuer;
+  const issuer = normalizeIdentityProviderIssuer(next.issuer_url || template.defaultIssuer || "");
+  for (const [key, value] of Object.entries({
+    login_label: template.loginLabel,
+    scopes: template.scopes,
+    username_claim: template.usernameClaim,
+    email_claim: template.emailClaim,
+    team_claim: template.teamClaim,
+  })) {
+    if (overwrite || !next[key]) next[key] = value;
+  }
+  const endpoints = identityProviderEndpointDefaults(template, issuer);
+  for (const [key, value] of Object.entries(endpoints)) {
+    if (value && (overwrite || !next[key])) next[key] = value;
+  }
+  return next;
+}
+
+function identityProviderInitialFormValues(values: Record<string, string>, createMode: boolean) {
+  const templateKey = inferIdentityProviderTemplateKey(values);
+  const next: Record<string, string> = createMode ? applyIdentityProviderTemplate(values, templateKey, false) : { ...values, provider_template: templateKey };
+  if (!next.default_role) next.default_role = "user";
+  if (!next.default_project_role) next.default_project_role = "developer";
+  return next;
+}
+
+function updateIdentityProviderFormValue(values: Record<string, string>, key: string, value: string) {
+  if (key === "provider_template") {
+    return applyIdentityProviderTemplate(values, value, true);
+  }
+  const next = { ...values, [key]: value };
+  if (key === "issuer_url") {
+    const template = identityProviderTemplateByKey(next.provider_template || inferIdentityProviderTemplateKey(next));
+    const previousEndpoints = identityProviderEndpointDefaults(template, values.issuer_url ?? "");
+    const nextEndpoints = identityProviderEndpointDefaults(template, value);
+    for (const endpointKey of ["authorize_url", "token_url", "userinfo_url"] as const) {
+      if (!values[endpointKey] || values[endpointKey] === previousEndpoints[endpointKey]) {
+        next[endpointKey] = nextEndpoints[endpointKey] ?? "";
+      }
+    }
+  }
+  return next;
+}
+
+function identityProviderTemplateLabel(templateKey: string) {
+  return identityProviderTemplateByKey(templateKey).label;
+}
+
+function identityProviderTemplateHelp(template: IdentityProviderTemplate) {
+  if (template.key === "generic_oidc") return "适合标准 OIDC 服务，填写 Issuer 后一般可自动发现端点。";
+  if (template.key === "custom_oauth2") return "适合非标准 OAuth2 服务，需要确认授权、Token 和用户信息端点。";
+  if (activeLanguage === "en") return `Best for ${tx(template.label)} enterprise apps; common endpoints and claims are prefilled.`;
+  if (activeLanguage === "ja") return `${tx(template.label)} の企業アプリ向けです。一般的なエンドポイントと Claim を事前入力します。`;
+  return `适合 ${template.label} 企业应用，常用端点和 Claim 已预置。`;
 }
 
 function GoogleBrandIcon({ size = 15 }: { size?: number }) {
@@ -4564,22 +5227,285 @@ function Sidebar({
   );
 }
 
+function PageHeader({
+  activeView,
+  data,
+  meta,
+  user,
+}: {
+  activeView: ViewKey;
+  data: AppData;
+  meta: { title: string; description: string; eyebrow?: string };
+  user: AdminUser;
+}) {
+  const path = navPathForView(user, activeView);
+  const chips = pageHeaderChips(activeView, data, user);
+  return (
+    <header className="page-header page-context-header">
+      <div className="page-context-main">
+        <div className="page-breadcrumb" aria-label={tx("当前位置")}>
+          <span>TokenHub</span>
+          {path.group ? <span>{tx(path.group)}</span> : null}
+          {path.parent ? <span>{tx(path.parent)}</span> : null}
+        </div>
+        <div>
+          <p className="eyebrow">{tx(meta.eyebrow || "Enterprise AI Gateway")}</p>
+          <h1>{tx(meta.title)}</h1>
+          {meta.description ? <p className="page-description">{tx(meta.description)}</p> : null}
+        </div>
+      </div>
+      <div className="page-context-side">
+        <span className="scope-chip">{tx(roleScopeDescription(user))}</span>
+        {chips.map((chip) => (
+          <span className="page-context-chip" key={chip.label}>
+            <strong>{chip.value}</strong>
+            <em>{tx(chip.label)}</em>
+          </span>
+        ))}
+      </div>
+    </header>
+  );
+}
+
+function StatusStack({
+  error,
+  notice,
+  onClearError,
+  onClearNotice,
+}: {
+  error: string;
+  notice: string;
+  onClearError: () => void;
+  onClearNotice: () => void;
+}) {
+  if (!error && !notice) return null;
+  return (
+    <div className="status-stack">
+      {error ? (
+        <div className="status-line error">
+          <AlertCircle size={16} />
+          <span>{error}</span>
+          <button className="icon-button subtle" onClick={onClearError} title={tx("关闭")} type="button">
+            <X size={14} />
+          </button>
+        </div>
+      ) : null}
+      {notice ? (
+        <div className="status-line success">
+          <Check size={16} />
+          <span>{notice}</span>
+          <button className="icon-button subtle" onClick={onClearNotice} title={tx("关闭")} type="button">
+            <X size={14} />
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function navPathForView(user: AdminUser, view: ViewKey) {
+  for (const group of navGroupsForUser(user)) {
+    for (const item of group.items) {
+      const filtered = filterNavItemByAccess(item, user);
+      if (!filtered) continue;
+      if (isNavParentItem(filtered)) {
+        const child = filtered.children.find((entry) => entry.view === view);
+        if (child) return { group: group.title, parent: filtered.label, label: child.label };
+      } else if (filtered.view === view) {
+        return { group: group.title, parent: "", label: filtered.label };
+      }
+    }
+  }
+  return { group: "", parent: "", label: standaloneViewMeta[view]?.title ?? view };
+}
+
+function pageHeaderChips(view: ViewKey, data: AppData, user: AdminUser) {
+  const role = appRole(user.role);
+  switch (view) {
+    case "providers":
+      return [
+        { label: "健康 Provider", value: `${data.providers.filter((item) => item.healthy).length}/${data.providers.length}` },
+        { label: "资源实例", value: formatNumber(data.providerResources.length) },
+      ];
+    case "models":
+      return [
+        { label: "可用模型", value: formatNumber(playgroundModels(data).length || data.models.length) },
+        { label: "启用路由", value: formatNumber(data.summary.active_route_count || data.routes.filter((item) => item.status === "active").length) },
+      ];
+    case "routes":
+      return [
+        { label: "启用路由", value: formatNumber(data.routes.filter((item) => item.status === "active").length) },
+        { label: "Provider", value: formatNumber(data.providers.length) },
+      ];
+    case "projects":
+      return [
+        { label: "项目", value: formatNumber(data.projects.length) },
+        { label: role === "team_leader" ? "团队成员" : "用户", value: formatNumber(data.users.length) },
+      ];
+    case "api-keys":
+      return [
+        { label: "Key", value: formatNumber(data.keys.length) },
+        { label: "项目", value: formatNumber(data.projects.length) },
+      ];
+    case "usage":
+    case "billing":
+      return [
+        { label: "请求", value: formatNumber(data.summary.request_count) },
+        { label: "成本", value: `$${formatMoney(data.summary.estimated_cost_usd)}` },
+      ];
+    case "audit":
+      return [
+        { label: "请求日志", value: formatNumber(data.logs.length) },
+        { label: "错误请求", value: formatNumber(data.summary.errors) },
+      ];
+    default:
+      return [{ label: "记录", value: formatNumber(pageRecordCount(view, data)) }];
+  }
+}
+
+function pageRecordCount(view: ViewKey, data: AppData) {
+  if (resourceConfigs[view]) return resourceConfigs[view].list(data).length;
+  if (view === "alert-events") return data.alerts.length;
+  if (view === "alert-deliveries") return data.alertDeliveries.length;
+  if (view === "approvals") return data.approvals.length;
+  return 0;
+}
+
 function TopNav({
+  activeView,
+  data,
+  user,
   theme,
+  onSelectView,
   onThemeToggle,
 }: {
+  activeView: ViewKey;
+  data: AppData;
+  user: AdminUser;
   theme: "light" | "dark";
+  onSelectView: (view: ViewKey) => void;
   onThemeToggle: () => void;
 }) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [recentViews, setRecentViews] = useState<ViewKey[]>(() => readRecentViews());
+  const searchItems = topSearchItemsForUser(user, data);
+  const normalizedQuery = normalizeSearchText(query);
+  const results = topSearchResults(searchItems, appRole(user.role), normalizedQuery, recentViews);
+  const showResults = open && (query.trim().length > 0 || results.length > 0);
+  const quickActions = topQuickActionsForUser(user);
+
+  useEffect(() => {
+    function handleShortcut(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        inputRef.current?.focus();
+        setOpen(true);
+      }
+    }
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, []);
+
+  useEffect(() => {
+    setRecentViews(readRecentViews());
+  }, [activeView]);
+
+  function openResult(view: ViewKey) {
+    setQuery("");
+    setOpen(false);
+    onSelectView(view);
+  }
+
+  function handleSearchKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape") {
+      setQuery("");
+      setOpen(false);
+      inputRef.current?.blur();
+      return;
+    }
+    if (event.key === "Enter" && results[0]) {
+      event.preventDefault();
+      openResult(results[0].view);
+    }
+  }
+
   return (
     <header className="topbar">
-      <label className="top-search" aria-label={tx("搜索控制台")}>
-        <Search size={16} />
-        <input placeholder={tx("搜索模型、Provider、日志...")} />
-        <span>⌘K</span>
-      </label>
+      <div className="top-search-wrap">
+        <label className={showResults ? "top-search active" : "top-search"} aria-label={tx("搜索控制台")}>
+          <Search size={16} />
+          <input
+            ref={inputRef}
+            value={query}
+            onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setOpen(true);
+            }}
+            onFocus={() => setOpen(true)}
+            onKeyDown={handleSearchKeyDown}
+            placeholder={tx("搜索模型、Provider、日志...")}
+          />
+          <span>⌘K</span>
+        </label>
+        {showResults ? (
+          <div className="top-search-panel" role="listbox" aria-label={tx("搜索结果")} onMouseDown={(event) => event.preventDefault()}>
+            {results.length > 0 ? (
+              results.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    className={item.view === activeView ? "top-search-result active" : "top-search-result"}
+                    key={item.id}
+                    onClick={() => openResult(item.view)}
+                    role="option"
+                    type="button"
+                    aria-selected={item.view === activeView}
+                  >
+                    <span className={`top-search-result-icon ${item.tone ?? "page"}`}>
+                      <Icon size={16} />
+                    </span>
+                    <span className="top-search-result-body">
+                      <strong>{tx(item.label)}</strong>
+                      <small>{tx(item.group)} · {tx(item.description)}</small>
+                    </span>
+                    <span className="top-search-result-action">{tx("打开")}</span>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="top-search-empty">
+                <strong>{tx("没有找到匹配入口")}</strong>
+                <span>{tx("请尝试搜索模型、Key、用量、日志或设置。")}</span>
+              </div>
+            )}
+          </div>
+        ) : null}
+      </div>
       <div className="topbar-spacer" />
       <div className="topbar-actions">
+        <div className="top-quick-actions" aria-label={tx("常用操作")}>
+          {quickActions.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                className={item.view === activeView ? "top-icon-button active" : "top-icon-button"}
+                key={item.view}
+                onClick={() => openResult(item.view)}
+                title={tx(item.label)}
+                type="button"
+              >
+                <Icon size={17} />
+              </button>
+            );
+          })}
+        </div>
+        <div className="top-scope-pill" title={tx(roleScopeDescription(user))}>
+          <span>{userInitial(user)}</span>
+          <strong>{roleLabel(user.role)}</strong>
+        </div>
         <button className="top-icon-button" onClick={onThemeToggle} title={tx("切换主题")} type="button">
           {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
         </button>
@@ -4591,9 +5517,11 @@ function TopNav({
 function OverviewView({
   data,
   user,
+  onSelectView,
 }: {
   data: AppData;
   user: AdminUser;
+  onSelectView: (view: ViewKey) => void;
 }) {
   const [range, setRange] = useState<OverviewRangeKey>("7d");
   const [chartMetric, setChartMetric] = useState<OverviewMetricKey>("requests");
@@ -4670,6 +5598,8 @@ function OverviewView({
         </div>
       </header>
 
+      <OverviewRoleWorkbench data={data} user={user} onSelectView={onSelectView} />
+
       <section className="metrics overview-metrics">
         {cards.map((card) => {
           const Icon = card.icon;
@@ -4721,6 +5651,368 @@ function OverviewView({
       </section>
     </div>
   );
+}
+
+type OverviewWorkbenchItem = {
+  title: string;
+  description: string;
+  status: "ready" | "attention" | "next";
+  statusLabel: string;
+  target: ViewKey;
+  action: string;
+  icon: typeof Activity;
+};
+
+function OverviewRoleWorkbench({
+  data,
+  user,
+  onSelectView,
+}: {
+  data: AppData;
+  user: AdminUser;
+  onSelectView: (view: ViewKey) => void;
+}) {
+  const role = appRole(user.role);
+  const can = (view: ViewKey) => canAccessView(user, view);
+  const guideStorageKey = overviewWorkbenchStorageKey(user, role);
+  const projects = data.projects.filter((project) => project.status === "active" || project.status === "");
+  const activeProviders = data.providers.filter((provider) => provider.status === "active");
+  const healthyProviders = activeProviders.filter((provider) => provider.healthy);
+  const activeRoutes = data.summary.active_route_count || data.routes.filter((route) => route.status === "active").length;
+  const apiKeys = data.summary.api_key_count || data.keys.length;
+  const callableModels = playgroundModels(data).length || data.models.filter((model) => model.status === "active").length;
+  const requestCount = data.summary.request_count || data.logs.length;
+  const setupScore = overviewSetupScore(role, {
+    projects: projects.length,
+    activeProviders: activeProviders.length,
+    healthyProviders: healthyProviders.length,
+    activeRoutes,
+    apiKeys,
+    callableModels,
+    requestCount,
+  });
+  const items = overviewWorkbenchItems(role, {
+    projects: projects.length,
+    activeProviders: activeProviders.length,
+    healthyProviders: healthyProviders.length,
+    activeRoutes,
+    apiKeys,
+    callableModels,
+    requestCount,
+  }).filter((item) => can(item.target));
+  const primary = items.find((item) => item.status !== "ready") ?? items[0];
+  const secondaryItems = primary ? items.filter((item) => item.title !== primary.title) : items;
+  const setupComplete = setupScore.ready >= setupScore.total;
+  const [guidePreference, setGuidePreference] = useState<"show" | "hide">(() => overviewWorkbenchInitialPreference(guideStorageKey, setupComplete));
+
+  useEffect(() => {
+    setGuidePreference(overviewWorkbenchInitialPreference(guideStorageKey, setupComplete));
+  }, [guideStorageKey, setupComplete]);
+
+  function dismissGuide(reason: "dismissed" | "opened") {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(guideStorageKey, reason);
+    }
+    setGuidePreference("hide");
+  }
+
+  function openGuideTarget(target: ViewKey) {
+    dismissGuide("opened");
+    onSelectView(target);
+  }
+
+  if (setupComplete || guidePreference !== "show" || !primary) return null;
+
+  return (
+    <section className={`overview-workbench role-${role}`}>
+      <div className="overview-workbench-main">
+        <div>
+          <p className="eyebrow">{tx(overviewRoleEyebrow(role))}</p>
+          <h2>{tx(overviewRoleTitle(role))}</h2>
+          <p>{tx(overviewRoleSummary(role))}</p>
+        </div>
+        <div className="overview-workbench-controls">
+          <div className="overview-readiness">
+            <span>{tx("就绪度")}</span>
+            <strong>{setupScore.ready}/{setupScore.total}</strong>
+            <small>{tx(setupScore.label)}</small>
+          </div>
+          <button className="icon-button workbench-dismiss" onClick={() => dismissGuide("dismissed")} type="button" title={tx("不再提示")}>
+            <X size={15} />
+          </button>
+        </div>
+      </div>
+
+      <div className="overview-primary-action">
+        <div>
+          <span className={`workbench-status ${primary.status}`}>{tx(primary.statusLabel)}</span>
+          <strong>{tx(primary.title)}</strong>
+          <small>{tx(primary.description)}</small>
+        </div>
+        <button className="button" onClick={() => openGuideTarget(primary.target)} type="button">
+          {tx(primary.action)}
+        </button>
+      </div>
+
+      <div className="overview-workbench-grid">
+        {secondaryItems.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button className="overview-workbench-item" key={item.title} onClick={() => openGuideTarget(item.target)} type="button">
+              <span className={`workbench-icon ${item.status}`}>
+                <Icon size={16} />
+              </span>
+              <span className="workbench-item-body">
+                <span className={`workbench-status ${item.status}`}>{tx(item.statusLabel)}</span>
+                <strong>{tx(item.title)}</strong>
+                <small>{tx(item.description)}</small>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function overviewWorkbenchStorageKey(user: AdminUser, role: AppRole) {
+  const userKey = user.id || user.username || user.email || "anonymous";
+  return `tokenhub.overview.workbench.v1.${role}.${userKey}`;
+}
+
+function overviewWorkbenchInitialPreference(storageKey: string, setupComplete: boolean): "show" | "hide" {
+  if (typeof window === "undefined") return setupComplete ? "hide" : "show";
+  if (setupComplete) {
+    window.localStorage.setItem(storageKey, "completed");
+    return "hide";
+  }
+  if (window.localStorage.getItem(storageKey)) return "hide";
+  window.localStorage.setItem(storageKey, "shown");
+  return "show";
+}
+
+function overviewRoleEyebrow(role: AppRole) {
+  switch (role) {
+    case "admin":
+      return "平台管理员工作台";
+    case "security":
+      return "安全审计工作台";
+    case "team_leader":
+      return "团队 Leader 工作台";
+    default:
+      return "开发者工作台";
+  }
+}
+
+function overviewRoleTitle(role: AppRole) {
+  switch (role) {
+    case "admin":
+      return "先让平台可用，再治理成本与风险";
+    case "security":
+      return "聚焦审计、异常和访问边界";
+    case "team_leader":
+      return "先管项目和成员，再看团队用量";
+    default:
+      return "从项目 Key 和可用模型开始调用";
+  }
+}
+
+function overviewRoleSummary(role: AppRole) {
+  switch (role) {
+    case "admin":
+      return "Provider、路由、身份源和成本治理是平台稳定运行的主路径。";
+    case "security":
+      return "优先检查请求日志、审计事件和异常失败请求。";
+    case "team_leader":
+      return "团队的 Key、成员和项目成本都应归属到具体项目空间。";
+    default:
+      return "确认项目、复制 Key、选择模型，然后按接口文档完成调用。";
+  }
+}
+
+function overviewSetupScore(role: AppRole, stats: OverviewWorkbenchStats) {
+  const checks = overviewReadinessChecks(role, stats);
+  const ready = checks.filter(Boolean).length;
+  return {
+    ready,
+    total: checks.length,
+    label: ready === checks.length ? "关键路径已就绪" : "仍有待处理项",
+  };
+}
+
+type OverviewWorkbenchStats = {
+  projects: number;
+  activeProviders: number;
+  healthyProviders: number;
+  activeRoutes: number;
+  apiKeys: number;
+  callableModels: number;
+  requestCount: number;
+};
+
+function overviewReadinessChecks(role: AppRole, stats: OverviewWorkbenchStats) {
+  switch (role) {
+    case "admin":
+      return [stats.activeProviders > 0, stats.healthyProviders > 0, stats.activeRoutes > 0, stats.projects > 0];
+    case "security":
+      return [stats.requestCount > 0, stats.activeRoutes > 0, stats.healthyProviders > 0];
+    case "team_leader":
+      return [stats.projects > 0, stats.apiKeys > 0, stats.callableModels > 0, stats.requestCount > 0];
+    default:
+      return [stats.apiKeys > 0, stats.callableModels > 0, stats.requestCount > 0];
+  }
+}
+
+function overviewWorkbenchItems(role: AppRole, stats: OverviewWorkbenchStats): OverviewWorkbenchItem[] {
+  switch (role) {
+    case "admin":
+      return [
+        {
+          title: "接入 Provider",
+          description: stats.activeProviders > 0 ? `${formatNumber(stats.healthyProviders)}/${formatNumber(stats.activeProviders)} 个渠道健康` : "还没有可用 Provider",
+          status: stats.healthyProviders > 0 ? "ready" : "attention",
+          statusLabel: stats.healthyProviders > 0 ? "已就绪" : "待处理",
+          target: "providers",
+          action: "查看 Provider",
+          icon: Server,
+        },
+        {
+          title: "配置模型路由",
+          description: stats.activeRoutes > 0 ? `${formatNumber(stats.activeRoutes)} 条启用路由` : "模型需要路由后才能调用",
+          status: stats.activeRoutes > 0 ? "ready" : "attention",
+          statusLabel: stats.activeRoutes > 0 ? "已就绪" : "待处理",
+          target: "routes",
+          action: "配置路由",
+          icon: Boxes,
+        },
+        {
+          title: "组织接入",
+          description: "身份源、角色和默认授权集中在系统设置",
+          status: "next",
+          statusLabel: "建议",
+          target: "settings",
+          action: "查看身份源",
+          icon: ShieldCheck,
+        },
+        {
+          title: "成本与用量",
+          description: stats.requestCount > 0 ? `${formatNumber(stats.requestCount)} 次请求可分析` : "暂无请求数据",
+          status: stats.requestCount > 0 ? "ready" : "next",
+          statusLabel: stats.requestCount > 0 ? "可分析" : "待观察",
+          target: "usage",
+          action: "查看用量",
+          icon: Gauge,
+        },
+      ];
+    case "security":
+      return [
+        {
+          title: "请求审计",
+          description: stats.requestCount > 0 ? `${formatNumber(stats.requestCount)} 次请求可追踪` : "暂无请求记录",
+          status: stats.requestCount > 0 ? "ready" : "next",
+          statusLabel: stats.requestCount > 0 ? "可审计" : "待观察",
+          target: "audit",
+          action: "查看审计",
+          icon: FileText,
+        },
+        {
+          title: "模型边界",
+          description: stats.activeRoutes > 0 ? `${formatNumber(stats.activeRoutes)} 条路由在服务` : "暂无启用路由",
+          status: stats.activeRoutes > 0 ? "ready" : "attention",
+          statusLabel: stats.activeRoutes > 0 ? "已就绪" : "待确认",
+          target: "models",
+          action: "查看模型",
+          icon: Boxes,
+        },
+        {
+          title: "安全策略",
+          description: "统一查看策略、代理出口和数据备份",
+          status: "next",
+          statusLabel: "建议",
+          target: "security-policies",
+          action: "查看策略",
+          icon: ShieldCheck,
+        },
+      ];
+    case "team_leader":
+      return [
+        {
+          title: "项目空间",
+          description: stats.projects > 0 ? `${formatNumber(stats.projects)} 个项目可管理` : "先创建团队项目",
+          status: stats.projects > 0 ? "ready" : "attention",
+          statusLabel: stats.projects > 0 ? "已就绪" : "待处理",
+          target: "projects",
+          action: "管理项目",
+          icon: LayoutDashboard,
+        },
+        {
+          title: "Key 管理",
+          description: stats.apiKeys > 0 ? `${formatNumber(stats.apiKeys)} 个 Key 已发放` : "项目需要 Key 才能接入应用",
+          status: stats.apiKeys > 0 ? "ready" : "attention",
+          statusLabel: stats.apiKeys > 0 ? "已就绪" : "待发放",
+          target: "api-keys",
+          action: "管理 Key",
+          icon: KeyRound,
+        },
+        {
+          title: "团队用量",
+          description: stats.requestCount > 0 ? "已有请求，可按项目和成员归因" : "调用后会形成团队报表",
+          status: stats.requestCount > 0 ? "ready" : "next",
+          statusLabel: stats.requestCount > 0 ? "可分析" : "待观察",
+          target: "usage",
+          action: "查看报表",
+          icon: BarChart3,
+        },
+        {
+          title: "调用文档",
+          description: "项目 Key、Base URL 和模型接口都在文档里",
+          status: "next",
+          statusLabel: "建议",
+          target: "gateway",
+          action: "查看文档",
+          icon: Code2,
+        },
+      ];
+    default:
+      return [
+        {
+          title: "Key 管理",
+          description: stats.apiKeys > 0 ? `${formatNumber(stats.apiKeys)} 个 Key 可用于调用` : "创建或领取项目 Key",
+          status: stats.apiKeys > 0 ? "ready" : "attention",
+          statusLabel: stats.apiKeys > 0 ? "已就绪" : "待处理",
+          target: "api-keys",
+          action: "查看 Key",
+          icon: KeyRound,
+        },
+        {
+          title: "可用模型",
+          description: stats.callableModels > 0 ? `${formatNumber(stats.callableModels)} 个模型可查看` : "暂无可见模型",
+          status: stats.callableModels > 0 ? "ready" : "attention",
+          statusLabel: stats.callableModels > 0 ? "可查看" : "待开通",
+          target: "models",
+          action: "查看模型",
+          icon: Boxes,
+        },
+        {
+          title: "调用文档",
+          description: "复制 Base URL、curl 和 OpenAI SDK 示例",
+          status: "next",
+          statusLabel: "下一步",
+          target: "gateway",
+          action: "打开文档",
+          icon: Code2,
+        },
+        {
+          title: "我的用量",
+          description: stats.requestCount > 0 ? `${formatNumber(stats.requestCount)} 次请求可查看` : "调用后会形成个人用量",
+          status: stats.requestCount > 0 ? "ready" : "next",
+          statusLabel: stats.requestCount > 0 ? "可分析" : "待观察",
+          target: "usage",
+          action: "查看用量",
+          icon: BarChart3,
+        },
+      ];
+  }
 }
 
 type OverviewRangeKey = "7d" | "30d" | "month";
@@ -5060,11 +6352,13 @@ function overviewTopModelRows(data: AppData) {
 function GatewayView({
   api,
   data,
+  user,
   language,
   onLanguageChange,
 }: {
   api: ApiContext;
   data: AppData;
+  user: AdminUser;
   language: AppLanguage;
   onLanguageChange: (language: AppLanguage) => void;
 }) {
@@ -5073,16 +6367,17 @@ function GatewayView({
   const callableModels = playgroundModels(data);
   const sampleModel = callableModels.find((model) => activeRouteCount(model.name, data) > 0)?.name ?? callableModels[0]?.name ?? "gpt-4.1-mini";
   const keyHint = data.keys[0] ? `${data.keys[0].key_prefix}...${data.keys[0].key_suffix}` : "YOUR_TOKENHUB_API_KEY";
-  const docBundle = gatewayDocBundle({ language, baseURL, keyHint, sampleModel, activeRoutes, data, callableModels });
-  const [activeDocID, setActiveDocID] = useState("user-guide");
+  const docBundle = gatewayDocBundle({ language, baseURL, keyHint, sampleModel, activeRoutes, data, callableModels, role: appRole(user.role) });
+  const [activeDocID, setActiveDocID] = useState(docBundle.defaultDocID ?? "quickstart");
   const allDocs = docBundle.groups.flatMap((group) => group.items);
   const activeDoc = allDocs.find((item) => item.id === activeDocID) ?? allDocs[0]!;
+  const defaultDocID = docBundle.defaultDocID ?? allDocs[0]?.id ?? "quickstart";
 
   useEffect(() => {
     if (!allDocs.some((item) => item.id === activeDocID)) {
-      setActiveDocID(allDocs[0]?.id ?? "user-guide");
+      setActiveDocID(defaultDocID);
     }
-  }, [activeDocID, allDocs]);
+  }, [activeDocID, allDocs, defaultDocID]);
 
   return (
     <div className="gateway-docs">
@@ -5164,6 +6459,7 @@ type GatewayDocNavCopy = {
 };
 
 type GatewayDocBundle = {
+  defaultDocID?: string;
   nav: GatewayDocNavCopy;
   eyebrow: string;
   title: string;
@@ -5329,6 +6625,7 @@ function gatewayDocBundle({
   activeRoutes,
   data,
   callableModels,
+  role,
 }: {
   language: AppLanguage;
   baseURL: string;
@@ -5337,6 +6634,7 @@ function gatewayDocBundle({
   activeRoutes: number;
   data: AppData;
   callableModels: Model[];
+  role: AppRole;
 }): GatewayDocBundle {
   const authHeader = `Authorization: Bearer ${keyHint}`;
   const activeRouteCountValue = activeRoutes || data.summary.active_route_count || 0;
@@ -5362,6 +6660,8 @@ function gatewayDocBundle({
 
   const commonEN = gatewayEnglishDocs({
     baseURL,
+    keyHint,
+    authHeader,
     sampleModel,
     chatCurl,
     activeRouteCountValue,
@@ -5373,6 +6673,25 @@ function gatewayDocBundle({
     requestLogCount,
     visibleModelCount,
   });
+  if (role === "user" || role === "team_leader") {
+    return gatewayLLMUsageDocs({
+      language,
+      role,
+      baseURL,
+      keyHint,
+      authHeader,
+      sampleModel,
+      chatCurl,
+      activeRouteCountValue,
+      apiKeyCount,
+      projectCount,
+      userCount,
+      providerCount,
+      routeCount,
+      requestLogCount,
+      visibleModelCount,
+    });
+  }
   if (language === "zh-CN") return gatewayChineseDocs(commonEN);
   if (language === "ja") return gatewayJapaneseDocs(commonEN);
   return commonEN;
@@ -5380,6 +6699,8 @@ function gatewayDocBundle({
 
 type GatewayDocStats = {
   baseURL: string;
+  keyHint: string;
+  authHeader: string;
   sampleModel: string;
   chatCurl: string;
   activeRouteCountValue: number;
@@ -5391,6 +6712,840 @@ type GatewayDocStats = {
   requestLogCount: number;
   visibleModelCount: number;
 };
+
+function gatewayLLMUsageDocs({
+  language,
+  role,
+  ...stats
+}: GatewayDocStats & { language: AppLanguage; role: AppRole }): GatewayDocBundle {
+  if (language === "zh-CN") return gatewayChineseLLMUsageDocs(stats, role);
+  if (language === "ja") return gatewayJapaneseLLMUsageDocs(stats, role);
+  return gatewayEnglishLLMUsageDocs(stats, role);
+}
+
+function gatewayListModelsCurl(stats: GatewayDocStats) {
+  return `curl --request GET \\
+  --url "${stats.baseURL}/models" \\
+  --header "${stats.authHeader}" \\
+  --header "Content-Type: application/json"`;
+}
+
+function gatewayStreamingCurl(stats: GatewayDocStats) {
+  return `curl -N --request POST \\
+  --url "${stats.baseURL}/chat/completions" \\
+  --header "${stats.authHeader}" \\
+  --header "Content-Type: application/json" \\
+  --data '{
+    "model": "${stats.sampleModel}",
+    "messages": [
+      {"role": "user", "content": "Stream a short release note for this model gateway."}
+    ],
+    "stream": true,
+    "stream_options": {"include_usage": true}
+  }'`;
+}
+
+function gatewayResponsesCurl(stats: GatewayDocStats) {
+  return `curl --request POST \\
+  --url "${stats.baseURL}/responses" \\
+  --header "${stats.authHeader}" \\
+  --header "Content-Type: application/json" \\
+  --data '{
+    "model": "${stats.sampleModel}",
+    "input": "Summarize the weekly project status in three bullets."
+  }'`;
+}
+
+function gatewayEmbeddingsCurl(stats: GatewayDocStats) {
+  return `curl --request POST \\
+  --url "${stats.baseURL}/embeddings" \\
+  --header "${stats.authHeader}" \\
+  --header "Content-Type: application/json" \\
+  --data '{
+    "model": "text-embedding-3-small",
+    "input": "TokenHub enterprise knowledge base"
+  }'`;
+}
+
+function gatewayOpenAISDKExample(stats: GatewayDocStats) {
+  return `import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: process.env.TOKENHUB_API_KEY,
+  baseURL: "${stats.baseURL}",
+});
+
+const completion = await client.chat.completions.create({
+  model: "${stats.sampleModel}",
+  messages: [
+    { role: "user", content: "Write a concise onboarding checklist." },
+  ],
+});
+
+console.log(completion.choices[0]?.message?.content);`;
+}
+
+function gatewayPythonSDKExample(stats: GatewayDocStats) {
+  return `from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_TOKENHUB_API_KEY",
+    base_url="${stats.baseURL}",
+)
+
+completion = client.chat.completions.create(
+    model="${stats.sampleModel}",
+    messages=[
+        {"role": "user", "content": "Write a concise onboarding checklist."},
+    ],
+)
+
+print(completion.choices[0].message.content)`;
+}
+
+function gatewayEnglishLLMUsageDocs(stats: GatewayDocStats, role: AppRole): GatewayDocBundle {
+  const teamLeader = role === "team_leader";
+  return {
+    defaultDocID: "quickstart",
+    nav: {
+      title: "API Documentation",
+      subtitle: "OpenAI-compatible LLM usage",
+      searchPlaceholder: "Search endpoints, parameters, or errors",
+      noResults: "No matching API document",
+    },
+    eyebrow: "LLM API Docs",
+    title: "Call Large Language Models",
+    description: teamLeader
+      ? "Use project-scoped keys to call approved models, then manage access, quota, and cost attribution at the project level."
+      : "Use a project API key to call OpenAI-compatible model endpoints. Start with model discovery, then call chat, responses, or embeddings.",
+    languageLabel: "Documentation language",
+    quickInfoLabel: "API basics",
+    quickCards: {
+      baseURL: "Base URL",
+      authorization: "Authorization",
+      sampleModel: "Sample model",
+      currentConfig: "Current API scope",
+      activeRoutes: `${formatNumber(stats.visibleModelCount)} callable model${stats.visibleModelCount === 1 ? "" : "s"}`,
+      apiKeys: `${formatNumber(stats.apiKeyCount)} project key${stats.apiKeyCount === 1 ? "" : "s"}`,
+    },
+    groups: [
+      {
+        title: "Start Here",
+        items: [
+          {
+            id: "quickstart",
+            group: "Start Here",
+            badge: "GUIDE",
+            title: "Quick Start",
+            description: "Make your first OpenAI-compatible LLM request through TokenHub.",
+            details: [
+              { label: "Base URL", value: stats.baseURL },
+              { label: "Auth header", value: "Authorization: Bearer <API Key>" },
+              { label: "Sample model", value: stats.sampleModel },
+              { label: "Current scope", value: teamLeader ? "Team projects" : "Assigned projects" },
+            ],
+            notesTitle: "Call sequence",
+            notes: [
+              "Create or copy a project API key from Key Management. Console login tokens are not accepted by /v1 model endpoints.",
+              "Call GET /v1/models first. The response is the model list available to that API key.",
+              "Use one of those model IDs in POST /v1/chat/completions, /v1/responses, or /v1/embeddings.",
+              "For failed calls, copy request_id from the response and search Request Logs.",
+            ],
+            examplesTitle: "First requests",
+            examples: [
+              { title: "List available models", code: gatewayListModelsCurl(stats) },
+              { title: "Create a chat completion", code: stats.chatCurl },
+            ],
+          },
+          {
+            id: "authentication",
+            group: "Start Here",
+            badge: "AUTH",
+            title: "Authentication",
+            description: "Every model API request uses a project API key in the Authorization header.",
+            table: {
+              title: "Required headers",
+              columns: ["Header", "Required", "Value"],
+              rows: [
+                ["Authorization", "Yes", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["Content-Type", "POST requests", "application/json"],
+              ],
+            },
+            notesTitle: "Permission checks",
+            notes: [
+              "The key must be active and attached to an active project.",
+              "The requested model must be visible to the project and backed by at least one enabled route.",
+              teamLeader
+                ? "Team leaders should issue keys from the intended project so usage rolls up to the right team and cost center."
+                : "If you belong to multiple projects, choose the project that should own usage and cost before creating a key.",
+            ],
+          },
+        ],
+      },
+      {
+        title: "LLM API Reference",
+        items: [
+          {
+            id: "list-models",
+            group: "LLM API Reference",
+            method: "GET",
+            path: "/v1/models",
+            title: "List Models",
+            description: "Return the LLM models currently available to the API key. This endpoint is OpenAI-compatible.",
+            params: {
+              title: "Request headers",
+              columns: ["Field", "Type", "Required", "Description"],
+              rows: [["Authorization", "header", "Yes", "Bearer YOUR_TOKENHUB_API_KEY"]],
+            },
+            table: {
+              title: "Model fields",
+              columns: ["Field", "Description"],
+              rows: [
+                ["id", "Model identifier used in later API calls."],
+                ["object", "Object type, usually model."],
+                ["created", "Unix timestamp when available."],
+                ["input_token_price_per_m", "Estimated input price per million tokens when configured."],
+                ["output_token_price_per_m", "Estimated output price per million tokens when configured."],
+                ["context_size", "Maximum context size when configured."],
+              ],
+            },
+            examplesTitle: "Example",
+            examples: [{ title: "cURL", code: gatewayListModelsCurl(stats) }],
+          },
+          {
+            id: "chat-completions",
+            group: "LLM API Reference",
+            method: "POST",
+            path: "/v1/chat/completions",
+            title: "Create Chat Completion",
+            description: "Generate a model response from a message list. Use this for normal chat, tool calling, structured output, and streaming.",
+            params: {
+              title: "Request body",
+              columns: ["Field", "Type", "Required", "Description"],
+              rows: [
+                ["model", "string", "Yes", `A model ID from /v1/models, for example ${stats.sampleModel}.`],
+                ["messages", "array", "Yes", "Conversation messages with system, user, or assistant roles."],
+                ["max_tokens", "integer", "No", "Maximum generated tokens."],
+                ["temperature", "number", "No", "Sampling temperature."],
+                ["stream", "boolean", "No", "When true, returns Server-Sent Events ending with data: [DONE]."],
+                ["tools", "array", "No", "Function tools supported by compatible upstream models."],
+                ["response_format", "object", "No", "JSON object or JSON schema output when supported."],
+              ],
+            },
+            table: {
+              title: "Response fields",
+              columns: ["Field", "Description"],
+              rows: [
+                ["id", "Unique completion ID."],
+                ["choices[].message", "Assistant response content."],
+                ["choices[].finish_reason", "Why generation stopped, such as stop or length."],
+                ["usage", "prompt, completion, and total token counts."],
+              ],
+            },
+            examplesTitle: "Examples",
+            examples: [
+              { title: "Non-streaming", code: stats.chatCurl },
+              { title: "Streaming", code: gatewayStreamingCurl(stats) },
+            ],
+          },
+          {
+            id: "responses-api",
+            group: "LLM API Reference",
+            method: "POST",
+            path: "/v1/responses",
+            title: "Create Response",
+            description: "Use the Responses-style API for simple text input and future multimodal extensions.",
+            params: {
+              title: "Request body",
+              columns: ["Field", "Type", "Required", "Description"],
+              rows: [
+                ["model", "string", "Yes", "A callable model ID."],
+                ["input", "string | array", "Yes", "Input text or structured input content."],
+                ["stream", "boolean", "No", "Whether to return a streaming response."],
+              ],
+            },
+            examplesTitle: "Example",
+            examples: [{ title: "cURL", code: gatewayResponsesCurl(stats) }],
+          },
+          {
+            id: "embeddings-api",
+            group: "LLM API Reference",
+            method: "POST",
+            path: "/v1/embeddings",
+            title: "Create Embeddings",
+            description: "Create vector embeddings for search, retrieval, classification, and clustering workflows.",
+            params: {
+              title: "Request body",
+              columns: ["Field", "Type", "Required", "Description"],
+              rows: [
+                ["model", "string", "Yes", "An embedding model ID visible to the key."],
+                ["input", "string | array", "Yes", "Text to embed."],
+                ["encoding_format", "string", "No", "float or base64 when supported by the upstream model."],
+              ],
+            },
+            examplesTitle: "Example",
+            examples: [{ title: "cURL", code: gatewayEmbeddingsCurl(stats) }],
+          },
+        ],
+      },
+      {
+        title: teamLeader ? "Team Rollout" : "Project Keys",
+        items: [
+          {
+            id: "project-keys",
+            group: teamLeader ? "Team Rollout" : "Project Keys",
+            badge: "KEY",
+            title: teamLeader ? "Issue Keys for Projects" : "Use Project Keys",
+            description: teamLeader
+              ? "A team member may belong to multiple projects. Issue each key under the project that should own usage, quota, and cost."
+              : "You may belong to multiple projects. Create the key under the project that should own usage, quota, and cost.",
+            table: {
+              title: teamLeader ? "Team key rollout checklist" : "Project key rules",
+              columns: ["Item", "Rule"],
+              rows: teamLeader ? [
+                ["Project", "Create or select the project before issuing a key."],
+                ["Members", "Add the application owner to the project member panel."],
+                ["Models", "Verify GET /v1/models with the new key before handing it to the app."],
+                ["Reports", "Review team usage by member, project, model, and cost center."],
+              ] : [
+                ["Project", "Each API key belongs to exactly one project."],
+                ["Models", "The model list is filtered by project and key permissions."],
+                ["Secret", "A new key is shown once. Store it in your app secret manager."],
+                ["Usage", "Requests are attributed to the key's project and your account."],
+              ],
+            },
+          },
+          {
+            id: "sdk-examples",
+            group: teamLeader ? "Team Rollout" : "Project Keys",
+            badge: "SDK",
+            title: "OpenAI-Compatible SDKs",
+            description: "Point any OpenAI-compatible SDK at the TokenHub Base URL and use a TokenHub project API key.",
+            examplesTitle: "SDK examples",
+            examples: [
+              { title: "Node.js", code: gatewayOpenAISDKExample(stats) },
+              { title: "Python", code: gatewayPythonSDKExample(stats) },
+            ],
+          },
+          {
+            id: "errors",
+            group: teamLeader ? "Team Rollout" : "Project Keys",
+            badge: "REF",
+            title: "Errors and Troubleshooting",
+            description: "Use status codes to locate API key, project membership, model routing, and quota problems.",
+            table: {
+              title: "Common errors",
+              columns: ["Status", "Likely cause", "Action"],
+              rows: [
+                ["401", "Missing, malformed, disabled, or expired API key.", "Check the Authorization header and key status."],
+                ["403", "Project, key, or model permission does not allow the request.", teamLeader ? "Check project membership, key model scope, and team project ownership." : "Ask your team leader to check project membership and model access."],
+                ["404/503", "No enabled healthy route can serve the model.", "Ask an administrator to enable routing or check provider health."],
+                ["429", "Project quota, concurrency, or provider resource limit was reached.", teamLeader ? "Review project quota and concurrency limits." : "Wait for quota reset or request a quota increase."],
+                ["500", "Upstream provider or routing error.", `Search request_id in Request Logs. Current visible log sample: ${formatNumber(stats.requestLogCount)}.`],
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function gatewayChineseLLMUsageDocs(stats: GatewayDocStats, role: AppRole): GatewayDocBundle {
+  const teamLeader = role === "team_leader";
+  return {
+    defaultDocID: "quickstart",
+    nav: {
+      title: "接口文档",
+      subtitle: "OpenAI 兼容大模型调用",
+      searchPlaceholder: "搜索接口、参数或错误码",
+      noResults: "没有匹配的接口文档",
+    },
+    eyebrow: "LLM API Docs",
+    title: "调用大语言模型",
+    description: teamLeader
+      ? "使用项目 Key 调用已批准模型，并在项目维度管理成员权限、额度和成本归因。"
+      : "使用项目 API Key 调用 OpenAI 兼容模型接口。先查询可用模型，再发起对话、Responses 或向量请求。",
+    languageLabel: "文档语言",
+    quickInfoLabel: "接口基础信息",
+    quickCards: {
+      baseURL: "Base URL",
+      authorization: "Authorization",
+      sampleModel: "示例模型",
+      currentConfig: "当前接口范围",
+      activeRoutes: `${formatNumber(stats.visibleModelCount)} 个可调用模型`,
+      apiKeys: `${formatNumber(stats.apiKeyCount)} 个项目 Key`,
+    },
+    groups: [
+      {
+        title: "快速开始",
+        items: [
+          {
+            id: "quickstart",
+            group: "快速开始",
+            badge: "GUIDE",
+            title: "快速接入",
+            description: "通过 TokenHub 发起第一笔 OpenAI 兼容的大模型请求。",
+            details: [
+              { label: "Base URL", value: stats.baseURL },
+              { label: "鉴权 Header", value: "Authorization: Bearer <API Key>" },
+              { label: "示例模型", value: stats.sampleModel },
+              { label: "当前范围", value: teamLeader ? "团队项目" : "已分配项目" },
+            ],
+            notesTitle: "调用顺序",
+            notes: [
+              "先在 Key 管理中创建或复制项目 API Key。控制台登录 Token 不能用于 /v1 模型接口。",
+              "先调用 GET /v1/models，这个返回值就是当前 Key 可用的模型列表。",
+              "从模型列表里选择 model，调用 POST /v1/chat/completions、/v1/responses 或 /v1/embeddings。",
+              "调用失败时复制响应里的 request_id，到请求日志里排查。",
+            ],
+            examplesTitle: "首个请求",
+            examples: [
+              { title: "查询可用模型", code: gatewayListModelsCurl(stats) },
+              { title: "创建聊天对话", code: stats.chatCurl },
+            ],
+          },
+          {
+            id: "authentication",
+            group: "快速开始",
+            badge: "AUTH",
+            title: "鉴权方式",
+            description: "所有模型接口都使用项目 API Key，通过 Authorization header 传入。",
+            table: {
+              title: "必填请求头",
+              columns: ["Header", "必填", "值"],
+              rows: [
+                ["Authorization", "是", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["Content-Type", "POST 请求", "application/json"],
+              ],
+            },
+            notesTitle: "权限检查",
+            notes: [
+              "Key 必须处于启用状态，并且绑定到启用的项目。",
+              "请求模型必须对该项目可见，并且至少有一条启用路由。",
+              teamLeader
+                ? "团队 Leader 发放 Key 时，应选择真实归属项目，确保用量能回到正确团队和成本中心。"
+                : "如果你在多个项目中，创建 Key 前先选择应该承担用量和成本的项目。",
+            ],
+          },
+        ],
+      },
+      {
+        title: "大模型 API",
+        items: [
+          {
+            id: "list-models",
+            group: "大模型 API",
+            method: "GET",
+            path: "/v1/models",
+            title: "获取模型列表",
+            description: "返回当前 API Key 可用的大语言模型列表。该 Endpoint 与 OpenAI API 兼容。",
+            params: {
+              title: "请求头",
+              columns: ["字段", "类型", "必填", "说明"],
+              rows: [["Authorization", "header", "是", "Bearer YOUR_TOKENHUB_API_KEY"]],
+            },
+            table: {
+              title: "模型字段",
+              columns: ["字段", "说明"],
+              rows: [
+                ["id", "模型标识符，后续调用时填写到 model 字段。"],
+                ["object", "对象类型，通常为 model。"],
+                ["created", "创建时间戳，配置可用时返回。"],
+                ["input_token_price_per_m", "每百万输入 tokens 估算价格，配置可用时返回。"],
+                ["output_token_price_per_m", "每百万输出 tokens 估算价格，配置可用时返回。"],
+                ["context_size", "模型最大上下文长度，配置可用时返回。"],
+              ],
+            },
+            examplesTitle: "示例",
+            examples: [{ title: "cURL", code: gatewayListModelsCurl(stats) }],
+          },
+          {
+            id: "chat-completions",
+            group: "大模型 API",
+            method: "POST",
+            path: "/v1/chat/completions",
+            title: "创建聊天对话请求",
+            description: "根据消息列表生成模型回复，适用于普通对话、工具调用、结构化输出和流式输出。",
+            params: {
+              title: "请求体",
+              columns: ["字段", "类型", "必填", "说明"],
+              rows: [
+                ["model", "string", "是", `来自 /v1/models 的模型 ID，例如 ${stats.sampleModel}。`],
+                ["messages", "array", "是", "由 system、user、assistant 组成的消息数组。"],
+                ["max_tokens", "integer", "否", "最大生成 token 数。"],
+                ["temperature", "number", "否", "采样温度。"],
+                ["stream", "boolean", "否", "true 时返回 SSE 流，结束标记为 data: [DONE]。"],
+                ["tools", "array", "否", "兼容上游模型的函数工具。"],
+                ["response_format", "object", "否", "上游支持时可指定 JSON object 或 JSON schema。"],
+              ],
+            },
+            table: {
+              title: "响应字段",
+              columns: ["字段", "说明"],
+              rows: [
+                ["id", "本次对话请求 ID。"],
+                ["choices[].message", "模型返回的 assistant 消息。"],
+                ["choices[].finish_reason", "生成停止原因，例如 stop 或 length。"],
+                ["usage", "prompt、completion 和 total token 统计。"],
+              ],
+            },
+            examplesTitle: "示例",
+            examples: [
+              { title: "非流式", code: stats.chatCurl },
+              { title: "流式", code: gatewayStreamingCurl(stats) },
+            ],
+          },
+          {
+            id: "responses-api",
+            group: "大模型 API",
+            method: "POST",
+            path: "/v1/responses",
+            title: "创建 Responses 请求",
+            description: "使用 Responses 风格接口处理简单文本输入，并为后续多模态能力保留统一入口。",
+            params: {
+              title: "请求体",
+              columns: ["字段", "类型", "必填", "说明"],
+              rows: [
+                ["model", "string", "是", "可调用模型 ID。"],
+                ["input", "string | array", "是", "输入文本或结构化输入内容。"],
+                ["stream", "boolean", "否", "是否流式返回。"],
+              ],
+            },
+            examplesTitle: "示例",
+            examples: [{ title: "cURL", code: gatewayResponsesCurl(stats) }],
+          },
+          {
+            id: "embeddings-api",
+            group: "大模型 API",
+            method: "POST",
+            path: "/v1/embeddings",
+            title: "创建文本向量",
+            description: "为搜索、RAG、分类和聚类等场景生成文本向量。",
+            params: {
+              title: "请求体",
+              columns: ["字段", "类型", "必填", "说明"],
+              rows: [
+                ["model", "string", "是", "当前 Key 可见的向量模型 ID。"],
+                ["input", "string | array", "是", "需要向量化的文本。"],
+                ["encoding_format", "string", "否", "上游支持时可选 float 或 base64。"],
+              ],
+            },
+            examplesTitle: "示例",
+            examples: [{ title: "cURL", code: gatewayEmbeddingsCurl(stats) }],
+          },
+        ],
+      },
+      {
+        title: teamLeader ? "团队接入" : "项目 Key",
+        items: [
+          {
+            id: "project-keys",
+            group: teamLeader ? "团队接入" : "项目 Key",
+            badge: "KEY",
+            title: teamLeader ? "为项目发放 Key" : "使用项目 Key",
+            description: teamLeader
+              ? "一个成员可以加入多个项目；每个 Key 应发放到真实归属项目，用于用量、额度和成本归因。"
+              : "你可能属于多个项目；创建 Key 时应选择真实归属项目，用于用量、额度和成本归因。",
+            table: {
+              title: teamLeader ? "团队 Key 发放检查表" : "项目 Key 规则",
+              columns: ["项目", "规则"],
+              rows: teamLeader ? [
+                ["Project", "先创建或选择项目，再发放 Key。"],
+                ["Members", "在项目详情侧边栏添加应用负责人。"],
+                ["Models", "交付给应用前，用新 Key 调用 GET /v1/models 验证模型范围。"],
+                ["Reports", "按成员、项目、模型和成本中心查看团队用量。"],
+              ] : [
+                ["Project", "每个 API Key 只属于一个项目。"],
+                ["Models", "模型列表会按项目和 Key 权限过滤。"],
+                ["Secret", "新 Key 只展示一次，请保存到应用密钥管理系统。"],
+                ["Usage", "请求会归因到 Key 所属项目和当前账号。"],
+              ],
+            },
+          },
+          {
+            id: "sdk-examples",
+            group: teamLeader ? "团队接入" : "项目 Key",
+            badge: "SDK",
+            title: "OpenAI 兼容 SDK",
+            description: "把任意 OpenAI 兼容 SDK 指向 TokenHub Base URL，并使用 TokenHub 项目 API Key。",
+            examplesTitle: "SDK 示例",
+            examples: [
+              { title: "Node.js", code: gatewayOpenAISDKExample(stats) },
+              { title: "Python", code: gatewayPythonSDKExample(stats) },
+            ],
+          },
+          {
+            id: "errors",
+            group: teamLeader ? "团队接入" : "项目 Key",
+            badge: "REF",
+            title: "错误码与排查",
+            description: "按状态码定位 API Key、项目成员、模型路由和额度问题。",
+            table: {
+              title: "常见错误",
+              columns: ["状态", "常见原因", "处理方式"],
+              rows: [
+                ["401", "API Key 缺失、格式错误、已停用或已过期。", "检查 Authorization header 和 Key 状态。"],
+                ["403", "项目、Key 或模型权限不允许当前请求。", teamLeader ? "检查项目成员、Key 模型范围和团队项目归属。" : "联系团队负责人检查项目成员和模型权限。"],
+                ["404/503", "该模型没有可用健康路由。", "请管理员启用路由或检查 Provider 健康状态。"],
+                ["429", "项目额度、并发或 Provider 资源限制触发。", teamLeader ? "查看项目额度和并发限制。" : "等待额度恢复或申请提升额度。"],
+                ["500", "上游 Provider 或路由错误。", `在请求日志中搜索 request_id。当前可见日志样本：${formatNumber(stats.requestLogCount)} 条。`],
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function gatewayJapaneseLLMUsageDocs(stats: GatewayDocStats, role: AppRole): GatewayDocBundle {
+  const teamLeader = role === "team_leader";
+  return {
+    defaultDocID: "quickstart",
+    nav: {
+      title: "API ドキュメント",
+      subtitle: "OpenAI 互換 LLM 利用",
+      searchPlaceholder: "エンドポイント、パラメーター、エラーを検索",
+      noResults: "一致する API ドキュメントはありません",
+    },
+    eyebrow: "LLM API Docs",
+    title: "大規模言語モデルを呼び出す",
+    description: teamLeader
+      ? "Project Key で承認済みモデルを呼び出し、Project 単位で権限、クォータ、コスト配賦を管理します。"
+      : "Project API Key で OpenAI 互換モデル API を呼び出します。モデル一覧を確認してから Chat、Responses、Embeddings を利用します。",
+    languageLabel: "ドキュメント言語",
+    quickInfoLabel: "API 基本情報",
+    quickCards: {
+      baseURL: "Base URL",
+      authorization: "Authorization",
+      sampleModel: "サンプルモデル",
+      currentConfig: "現在の API 範囲",
+      activeRoutes: `${formatNumber(stats.visibleModelCount)} 件の呼び出し可能モデル`,
+      apiKeys: `${formatNumber(stats.apiKeyCount)} 件の Project Key`,
+    },
+    groups: [
+      {
+        title: "クイックスタート",
+        items: [
+          {
+            id: "quickstart",
+            group: "クイックスタート",
+            badge: "GUIDE",
+            title: "はじめての接続",
+            description: "TokenHub 経由で最初の OpenAI 互換 LLM リクエストを送信します。",
+            details: [
+              { label: "Base URL", value: stats.baseURL },
+              { label: "認証 Header", value: "Authorization: Bearer <API Key>" },
+              { label: "サンプルモデル", value: stats.sampleModel },
+              { label: "現在の範囲", value: teamLeader ? "チーム Project" : "割り当て済み Project" },
+            ],
+            notesTitle: "呼び出し順序",
+            notes: [
+              "Key Management で Project API Key を作成またはコピーします。コンソールログイントークンは /v1 モデル API では利用できません。",
+              "まず GET /v1/models を呼び出します。レスポンスがその Key で利用できるモデル一覧です。",
+              "モデル ID を選び、POST /v1/chat/completions、/v1/responses、/v1/embeddings を呼び出します。",
+              "失敗時はレスポンスの request_id をコピーし、Request Logs で調査します。",
+            ],
+            examplesTitle: "最初のリクエスト",
+            examples: [
+              { title: "利用可能モデル一覧", code: gatewayListModelsCurl(stats) },
+              { title: "Chat Completion 作成", code: stats.chatCurl },
+            ],
+          },
+          {
+            id: "authentication",
+            group: "クイックスタート",
+            badge: "AUTH",
+            title: "認証方式",
+            description: "すべてのモデル API は Project API Key を Authorization header で送信します。",
+            table: {
+              title: "必須 Header",
+              columns: ["Header", "必須", "値"],
+              rows: [
+                ["Authorization", "はい", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["Content-Type", "POST リクエスト", "application/json"],
+              ],
+            },
+            notesTitle: "権限チェック",
+            notes: [
+              "Key は有効で、有効な Project に紐づいている必要があります。",
+              "リクエストしたモデルは Project に表示され、少なくとも 1 つの有効ルートが必要です。",
+              teamLeader
+                ? "チームリーダーは Key 発行時に正しい Project を選び、利用量が正しいチームと Cost Center に集計されるようにします。"
+                : "複数 Project に所属している場合、利用量とコストを持つ Project を選んでから Key を作成します。",
+            ],
+          },
+        ],
+      },
+      {
+        title: "LLM API",
+        items: [
+          {
+            id: "list-models",
+            group: "LLM API",
+            method: "GET",
+            path: "/v1/models",
+            title: "モデル一覧を取得",
+            description: "現在の API Key で利用できる LLM モデル一覧を返します。この Endpoint は OpenAI API 互換です。",
+            params: {
+              title: "リクエスト Header",
+              columns: ["フィールド", "型", "必須", "説明"],
+              rows: [["Authorization", "header", "はい", "Bearer YOUR_TOKENHUB_API_KEY"]],
+            },
+            table: {
+              title: "モデルフィールド",
+              columns: ["フィールド", "説明"],
+              rows: [
+                ["id", "以降の API 呼び出しで model に指定するモデル ID。"],
+                ["object", "オブジェクト種別。通常は model。"],
+                ["created", "利用可能な場合の Unix タイムスタンプ。"],
+                ["input_token_price_per_m", "設定済みの場合の 100 万 input tokens あたりの見積価格。"],
+                ["output_token_price_per_m", "設定済みの場合の 100 万 output tokens あたりの見積価格。"],
+                ["context_size", "設定済みの場合の最大コンテキスト長。"],
+              ],
+            },
+            examplesTitle: "例",
+            examples: [{ title: "cURL", code: gatewayListModelsCurl(stats) }],
+          },
+          {
+            id: "chat-completions",
+            group: "LLM API",
+            method: "POST",
+            path: "/v1/chat/completions",
+            title: "Chat Completion を作成",
+            description: "メッセージ一覧からモデル応答を生成します。通常のチャット、ツール呼び出し、構造化出力、ストリーミングに利用します。",
+            params: {
+              title: "リクエスト Body",
+              columns: ["フィールド", "型", "必須", "説明"],
+              rows: [
+                ["model", "string", "はい", `/v1/models のモデル ID。例: ${stats.sampleModel}`],
+                ["messages", "array", "はい", "system、user、assistant のメッセージ配列。"],
+                ["max_tokens", "integer", "いいえ", "最大生成 tokens。"],
+                ["temperature", "number", "いいえ", "サンプリング温度。"],
+                ["stream", "boolean", "いいえ", "true の場合は SSE で返し、data: [DONE] で終了します。"],
+                ["tools", "array", "いいえ", "互換上流モデルの関数ツール。"],
+                ["response_format", "object", "いいえ", "対応モデルでは JSON object または JSON schema を指定できます。"],
+              ],
+            },
+            table: {
+              title: "レスポンスフィールド",
+              columns: ["フィールド", "説明"],
+              rows: [
+                ["id", "リクエスト ID。"],
+                ["choices[].message", "モデルが返した assistant メッセージ。"],
+                ["choices[].finish_reason", "停止理由。stop や length など。"],
+                ["usage", "prompt、completion、total token 統計。"],
+              ],
+            },
+            examplesTitle: "例",
+            examples: [
+              { title: "非ストリーミング", code: stats.chatCurl },
+              { title: "ストリーミング", code: gatewayStreamingCurl(stats) },
+            ],
+          },
+          {
+            id: "responses-api",
+            group: "LLM API",
+            method: "POST",
+            path: "/v1/responses",
+            title: "Responses リクエストを作成",
+            description: "Responses 形式でシンプルなテキスト入力を扱い、将来のマルチモーダル拡張にも備えます。",
+            params: {
+              title: "リクエスト Body",
+              columns: ["フィールド", "型", "必須", "説明"],
+              rows: [
+                ["model", "string", "はい", "呼び出し可能なモデル ID。"],
+                ["input", "string | array", "はい", "入力テキストまたは構造化入力。"],
+                ["stream", "boolean", "いいえ", "ストリーミングで返すかどうか。"],
+              ],
+            },
+            examplesTitle: "例",
+            examples: [{ title: "cURL", code: gatewayResponsesCurl(stats) }],
+          },
+          {
+            id: "embeddings-api",
+            group: "LLM API",
+            method: "POST",
+            path: "/v1/embeddings",
+            title: "Embeddings を作成",
+            description: "検索、RAG、分類、クラスタリング向けのテキストベクトルを生成します。",
+            params: {
+              title: "リクエスト Body",
+              columns: ["フィールド", "型", "必須", "説明"],
+              rows: [
+                ["model", "string", "はい", "Key から見える embedding モデル ID。"],
+                ["input", "string | array", "はい", "ベクトル化するテキスト。"],
+                ["encoding_format", "string", "いいえ", "対応時は float または base64。"],
+              ],
+            },
+            examplesTitle: "例",
+            examples: [{ title: "cURL", code: gatewayEmbeddingsCurl(stats) }],
+          },
+        ],
+      },
+      {
+        title: teamLeader ? "チーム導入" : "Project Key",
+        items: [
+          {
+            id: "project-keys",
+            group: teamLeader ? "チーム導入" : "Project Key",
+            badge: "KEY",
+            title: teamLeader ? "Project に Key を発行" : "Project Key を利用",
+            description: teamLeader
+              ? "メンバーは複数 Project に所属できます。利用量、クォータ、コスト配賦を持つ正しい Project に Key を発行します。"
+              : "複数 Project に所属している場合があります。利用量、クォータ、コスト配賦を持つ Project を選んで Key を作成します。",
+            table: {
+              title: teamLeader ? "チーム Key 発行チェックリスト" : "Project Key ルール",
+              columns: ["項目", "ルール"],
+              rows: teamLeader ? [
+                ["Project", "Key 発行前に Project を作成または選択します。"],
+                ["Members", "Project 詳細パネルでアプリ責任者を追加します。"],
+                ["Models", "アプリに渡す前に新しい Key で GET /v1/models を検証します。"],
+                ["Reports", "メンバー、Project、モデル、Cost Center 別にチーム利用量を確認します。"],
+              ] : [
+                ["Project", "各 API Key は 1 つの Project に属します。"],
+                ["Models", "モデル一覧は Project と Key の権限でフィルタリングされます。"],
+                ["Secret", "新しい Key は一度だけ表示されます。アプリのシークレット管理に保存します。"],
+                ["Usage", "リクエストは Key の Project とアカウントに配賦されます。"],
+              ],
+            },
+          },
+          {
+            id: "sdk-examples",
+            group: teamLeader ? "チーム導入" : "Project Key",
+            badge: "SDK",
+            title: "OpenAI 互換 SDK",
+            description: "OpenAI 互換 SDK の base URL を TokenHub に向け、TokenHub Project API Key を使います。",
+            examplesTitle: "SDK 例",
+            examples: [
+              { title: "Node.js", code: gatewayOpenAISDKExample(stats) },
+              { title: "Python", code: gatewayPythonSDKExample(stats) },
+            ],
+          },
+          {
+            id: "errors",
+            group: teamLeader ? "チーム導入" : "Project Key",
+            badge: "REF",
+            title: "エラーと調査",
+            description: "ステータスコードから API Key、Project メンバー、モデルルート、クォータの問題を切り分けます。",
+            table: {
+              title: "よくあるエラー",
+              columns: ["ステータス", "主な原因", "対応"],
+              rows: [
+                ["401", "API Key の不足、形式不正、無効化、期限切れ。", "Authorization header と Key 状態を確認します。"],
+                ["403", "Project、Key、モデル権限がリクエストを許可していません。", teamLeader ? "Project メンバー、Key のモデル範囲、チーム Project 所有を確認します。" : "チームリーダーに Project メンバーとモデル権限の確認を依頼します。"],
+                ["404/503", "モデルを処理できる健全なルートがありません。", "管理者にルート有効化または Provider ヘルス確認を依頼します。"],
+                ["429", "Project クォータ、同時実行、Provider リソース制限に達しました。", teamLeader ? "Project クォータと同時実行制限を確認します。" : "クォータ回復を待つか、増枠を依頼します。"],
+                ["500", "上流 Provider またはルーティングエラー。", `Request Logs で request_id を検索します。現在見えるログサンプル: ${formatNumber(stats.requestLogCount)} 件。`],
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
 
 function gatewayEnglishDocs(stats: GatewayDocStats): GatewayDocBundle {
   return {
@@ -6075,7 +8230,7 @@ function gatewayDocGroups({
             { label: "当前 Key 数", value: countWithUnit(data.keys.length || data.summary.api_key_count || 0, "个", "Key", "件") },
           ],
           params: [
-            ["Authorization", "header", "是", "项目 API Key，格式为 Bearer thk_xxx"],
+            ["Authorization", "header", "是", "项目 API Key，格式为 Bearer sk_xxx"],
             ["Content-Type", "header", "POST 必填", "JSON 请求使用 application/json"],
             ["model", "body", "模型接口必填", "统一模型名，需在 Key 白名单和路由策略中可用"],
           ],
@@ -7275,6 +9430,7 @@ function CrudView<T>({
   data,
   items,
   totalItems,
+  loading = false,
   query,
   pagination,
   categoryFilter,
@@ -7293,6 +9449,7 @@ function CrudView<T>({
   data: AppData;
   items: T[];
   totalItems: number;
+  loading?: boolean;
   query: string;
   pagination: PaginationState;
   categoryFilter: string;
@@ -7361,6 +9518,7 @@ function CrudView<T>({
           <input value={query} onChange={(event) => onQuery(event.target.value)} placeholder={tx("搜索名称、ID、状态")} />
         </div>
         <div className="table-toolbar-actions">
+          <span className="table-result-count">{resultCountLabel(totalItems, query)}</span>
           {config.create ? (
             <button className="button" onClick={onCreate} type="button">
               <Plus size={17} />
@@ -7380,6 +9538,9 @@ function CrudView<T>({
             config={config}
             data={data}
             items={items}
+            loading={loading}
+            query={query}
+            onCreate={config.create ? onCreate : undefined}
             onEdit={onEdit}
             onDelete={onDelete}
             onAction={onAction}
@@ -7894,12 +10055,14 @@ function ModelCatalogView({
             <strong>{filtered.length}</strong>
             <em>{tx("个匹配模型")}</em>
           </div>
+          <div className="model-availability-note">
+            <AlertCircle size={15} />
+            <span>{tx(readOnly ? "普通用户看到的是当前账号可见的模型；实际调用还会受项目 Key 白名单和项目权限限制。" : "可用模型需要同时满足：模型目录启用、至少一条路由启用、Provider 或账号资源健康。")}</span>
+          </div>
 
           {filtered.length === 0 ? (
             <div className="empty model-catalog-empty">
-              {data.models.length === 0 && readOnly
-                ? tx("当前后台还没有启用可用模型路由，请让管理员在路由策略里启用模型。")
-                : tx("没有匹配的模型")}
+              {modelCatalogEmptyText(data, readOnly, query)}
             </div>
           ) : (
             <div className="model-card-grid">
@@ -8202,9 +10365,10 @@ function ModelCatalogCard({
   onDelete?: (item: Model) => void;
 }) {
   const category = modelCategory(model);
-  const routeCount = activeRouteCount(model.name, data);
-  const hasConfiguredRoute = routeCount > 0;
-  const cardClassName = !readOnly && !hasConfiguredRoute ? "model-card unrouted" : "model-card";
+  const availability = modelAvailabilitySummary(model, data, readOnly);
+  const routeCount = availability.activeRoutes;
+  const hasConfiguredRoute = availability.activeRoutes > 0;
+  const cardClassName = !readOnly && availability.tone === "blocked" ? "model-card unrouted" : "model-card";
   return (
     <article className={cardClassName}>
       <div className="model-card-head">
@@ -8223,13 +10387,18 @@ function ModelCatalogCard({
       <div className="model-card-tags">
         <span>{modelCapabilityLabel(model)}</span>
         {readOnly ? (
-          <span className="official">{tx("可访问")}</span>
+          <span className="official">{tx(availability.label)}</span>
         ) : (
           <>
             <span className={hasConfiguredRoute ? undefined : "unrouted-tag"}>{hasConfiguredRoute ? `${routeCount} ${tx("条线路")}` : tx("未配置线路")}</span>
             {hasThirdPartyRoute(model, data) ? <span className="third">{tx("三方资源")}</span> : <span className="official">{tx("官方资源")}</span>}
           </>
         )}
+      </div>
+
+      <div className={`model-availability ${availability.tone}`}>
+        <strong>{tx(availability.label)}</strong>
+        <span>{tx(availability.detail)}</span>
       </div>
 
       <div className="model-card-pricing">
@@ -8330,6 +10499,7 @@ function SettingsView({
         data={data}
         items={pagedItems}
         totalItems={filteredItems.length}
+        loading={false}
         query={query}
         pagination={pagination}
         categoryFilter="all"
@@ -8433,6 +10603,9 @@ function EntityTable<T>({
   config,
   data,
   items,
+  loading = false,
+  query = "",
+  onCreate,
   onEdit,
   onDelete,
   onAction,
@@ -8442,14 +10615,20 @@ function EntityTable<T>({
   config: ResourceConfig<T>;
   data: AppData;
   items: T[];
+  loading?: boolean;
+  query?: string;
+  onCreate?: () => void;
   onEdit: (item: T) => void;
   onDelete: (item: T) => void;
   onAction: (action: ResourceAction<T>, item: T) => void;
   onRowClick?: (item: T) => void;
   selectedRowID?: string;
 }) {
+  if (loading && items.length === 0) {
+    return <TableSkeleton columns={Math.max(3, config.columns.length + 1)} rows={5} />;
+  }
   if (items.length === 0) {
-    return <div className="empty">{tx("暂无数据")}</div>;
+    return <ResourceEmptyState config={config} query={query} onCreate={onCreate} />;
   }
   return (
     <div className="table-wrap">
@@ -8521,6 +10700,97 @@ function EntityTable<T>({
 function displayCellValue(value: unknown) {
   if (typeof value === "string") return displayText(value);
   return value as React.ReactNode;
+}
+
+function ResourceEmptyState<T>({
+  config,
+  query,
+  onCreate,
+}: {
+  config: ResourceConfig<T>;
+  query: string;
+  onCreate?: () => void;
+}) {
+  const copy = resourceEmptyCopy(config.view, Boolean(query.trim()));
+  return (
+    <div className="resource-empty">
+      <div className="resource-empty-icon">
+        <Search size={18} />
+      </div>
+      <strong>{tx(copy.title)}</strong>
+      <span>{tx(copy.description)}</span>
+      {onCreate && !query.trim() ? (
+        <button className="button" onClick={onCreate} type="button">
+          <Plus size={16} />
+          {tx(config.createLabel ?? "新增")}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function resourceEmptyCopy(view: ViewKey, filtered: boolean) {
+  if (filtered) {
+    return {
+      title: "没有匹配结果",
+      description: "清空搜索或换一个关键词再试。",
+    };
+  }
+  switch (view) {
+    case "providers":
+      return {
+        title: "还没有 Provider",
+        description: "先接入上游服务商，再为模型配置路由。",
+      };
+    case "routes":
+      return {
+        title: "还没有模型路由",
+        description: "路由决定模型请求会被转发到哪个 Provider。",
+      };
+    case "projects":
+      return {
+        title: "还没有项目空间",
+        description: "项目是 Key、额度、成员和成本归属的基本单元。",
+      };
+    case "api-keys":
+      return {
+        title: "还没有 Key",
+        description: "为项目发放 Key 后，业务应用才能调用网关。",
+      };
+    case "users":
+      return {
+        title: "还没有用户",
+        description: "可以手动创建，也可以从 CSV 批量导入。",
+      };
+    case "identity-providers":
+      return {
+        title: "还没有身份源",
+        description: "接入企业 OAuth/OIDC 后，用户可以使用 SSO 登录。",
+      };
+    default:
+      return {
+        title: "暂无数据",
+        description: "当前视图还没有可展示的记录。",
+      };
+  }
+}
+
+function TableSkeleton({ columns, rows }: { columns: number; rows: number }) {
+  return (
+    <div className="table-wrap skeleton-table" aria-busy="true">
+      {Array.from({ length: rows }).map((_, rowIndex) => (
+        <div className="skeleton-row" key={rowIndex} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+          {Array.from({ length: columns }).map((__, columnIndex) => (
+            <span key={columnIndex} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function resultCountLabel(totalItems: number, query: string) {
+  return query.trim() ? `${formatNumber(totalItems)} ${tx("条匹配")}` : `${formatNumber(totalItems)} ${tx("条记录")}`;
 }
 
 type PaginationState = {
@@ -8656,11 +10926,28 @@ function EditModal<T>({
     ...(state.item ? state.config.toForm?.(state.item) ?? {} : defaultFormValues(state.config, data, currentUser)),
     ...(state.initialValues ?? {}),
   };
-  const [values, setValues] = useState<Record<string, string>>(initial);
+  const [values, setValues] = useState<Record<string, string>>(
+    state.config.view === "identity-providers" ? identityProviderInitialFormValues(initial, !state.item) : initial,
+  );
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     onSave(values);
+  }
+
+  if (state.config.view === "identity-providers") {
+    return (
+      <IdentityProviderEditModal
+        state={state as unknown as ModalState<AdminResource>}
+        data={data}
+        currentUser={currentUser}
+        values={values}
+        setValues={setValues}
+        loading={loading}
+        onClose={onClose}
+        onSave={onSave}
+      />
+    );
   }
 
   return (
@@ -8691,6 +10978,445 @@ function EditModal<T>({
           <button className="button" disabled={loading} type="submit">{tx("保存")}</button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function IdentityProviderEditModal({
+  state,
+  data,
+  currentUser,
+  values,
+  setValues,
+  loading,
+  onClose,
+  onSave,
+}: {
+  state: ModalState<AdminResource>;
+  data: AppData;
+  currentUser?: AdminUser | null;
+  values: Record<string, string>;
+  setValues: Dispatch<SetStateAction<Record<string, string>>>;
+  loading: boolean;
+  onClose: () => void;
+  onSave: (values: Record<string, string>) => void;
+}) {
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const templateKey = inferIdentityProviderTemplateKey(values);
+  const template = identityProviderTemplateByKey(templateKey);
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSave(values);
+  }
+
+  function update(key: string, value: string) {
+    setValues((prev) => updateIdentityProviderFormValue(prev, key, value));
+  }
+
+  function fieldConfig(key: string, override?: Partial<FieldConfig>) {
+    const field = state.config.fields.find((item) => item.key === key);
+    return field ? { ...field, ...override } : undefined;
+  }
+
+  function renderField(key: string, override?: Partial<FieldConfig>) {
+    const field = fieldConfig(key, override);
+    if (!field || !(field.visible?.(values) ?? true)) return null;
+    return (
+      <FieldInput
+        key={key}
+        field={field}
+        data={data}
+        currentUser={currentUser}
+        value={values[key] ?? ""}
+        editing={Boolean(state.item)}
+        onChange={(value) => update(key, value)}
+      />
+    );
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <form className="modal identity-provider-modal" onSubmit={submit}>
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">{state.item ? tx("编辑") : tx("新增")}</p>
+            <h2>{tx("身份源")}</h2>
+          </div>
+          <button className="icon-button" onClick={onClose} type="button" title={tx("关闭")}>×</button>
+        </div>
+
+        <div className="identity-provider-body">
+          <section className="identity-provider-template-panel">
+            <div className="identity-provider-section-head">
+              <h3>{tx("选择身份源模板")}</h3>
+              <span>{tx("选择后会自动填充协议、登录图标、Scope、Claim 和常见端点。")}</span>
+            </div>
+            <div className="identity-template-grid">
+              {identityProviderTemplates.map((item) => {
+                const iconConfig = loginIdentityProviderIconConfig(item.iconKey);
+                const Icon = iconConfig.icon;
+                return (
+                  <button
+                    className={template.key === item.key ? "identity-template-card active" : "identity-template-card"}
+                    key={item.key}
+                    onClick={() => update("provider_template", item.key)}
+                    type="button"
+                  >
+                    <span className={`login-sso-icon ${iconConfig.key}`}><Icon size={16} /></span>
+                    <strong>{tx(item.label)}</strong>
+                    <em>{identityProviderTypeLabel(item.providerType)}</em>
+                    <small>{tx(identityProviderTemplateHelp(item))}</small>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="identity-template-summary">
+              <DetailField label="登录按钮" value={values.login_label || template.loginLabel || template.label} />
+              <DetailField label="默认 Scope" value={values.scopes || template.scopes} />
+              <DetailField label="必填项" value={tx("Issuer、Client ID、Client Secret、Callback URL")} />
+            </div>
+          </section>
+
+          <section className="identity-provider-section">
+            <div className="identity-provider-section-head">
+              <h3>{tx("连接方式")}</h3>
+              <span>{tx(template.label)}</span>
+            </div>
+            <div className="identity-provider-grid">
+              {renderField("name")}
+              {renderField("provider_type")}
+              {renderField("status")}
+              {renderField("issuer_url", { placeholder: template.issuerPlaceholder })}
+              {renderField("client_id")}
+              {renderField("client_secret", {
+                placeholder: state.item ? "留空则不修改" : "",
+                help: state.item ? "留空则不修改已保存密钥。" : "来自身份源应用的密钥。",
+              })}
+              {renderField("redirect_uri")}
+            </div>
+          </section>
+
+          <section className="identity-provider-section">
+            <div className="identity-provider-section-head">
+              <h3>{tx("登录入口")}</h3>
+              <span>{identityProviderIconLabel(values.icon_key)} / {values.login_label || values.name || tx("SSO")}</span>
+            </div>
+            <div className="identity-provider-grid compact">
+              {renderField("icon_key")}
+              {renderField("login_label")}
+            </div>
+          </section>
+
+          <section className="identity-provider-section">
+            <div className="identity-provider-section-head">
+              <h3>{tx("首次登录授权")}</h3>
+              <span>{identityProviderDefaultGrantLabel(data, { ...state.item, fields: values } as AdminResource)}</span>
+            </div>
+            <div className="identity-provider-grid">
+              {renderField("default_role")}
+              {renderField("default_team_id")}
+              {renderField("default_project_id")}
+              {renderField("default_project_role")}
+            </div>
+          </section>
+
+          <details
+            className="identity-provider-advanced"
+            open={advancedOpen}
+            onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+          >
+            <summary>
+              <strong>{tx("高级配置")}</strong>
+              <span>{tx("端点、Scope 与 Claim 映射")}</span>
+            </summary>
+            <div className="identity-provider-grid">
+              {renderField("authorize_url")}
+              {renderField("token_url")}
+              {renderField("userinfo_url")}
+              {renderField("scopes")}
+              {renderField("username_claim")}
+              {renderField("email_claim")}
+              {renderField("team_claim")}
+            </div>
+          </details>
+        </div>
+
+        <div className="modal-actions">
+          <button className="secondary-button" onClick={onClose} type="button">{tx("取消")}</button>
+          <button className="button" disabled={loading} type="submit">{tx("保存")}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function APIKeyWizardModal({
+  data,
+  currentUser,
+  initialValues,
+  loading,
+  onClose,
+  onCreate,
+}: {
+  data: AppData;
+  currentUser?: AdminUser | null;
+  initialValues?: Record<string, string>;
+  loading: boolean;
+  onClose: () => void;
+  onCreate: (values: Record<string, string>) => void;
+}) {
+  const config = useMemo(() => apiKeyConfig(), []);
+  const [step, setStep] = useState(0);
+  const [modelScope, setModelScope] = useState<"all" | "selected">(initialValues?.allowed_models ? "selected" : "all");
+  const [values, setValues] = useState<Record<string, string>>(() => ({
+    ...defaultFormValues(config, data, currentUser),
+    status: "active",
+    ...(initialValues ?? {}),
+  }));
+  const projectOptions = projectSelectOptions(data, currentUser);
+  const selectedProject = findProject(data, values.project_id);
+  const selectableModels = keyWizardModelOptions(data);
+  const selectedModels = splitList(values.allowed_models);
+  const steps = [
+    { title: "选择项目", icon: Boxes },
+    { title: "填写用途", icon: KeyRound },
+    { title: "模型范围", icon: Sparkles },
+    { title: "安全护栏", icon: ShieldCheck },
+    { title: "确认发放", icon: Check },
+  ];
+  const fieldByKey = (key: string, override?: Partial<FieldConfig>) => {
+    const field = config.fields.find((item) => item.key === key);
+    return field ? { ...field, ...override } : undefined;
+  };
+
+  function update(key: string, value: string) {
+    setValues((current) => ({ ...current, [key]: value }));
+  }
+
+  function renderField(key: string, override?: Partial<FieldConfig>) {
+    const field = fieldByKey(key, override);
+    if (!field) return null;
+    return (
+      <FieldInput
+        key={key}
+        field={field}
+        data={data}
+        currentUser={currentUser}
+        value={values[key] ?? ""}
+        editing={false}
+        onChange={(value) => update(key, value)}
+      />
+    );
+  }
+
+  function toggleModel(modelName: string) {
+    const current = new Set(splitList(values.allowed_models));
+    if (current.has(modelName)) current.delete(modelName);
+    else current.add(modelName);
+    update("allowed_models", Array.from(current).join(", "));
+  }
+
+  function canContinue(targetStep = step) {
+    if (targetStep === 0) return Boolean(values.project_id);
+    if (targetStep === 1) return Boolean(values.name?.trim());
+    if (targetStep === 2) return modelScope === "all" || selectedModels.length > 0;
+    return true;
+  }
+
+  function goNext() {
+    if (!canContinue()) return;
+    setStep((current) => Math.min(current + 1, steps.length - 1));
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (step < steps.length - 1) {
+      goNext();
+      return;
+    }
+    if (!canContinue(0) || !canContinue(1) || !canContinue(2)) return;
+    onCreate({
+      ...values,
+      allowed_models: modelScope === "all" ? "" : values.allowed_models,
+      status: "active",
+    });
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <form className="modal api-key-wizard-modal" onSubmit={submit}>
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">{tx("发放 Key")}</p>
+            <h2>{tx("创建内部调用 Key")}</h2>
+          </div>
+          <button className="icon-button" onClick={onClose} type="button" title={tx("关闭")} disabled={loading}>×</button>
+        </div>
+
+        <div className="wizard-stepper" aria-label={tx("创建 Key 步骤")}>
+          {steps.map((item, index) => {
+            const Icon = item.icon;
+            return (
+              <button
+                aria-current={step === index ? "step" : undefined}
+                className={step === index ? "wizard-step active" : index < step ? "wizard-step done" : "wizard-step"}
+                disabled={index > step || loading}
+                key={item.title}
+                onClick={() => setStep(index)}
+                type="button"
+              >
+                <span><Icon size={14} /></span>
+                <strong>{tx(item.title)}</strong>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="api-key-wizard-body">
+          {step === 0 ? (
+            <section className="wizard-panel">
+              <div className="wizard-panel-head">
+                <h3>{tx("选择 Key 归属项目")}</h3>
+                <p>{tx("Key 必须挂在项目空间下，用量和成本会归集到这个项目。")}</p>
+              </div>
+              {projectOptions.length === 0 ? (
+                <div className="empty wizard-empty">{tx("当前账号没有可发放 Key 的项目权限，请联系项目负责人或管理员把你加入项目。")}</div>
+              ) : (
+                <div className="wizard-project-grid">
+                  {projectOptions.map((option) => {
+                    const project = findProject(data, option.value);
+                    return (
+                      <button
+                        className={values.project_id === option.value ? "wizard-project-card active" : "wizard-project-card"}
+                        key={option.value}
+                        onClick={() => update("project_id", option.value)}
+                        type="button"
+                      >
+                        <strong>{project?.name || option.label}</strong>
+                        <span>{tx("团队")}：{projectTeamLabel(data, option.value)}</span>
+                        <span>{tx("负责人")}：{projectOwnerLabel(data, option.value)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          ) : null}
+
+          {step === 1 ? (
+            <section className="wizard-panel">
+              <div className="wizard-panel-head">
+                <h3>{tx("说明用途和环境")}</h3>
+                <p>{tx("名称建议能看出调用方、环境和用途，后续审计会更容易定位。")}</p>
+              </div>
+              <div className="wizard-form-grid">
+                {renderField("name", { placeholder: selectedProject ? `${selectedProject.name} production` : "backend production" })}
+                {renderField("group", { placeholder: "prod、dev、backend-service" })}
+              </div>
+            </section>
+          ) : null}
+
+          {step === 2 ? (
+            <section className="wizard-panel">
+              <div className="wizard-panel-head">
+                <h3>{tx("设置模型范围")}</h3>
+                <p>{tx("留空表示不限制 Key 级模型白名单；实际可调用模型仍受模型目录、路由策略和项目权限约束。")}</p>
+              </div>
+              <div className="wizard-choice-row">
+                <button className={modelScope === "all" ? "wizard-choice active" : "wizard-choice"} onClick={() => setModelScope("all")} type="button">
+                  <strong>{tx("全部可路由模型")}</strong>
+                  <span>{tx("由平台路由策略决定最终可调用范围")}</span>
+                </button>
+                <button className={modelScope === "selected" ? "wizard-choice active" : "wizard-choice"} onClick={() => setModelScope("selected")} type="button">
+                  <strong>{tx("指定模型白名单")}</strong>
+                  <span>{tx("只允许这个 Key 调用已勾选的模型")}</span>
+                </button>
+              </div>
+              {modelScope === "selected" ? (
+                <div className="wizard-model-list">
+                  {selectableModels.length === 0 ? (
+                    <div className="empty wizard-empty">{tx("当前没有可选择的启用模型。请先在模型目录和路由策略里启用模型。")}</div>
+                  ) : (
+                    selectableModels.map((model) => (
+                      <label className="wizard-model-option" key={model.name}>
+                        <input
+                          checked={selectedModels.includes(model.name)}
+                          onChange={() => toggleModel(model.name)}
+                          type="checkbox"
+                        />
+                        <span>
+                          <strong>{model.name}</strong>
+                          <em>{modelAvailabilitySummary(model, data, false).label}</em>
+                        </span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
+          {step === 3 ? (
+            <section className="wizard-panel">
+              <div className="wizard-panel-head">
+                <h3>{tx("设置安全护栏")}</h3>
+                <p>{tx("可以先使用默认额度，之后再按调用量调整。IP 白名单留空表示不限来源。")}</p>
+              </div>
+              <div className="wizard-form-grid">
+                {renderField("ip_allowlist")}
+                {renderField("max_concurrency")}
+                {renderField("daily_requests")}
+                {renderField("monthly_requests")}
+                {renderField("daily_tokens")}
+                {renderField("monthly_tokens")}
+                {renderField("daily_cost_usd")}
+                {renderField("monthly_cost_usd")}
+              </div>
+            </section>
+          ) : null}
+
+          {step === 4 ? (
+            <section className="wizard-panel">
+              <div className="wizard-panel-head">
+                <h3>{tx("确认后生成 Key")}</h3>
+                <p>{tx("完整 Key 只会展示一次。关闭弹窗后只能看到前后缀，后续需要通过轮换生成新 Key。")}</p>
+              </div>
+              <div className="wizard-review-grid">
+                <ReviewItem label="归属项目" value={selectedProject?.name || values.project_id || "-"} />
+                <ReviewItem label="用途/环境" value={values.group || "default"} />
+                <ReviewItem label="Key 名称" value={values.name || "-"} />
+                <ReviewItem label="模型范围" value={modelScope === "all" ? tx("全部可路由模型") : selectedModels.join(", ") || "-"} />
+                <ReviewItem label="IP 白名单" value={splitList(values.ip_allowlist).join(", ") || tx("不限")} />
+                <ReviewItem label="最大并发" value={values.max_concurrency || "-"} />
+                <ReviewItem label="日请求" value={values.daily_requests || "-"} />
+                <ReviewItem label="月成本 USD" value={values.monthly_cost_usd || "-"} />
+              </div>
+            </section>
+          ) : null}
+        </div>
+
+        <div className="modal-actions wizard-actions">
+          <button className="secondary-button" onClick={onClose} type="button" disabled={loading}>{tx("取消")}</button>
+          {step > 0 ? (
+            <button className="secondary-button" onClick={() => setStep((current) => Math.max(current - 1, 0))} type="button" disabled={loading}>
+              {tx("上一步")}
+            </button>
+          ) : null}
+          <button className="button" disabled={loading || !canContinue()} type="submit">
+            {step === steps.length - 1 ? (loading ? tx("发放中") : tx("生成 Key")) : tx("下一步")}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ReviewItem({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="wizard-review-item">
+      <span>{tx(label)}</span>
+      <strong>{value}</strong>
     </div>
   );
 }
@@ -8765,7 +11491,10 @@ function PlaygroundPanel({
   data: AppData;
   canViewRoutes: boolean;
 }) {
-  const models = useMemo(() => playgroundModels(data, canViewRoutes), [data.models, data.routes, canViewRoutes]);
+  const models = useMemo(() => {
+    const candidates = playgroundModels(data, canViewRoutes);
+    return canViewRoutes ? candidates.filter((model) => activeRouteCount(model.name, data) > 0) : candidates;
+  }, [data.models, data.routes, canViewRoutes]);
   const [modelName, setModelName] = useState(models[0]?.name ?? "");
   const [messages, setMessages] = useState<PlaygroundMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -8792,6 +11521,10 @@ function PlaygroundPanel({
   useEffect(() => {
     if (!modelName && models[0]?.name) {
       setModelName(models[0].name);
+      return;
+    }
+    if (modelName && !models.some((model) => model.name === modelName)) {
+      setModelName(models[0]?.name ?? "");
     }
   }, [modelName, models]);
 
@@ -8972,7 +11705,7 @@ function PlaygroundPanel({
             <div className="playground-empty">
               <Sparkles size={22} />
               <strong>{tx("试用")} {modelName || tx("当前模型")}</strong>
-              <span>{canViewRoutes && data.routes.length === 0 ? tx("当前还没有配置模型路由。") : tx("体验一下，看看模型在 TokenHub 网关上的表现")}</span>
+              <span>{models.length === 0 ? tx("当前没有可演练模型。请先在路由策略里启用至少一条模型线路。") : tx("体验一下，看看模型在 TokenHub 网关上的表现")}</span>
             </div>
           ) : (
             messages.map((message) => (
@@ -9564,6 +12297,13 @@ function ConfirmDialog({
 
 function IssuedKeyModal({ value, onClose }: { value: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
+  const [closeCountdown, setCloseCountdown] = useState(3);
+
+  useEffect(() => {
+    if (closeCountdown <= 0) return;
+    const timer = window.setTimeout(() => setCloseCountdown((current) => Math.max(current - 1, 0)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [closeCountdown]);
 
   async function copyKey() {
     try {
@@ -9598,11 +12338,19 @@ function IssuedKeyModal({ value, onClose }: { value: string; onClose: () => void
             {copied ? <Check size={16} /> : <Copy size={16} />}
             {copied ? tx("已复制") : tx("复制 Key")}
           </button>
-          <button className="button" onClick={onClose} type="button">{tx("我已保存，关闭")}</button>
+          <button className="button" disabled={closeCountdown > 0} onClick={onClose} type="button">
+            {closeCountdown > 0 ? issuedKeyCloseCountdownLabel(closeCountdown) : tx("我已保存，关闭")}
+          </button>
         </div>
       </div>
     </div>
   );
+}
+
+function issuedKeyCloseCountdownLabel(seconds: number) {
+  if (activeLanguage === "en") return `Close in ${seconds}s`;
+  if (activeLanguage === "ja") return `${seconds} 秒後に閉じる`;
+  return `${seconds}s 后可关闭`;
 }
 
 function FieldInput({
@@ -9637,7 +12385,7 @@ function FieldInput({
     const selectedCount = selected.size;
     const updateSelected = (next: Set<string>) => onChange(Array.from(next).join(", "));
     return (
-      <div className="field multi-select-field">
+      <div className="field multi-select-field" data-field-key={field.key}>
         <span>{tx(field.label)}</span>
         <div className="multi-select-tools">
           <input
@@ -9686,7 +12434,7 @@ function FieldInput({
   }
   if (field.type === "select" || field.type === "multi-select") {
     return (
-      <label className="field">
+      <label className="field" data-field-key={field.key}>
         <span>{tx(field.label)}</span>
         <select value={value} onChange={(event) => onChange(event.target.value)} required={field.required} disabled={readOnly}>
           <option value="">{tx("请选择")}</option>
@@ -9700,7 +12448,7 @@ function FieldInput({
   }
   if (field.type === "textarea") {
     return (
-      <label className="field">
+      <label className="field" data-field-key={field.key}>
         <span>{tx(field.label)}</span>
         <textarea
           autoComplete={autoComplete}
@@ -9720,7 +12468,7 @@ function FieldInput({
   if (field.type === "boolean") {
     const checked = value === "true";
     return (
-      <label className="field">
+      <label className="field" data-field-key={field.key}>
         <span>{tx(field.label)}</span>
         <div className="boolean-toggle" role="radiogroup" aria-label={tx(field.label)}>
           <button
@@ -9749,7 +12497,7 @@ function FieldInput({
     );
   }
   return (
-    <label className="field">
+    <label className="field" data-field-key={field.key}>
       <span>{tx(field.label)}</span>
       <input
         autoComplete={autoComplete}
@@ -10040,6 +12788,8 @@ function systemSettingConfig(): ResourceConfig<AdminResource> {
       { key: "public_base_url", label: "公开 Base URL" },
       { key: "default_timeout", label: "默认超时" },
       { key: "audit_retention", label: "审计保留" },
+      { key: "api_key_prefix", label: "API Key 前缀", placeholder: "sk_", help: "新建和轮换 Key 时使用；建议以 _ 结尾，例如 sk_。" },
+      { key: "api_key_random_length", label: "API Key 随机长度", type: "number", placeholder: "48", help: "前缀后面的随机字符数，系统会限制在 24-128 之间。" },
     ]),
     eyebrow: "基础设置",
   };
@@ -10047,38 +12797,46 @@ function systemSettingConfig(): ResourceConfig<AdminResource> {
 
 function identityProviderConfig(): ResourceConfig<AdminResource> {
   const fields: FieldConfig[] = [
-    { key: "provider_type", label: "类型", type: "select", options: ["oidc", "oauth2", "saml", "ldap"], required: true },
+    { key: "provider_template", label: "身份源模板", type: "select", options: identityProviderTemplateOptions },
+    { key: "provider_type", label: "协议", type: "select", options: ["oidc", "oauth2", "saml", "ldap"], required: true },
     { key: "icon_key", label: "登录图标", type: "select", options: identityProviderIconOptions, help: "auto 会根据名称、Issuer URL 和类型自动选择登录页图标。" },
-    { key: "login_label", label: "登录显示名称", placeholder: "Google", help: "登录按钮上的名称；留空时按图标、Issuer 或身份源名称自动推断。" },
+    { key: "login_label", label: "登录按钮名称", placeholder: "Google", help: "留空时按图标、Issuer 或身份源名称自动推断。" },
     { key: "issuer_url", label: "Issuer URL" },
     { key: "client_id", label: "Client ID" },
     { key: "client_secret", label: "Client Secret", type: "password", help: "编辑时留空则不修改已保存密钥。" },
-    { key: "authorize_url", label: "Authorize URL" },
-    { key: "token_url", label: "Token URL" },
-    { key: "userinfo_url", label: "UserInfo URL" },
+    { key: "authorize_url", label: "授权端点" },
+    { key: "token_url", label: "Token 端点" },
+    { key: "userinfo_url", label: "用户信息端点" },
     { key: "redirect_uri", label: "Callback URL", help: "必须与 OAuth 应用中登记的 Redirect URI 完全一致；留空时按当前后端访问地址自动生成。" },
-    { key: "scopes", label: "Scopes" },
-    { key: "username_claim", label: "用户名字段" },
-    { key: "email_claim", label: "邮箱字段" },
-    { key: "team_claim", label: "团队字段" },
+    { key: "scopes", label: "授权范围" },
+    { key: "username_claim", label: "用户名 Claim" },
+    { key: "email_claim", label: "邮箱 Claim" },
+    { key: "team_claim", label: "团队 Claim" },
+    { key: "default_role", label: "默认角色", type: "select", options: ["user", "team_leader"], help: "首次 OAuth 登录创建用户时使用；不会覆盖已存在用户角色。" },
+    { key: "default_team_id", label: "默认团队", type: "select", optionsFromData: teamSelectOptions, help: "团队字段无法映射时使用。" },
+    { key: "default_project_id", label: "默认项目", type: "select", optionsFromData: projectMemberProjectSelectOptions, help: "登录后自动加入该项目空间。" },
+    { key: "default_project_role", label: "默认项目角色", type: "select", optionsFromData: oauthDefaultProjectRoleOptions, help: "自动加入默认项目时授予的项目权限。" },
   ];
-  const base = genericResourceConfig("identity-providers", "身份源", "配置企业已有 SSO/OAuth/OIDC/SAML/LDAP 身份系统。当前用于记录配置和用户同步导入，登录回调可在该配置基础上继续接入。", fields);
+  const base = genericResourceConfig("identity-providers", "身份源", "配置企业 SSO/OAuth/OIDC 登录和首次登录授权。", fields);
   return {
     ...base,
     eyebrow: "身份源",
     createLabel: "新增身份源",
     columns: [
       { key: "name", label: "名称" },
-      { key: "provider_type", label: "类型", render: (item) => identityProviderTypeLabel(stringifyValue(item.fields?.provider_type)) },
-      { key: "icon_key", label: "图标", render: (item) => identityProviderIconLabel(stringifyValue(item.fields?.icon_key)) },
-      { key: "login_label", label: "登录显示", render: (item) => stringifyValue(item.fields?.login_label) || "-" },
+      { key: "login_entry", label: "登录入口", render: (item) => identityProviderLoginEntryLabel(item) },
+      { key: "provider_type", label: "协议", render: (item) => identityProviderTypeLabel(stringifyValue(item.fields?.provider_type)) },
       { key: "issuer_url", label: "Issuer", render: (item) => stringifyValue(item.fields?.issuer_url) || "-" },
-      { key: "client_id", label: "Client ID", render: (item) => stringifyValue(item.fields?.client_id) || "-" },
-      { key: "scopes", label: "Scopes", render: (item) => compactList(item.fields?.scopes) },
+      { key: "default_grant", label: "默认授权", render: (item, ctx) => identityProviderDefaultGrantLabel(ctx, item) },
       { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
     ],
     create: (ctx, values) => adminMutate(ctx, "/api/admin/resources/identity-providers", "POST", identityProviderPayload(values, fields)),
     update: (ctx, item, values) => adminMutate(ctx, `/api/admin/resources/identity-providers/${item.id}`, "PATCH", identityProviderPayload(values, fields, item)),
+    toForm: (item) => {
+      const form = base.toForm?.(item) ?? {};
+      form.client_secret = "";
+      return identityProviderInitialFormValues(form, false);
+    },
   };
 }
 
@@ -11294,7 +14052,7 @@ async function createKeyWithCapture(
   load: () => Promise<void>,
   setLoading: (value: boolean) => void,
   setError: (value: string) => void,
-  setModal: (value: ModalState<any> | null) => void,
+  closeForm: () => void,
 ) {
   setLoading(true);
   setError("");
@@ -11308,7 +14066,7 @@ async function createKeyWithCapture(
       method: "POST",
       body: JSON.stringify(payload),
     });
-    if (!resp.ok) throw new Error(`create api key ${resp.status}`);
+    if (!resp.ok) throw new Error(await readAdminError(resp, "项目 Key 发放"));
     const data = (await resp.json()) as { api_key?: string; approval_required?: boolean; approval?: ApprovalRequest };
     if (data.approval_required) {
       setIssuedKey("");
@@ -11317,11 +14075,11 @@ async function createKeyWithCapture(
       setNotice("");
       setIssuedKey(data.api_key);
     }
-    setModal(null);
+    closeForm();
     await load();
   } catch (err) {
     if (isAuthExpiredError(err)) return;
-    setError(err instanceof Error ? err.message : "发放 Key 失败");
+    setError(err instanceof Error ? err.message : tx("发放 Key 失败"));
   } finally {
     setLoading(false);
   }
@@ -11695,6 +14453,7 @@ function defaultFormValues<T>(config: ResourceConfig<T>, data: AppData, currentU
     if (field.key === "permissions") values[field.key] = "overview:read, project:read";
     if (field.key === "menu_scopes") values[field.key] = "overview, projects";
     if (field.key === "assignable") values[field.key] = "true";
+    if (field.key === "provider_template") values[field.key] = "generic_oidc";
     if (field.key === "provider_type") values[field.key] = "oidc";
     if (field.key === "icon_key") values[field.key] = "auto";
     if (field.key === "login_label") values[field.key] = "";
@@ -11705,6 +14464,12 @@ function defaultFormValues<T>(config: ResourceConfig<T>, data: AppData, currentU
     if (field.key === "username_claim") values[field.key] = "preferred_username";
     if (field.key === "email_claim") values[field.key] = "email";
     if (field.key === "team_claim") values[field.key] = "department";
+    if (field.key === "default_role") values[field.key] = "user";
+    if (field.key === "default_team_id") values[field.key] = firstActiveTeam(data)?.id ?? "";
+    if (field.key === "default_project_id") values[field.key] = projectMemberProjectSelectOptions(data)[0]?.value ?? "";
+    if (field.key === "default_project_role") values[field.key] = "developer";
+    if (field.key === "api_key_prefix") values[field.key] = "sk_";
+    if (field.key === "api_key_random_length") values[field.key] = "48";
     if (field.key === "password") values[field.key] = "changeme123456";
     if (field.key === "expire_days") values[field.key] = "14";
   }
@@ -11857,6 +14622,9 @@ async function importUsersFromCSVContent(ctx: ApiContext, content: string): Prom
 }
 
 async function readAdminError(resp: Response, fallback: string) {
+  if (resp.status === 403) {
+    return permissionDeniedMessage(fallback);
+  }
   const body = await resp.text().catch(() => "");
   if (!body) return `${fallback} (${resp.status})`;
   try {
@@ -11872,7 +14640,7 @@ async function adminMutate(ctx: ApiContext, path: string, method: "POST" | "PATC
     method,
     body: JSON.stringify(payload),
   });
-  if (!resp.ok) throw new Error(`${method} ${path} ${resp.status}`);
+  if (!resp.ok) throw new Error(await readAdminError(resp, operationLabel(method, path)));
   if (resp.status === 202) {
     const data = (await resp.json()) as { approval_required?: boolean; approval?: ApprovalRequest };
     if (data.approval_required) {
@@ -11883,7 +14651,96 @@ async function adminMutate(ctx: ApiContext, path: string, method: "POST" | "PATC
 
 async function adminDelete(ctx: ApiContext, path: string) {
   const resp = await adminFetch(ctx, path, { method: "DELETE" });
-  if (!resp.ok && resp.status !== 204) throw new Error(`DELETE ${path} ${resp.status}`);
+  if (!resp.ok && resp.status !== 204) throw new Error(await readAdminError(resp, operationLabel("DELETE", path)));
+}
+
+async function readLoadError(resp: Response, name: string) {
+  if (resp.status === 403) return permissionDeniedMessage(loadRequestLabel(name));
+  return readAdminError(resp, loadRequestLabel(name));
+}
+
+function permissionDeniedMessage(target: string) {
+  const label = target || tx("该资源");
+  if (activeLanguage === "en") {
+    return `This account does not have permission to access ${label}. Data outside your permission scope is hidden; ask an admin to adjust your role or project membership if needed.`;
+  }
+  if (activeLanguage === "ja") {
+    return `このアカウントには ${label} へのアクセス権限がありません。権限外のデータは非表示です。必要に応じて管理者にロールまたはプロジェクトメンバー権限の調整を依頼してください。`;
+  }
+  return `当前账号没有访问 ${label} 的权限。页面已隐藏无权限数据；如需查看或管理，请联系管理员调整角色或项目成员权限。`;
+}
+
+function permissionPartialLoadMessage(labels: string[]) {
+  const unique = Array.from(new Set(labels.filter(Boolean))).slice(0, 4);
+  const summary = unique.join("、");
+  if (activeLanguage === "en") return `Hidden due to insufficient permission: ${summary}. This page only shows content you can access.`;
+  if (activeLanguage === "ja") return `権限不足のため非表示: ${summary}。このページにはアクセス可能な内容のみ表示します。`;
+  return `已隐藏无权限数据：${summary}。当前页面只展示你有权限查看的内容。`;
+}
+
+function operationLabel(method: string, path: string) {
+  const resource = resourceLabelFromPath(path);
+  const action = method === "POST" ? "新增" : method === "PATCH" ? "编辑" : method === "DELETE" ? "删除" : "操作";
+  return `${tx(resource)}${tx(action)}`;
+}
+
+function loadRequestLabel(name: string) {
+  if (name.startsWith("resource:")) return resourceKindLabel(name.slice("resource:".length));
+  const labels: Record<string, string> = {
+    overview: "总览数据",
+    providers: "Provider 渠道",
+    "provider-resources": "Provider 账号资源",
+    "api-keys": "Key 管理",
+    routes: "路由策略",
+    audit: "请求日志",
+    "audit-events": "后台审计",
+    alerts: "告警事件",
+    "alert-deliveries": "通知记录",
+    approvals: "审批记录",
+    "sqlite-backups": "数据备份",
+    breakdown: "用量统计",
+    timeseries: "趋势统计",
+    users: "用户管理",
+    "provider-catalog": "Provider 模型目录",
+  };
+  return tx(labels[name] ?? name);
+}
+
+function resourceLabelFromPath(path: string) {
+  if (path.includes("/api/admin/projects/") && path.endsWith("/keys")) return "项目 Key 发放";
+  if (path.includes("/api/admin/api-keys")) return "Key 管理";
+  if (path.includes("/api/admin/routing-rules")) return "路由策略";
+  if (path.includes("/api/admin/providers")) return "Provider 渠道";
+  if (path.includes("/api/admin/users")) return "用户管理";
+  if (path.includes("/api/admin/approvals")) return "审批记录";
+  if (path.includes("/api/admin/sqlite/backups")) return "数据备份";
+  const resourceMatch = path.match(/\/api\/admin\/resources\/([^/]+)/);
+  if (resourceMatch) return resourceKindLabel(resourceMatch[1]);
+  return "该资源";
+}
+
+function resourceKindLabel(kind: string) {
+  const labels: Record<string, string> = {
+    teams: "团队分组",
+    "cost-centers": "成本中心",
+    "quota-policies": "额度策略",
+    "project-members": "项目成员",
+    settings: "系统设置",
+    "role-configs": "角色配置",
+    "identity-providers": "身份源",
+    "alert-rules": "告警规则",
+    budgets: "预算",
+    chargebacks: "成本分摊",
+    "approval-flows": "审批流",
+    invoices: "成本账单",
+    reports: "导出报表",
+    "notification-channels": "通知渠道",
+    monitors: "健康检测",
+    proxies: "代理出口",
+    announcements: "公告通知",
+    "security-policies": "安全策略",
+  };
+  return tx(labels[kind] ?? kind);
 }
 
 class AuthExpiredError extends Error {
@@ -12446,6 +15303,10 @@ function findProvider(data: AppData, providerID: string) {
   return data.providers.find((provider) => provider.id === providerID);
 }
 
+function findProviderResource(data: AppData, resourceID: string) {
+  return data.providerResources.find((resource) => resource.id === resourceID);
+}
+
 function findProject(data: AppData, projectID: string) {
   return data.projects.find((project) => project.id === projectID);
 }
@@ -12505,6 +15366,14 @@ function projectMemberRoleOptions() {
     { value: "maintainer", label: "维护者" },
     { value: "developer", label: "开发者" },
     { value: "viewer", label: "只读" },
+  ];
+}
+
+function oauthDefaultProjectRoleOptions() {
+  return [
+    { value: "developer", label: "开发者" },
+    { value: "viewer", label: "只读" },
+    { value: "maintainer", label: "维护者" },
   ];
 }
 
@@ -13012,6 +15881,22 @@ function identityProviderIconLabel(iconKey: string) {
   return labels[normalized] ?? (iconKey || "-");
 }
 
+function identityProviderLoginEntryLabel(item: AdminResource) {
+  const icon = identityProviderIconLabel(stringifyValue(item.fields?.icon_key));
+  const label = stringifyValue(item.fields?.login_label) || item.name;
+  return [icon, label].filter((value) => value && value !== "-").join(" / ") || "-";
+}
+
+function identityProviderDefaultGrantLabel(data: AppData, item: AdminResource) {
+  const role = roleLabel(stringifyValue(item.fields?.default_role) || "user");
+  const team = teamLabel(data, stringifyValue(item.fields?.default_team_id));
+  const project = projectName(data, stringifyValue(item.fields?.default_project_id));
+  const parts = [role];
+  if (team !== "-") parts.push(team);
+  if (project !== "-") parts.push(project);
+  return parts.join(" / ");
+}
+
 function dataScopeLabel(scope: string) {
   const labels: Record<string, string> = {
     global: "全局",
@@ -13119,7 +16004,9 @@ function fieldValueLabel(fieldKey: string, value: unknown): string {
   const normalizedKey = fieldKey.toLowerCase();
   if (normalizedKey.includes("role")) return roleLabel(text);
   if (normalizedKey.includes("scope")) return dataScopeLabel(text);
+  if (normalizedKey === "provider_type") return identityProviderTypeLabel(text);
   if (normalizedKey.includes("provider_type")) return providerTypeLabel(text);
+  if (normalizedKey === "provider_template") return identityProviderTemplateLabel(text);
   if (normalizedKey === "icon_key") return identityProviderIconLabel(text);
   if (normalizedKey === "status" || normalizedKey.includes("status")) return enumValueLabel(text);
   if (normalizedKey === "strategy") return routeStrategyLabel(text);
@@ -13512,6 +16399,118 @@ function apiGatewayBaseURL(baseURL: string) {
 
 function activeRouteCount(modelName: string, data: AppData) {
   return data.routes.filter((route) => route.model_name === modelName && route.status === "active").length;
+}
+
+type ModelAvailabilityTone = "ready" | "warning" | "blocked" | "restricted";
+
+type ModelAvailabilitySummary = {
+  tone: ModelAvailabilityTone;
+  label: string;
+  detail: string;
+  totalRoutes: number;
+  activeRoutes: number;
+  healthyRoutes: number;
+};
+
+function modelAvailabilitySummary(model: Model, data: AppData, readOnly = false): ModelAvailabilitySummary {
+  const routes = modelRoutesFor(model, data);
+  const activeRoutes = routes.filter((route) => route.status === "active");
+  const healthyRoutes = activeRoutes.filter((route) => routeHasHealthyTarget(route, data));
+  if (model.status !== "active") {
+    return {
+      tone: "blocked",
+      label: "模型未启用",
+      detail: "模型目录状态不是启用，前台不会作为可调用模型。",
+      totalRoutes: routes.length,
+      activeRoutes: activeRoutes.length,
+      healthyRoutes: healthyRoutes.length,
+    };
+  }
+  if (readOnly && routes.length === 0) {
+    return {
+      tone: "restricted",
+      label: "按权限可见",
+      detail: "当前账号可见此模型；实际调用还会受项目 Key 白名单和运行时路由策略限制。",
+      totalRoutes: routes.length,
+      activeRoutes: activeRoutes.length,
+      healthyRoutes: healthyRoutes.length,
+    };
+  }
+  if (routes.length === 0) {
+    return {
+      tone: "blocked",
+      label: "未配置路由",
+      detail: "管理员需要在路由策略中把该模型映射到一个 Provider 上游模型。",
+      totalRoutes: routes.length,
+      activeRoutes: activeRoutes.length,
+      healthyRoutes: healthyRoutes.length,
+    };
+  }
+  if (activeRoutes.length === 0) {
+    return {
+      tone: "blocked",
+      label: "路由未启用",
+      detail: "已有 Provider 线路，但线路状态未启用，运行时不会命中。",
+      totalRoutes: routes.length,
+      activeRoutes: activeRoutes.length,
+      healthyRoutes: healthyRoutes.length,
+    };
+  }
+  if (healthyRoutes.length === 0) {
+    return {
+      tone: "warning",
+      label: "线路需检查",
+      detail: "启用线路存在，但 Provider 或账号资源不是健康启用状态。",
+      totalRoutes: routes.length,
+      activeRoutes: activeRoutes.length,
+      healthyRoutes: healthyRoutes.length,
+    };
+  }
+  return {
+    tone: "ready",
+    label: "可调用",
+    detail: `${healthyRoutes.length} 条健康启用线路，调用时仍会受项目 Key 白名单和额度限制。`,
+    totalRoutes: routes.length,
+    activeRoutes: activeRoutes.length,
+    healthyRoutes: healthyRoutes.length,
+  };
+}
+
+function routeHasHealthyTarget(route: ModelRoute, data: AppData) {
+  const provider = findProvider(data, route.provider_id);
+  if (!provider || provider.status !== "active" || provider.healthy === false) return false;
+  if (route.provider_resource_id) {
+    const resource = findProviderResource(data, route.provider_resource_id);
+    return Boolean(resource && resource.status === "active" && resource.healthy !== false);
+  }
+  const group = stringifyValue(route.resource_group);
+  if (group) {
+    const groupedResources = data.providerResources.filter((resource) =>
+      resource.provider_id === route.provider_id && resource.group === group && resource.status === "active",
+    );
+    if (groupedResources.length > 0) return groupedResources.some((resource) => resource.healthy !== false);
+  }
+  return true;
+}
+
+function modelCatalogEmptyText(data: AppData, readOnly: boolean, query: string) {
+  if (query.trim()) return tx("没有匹配的模型");
+  if (data.models.length === 0) {
+    return readOnly
+      ? tx("当前没有可调用模型。通常原因是管理员还没有启用模型目录或路由策略，或你的项目/Key 未被授予模型范围。")
+      : tx("当前还没有模型目录。请先维护模型目录，再配置路由策略。");
+  }
+  return readOnly
+    ? tx("当前筛选下没有可见模型。可用性由模型目录、路由策略、项目成员和 Key 白名单共同决定。")
+    : tx("没有匹配的模型");
+}
+
+function keyWizardModelOptions(data: AppData) {
+  const activeChatModels = playgroundModels(data, data.routes.length > 0);
+  const routed = activeChatModels.filter((model) => data.routes.length === 0 || activeRouteCount(model.name, data) > 0);
+  return (routed.length > 0 ? routed : activeChatModels).sort((left, right) =>
+    modelCategoryRank(left) - modelCategoryRank(right) || left.name.localeCompare(right.name),
+  );
 }
 
 function modelCategoryRank(model: Model) {
