@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/smtp"
@@ -963,7 +964,8 @@ func (s *Server) handleAdminOAuthCallback(w http.ResponseWriter, r *http.Request
 	}
 	token, err := s.exchangeOAuthCode(r.Context(), provider, code, state.RedirectURI)
 	if err != nil {
-		http.Redirect(w, r, oauthRedirectWithError(state.ReturnURL, "token_exchange_failed"), http.StatusFound)
+		log.Printf("oauth token exchange failed provider_id=%s redirect_uri=%s error=%v", provider.ID, state.RedirectURI, err)
+		http.Redirect(w, r, oauthRedirectWithError(state.ReturnURL, oauthErrorCode("token_exchange_failed", err)), http.StatusFound)
 		return
 	}
 	claims, err := s.fetchOAuthUserInfo(r.Context(), provider, token.AccessToken)
@@ -1266,29 +1268,59 @@ func (s *Server) exchangeOAuthCode(ctx context.Context, provider AdminResource, 
 	if clientSecret != "" {
 		form.Set("client_secret", clientSecret)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
-	if err != nil {
+	token, detail, err := requestOAuthToken(ctx, tokenURL, form, "", "")
+	if err == nil {
+		if strings.TrimSpace(token.AccessToken) == "" {
+			return oauthTokenResponse{}, NewHTTPError(502, "oauth_token_missing", "OAuth token endpoint did not return an access token")
+		}
+		return token, nil
+	}
+	if clientSecret == "" || !strings.Contains(detail, "invalid_client") {
 		return oauthTokenResponse{}, err
 	}
-	req.Header.Set("accept", "application/json")
-	req.Header.Set("content-type", "application/x-www-form-urlencoded")
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	log.Printf("oauth token exchange retrying with client_secret_basic after invalid_client")
+	basicForm := url.Values{}
+	basicForm.Set("grant_type", "authorization_code")
+	basicForm.Set("code", code)
+	basicForm.Set("redirect_uri", redirectURI)
+	token, _, err = requestOAuthToken(ctx, tokenURL, basicForm, clientID, clientSecret)
 	if err != nil {
-		return oauthTokenResponse{}, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return oauthTokenResponse{}, NewHTTPError(502, "oauth_token_failed", fmt.Sprintf("OAuth token endpoint returned %d", resp.StatusCode))
-	}
-	var token oauthTokenResponse
-	if err := json.Unmarshal(body, &token); err != nil {
 		return oauthTokenResponse{}, err
 	}
 	if strings.TrimSpace(token.AccessToken) == "" {
 		return oauthTokenResponse{}, NewHTTPError(502, "oauth_token_missing", "OAuth token endpoint did not return an access token")
 	}
 	return token, nil
+}
+
+func requestOAuthToken(ctx context.Context, tokenURL string, form url.Values, basicClientID string, basicSecret string) (oauthTokenResponse, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return oauthTokenResponse{}, "", err
+	}
+	req.Header.Set("accept", "application/json")
+	req.Header.Set("content-type", "application/x-www-form-urlencoded")
+	if basicClientID != "" || basicSecret != "" {
+		req.SetBasicAuth(basicClientID, basicSecret)
+	}
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		return oauthTokenResponse{}, "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		detail := sanitizeOAuthErrorDetail(body)
+		if detail != "" {
+			return oauthTokenResponse{}, detail, NewHTTPError(502, "oauth_token_failed", fmt.Sprintf("OAuth token endpoint returned %d: %s", resp.StatusCode, detail))
+		}
+		return oauthTokenResponse{}, detail, NewHTTPError(502, "oauth_token_failed", fmt.Sprintf("OAuth token endpoint returned %d", resp.StatusCode))
+	}
+	var token oauthTokenResponse
+	if err := json.Unmarshal(body, &token); err != nil {
+		return oauthTokenResponse{}, "", err
+	}
+	return token, "", nil
 }
 
 func (s *Server) fetchOAuthUserInfo(ctx context.Context, provider AdminResource, accessToken string) (map[string]any, error) {
@@ -1487,11 +1519,60 @@ func oauthRedirectWithError(returnURL string, code string) string {
 	return oauthRedirectWithFragment(returnURL, values)
 }
 
+func oauthErrorCode(code string, err error) string {
+	if err == nil {
+		return code
+	}
+	detail := strings.TrimSpace(err.Error())
+	if detail == "" {
+		return code
+	}
+	detail = strings.ReplaceAll(detail, "\n", " ")
+	detail = strings.ReplaceAll(detail, "\r", " ")
+	if len(detail) > 160 {
+		detail = detail[:160]
+	}
+	return code + ": " + detail
+}
+
+func sanitizeOAuthErrorDetail(body []byte) string {
+	raw := strings.TrimSpace(string(body))
+	if raw == "" {
+		return ""
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(body, &parsed); err == nil {
+		parts := []string{}
+		for _, key := range []string{"error", "error_description", "error_uri", "message"} {
+			if value, ok := parsed[key].(string); ok && strings.TrimSpace(value) != "" {
+				parts = append(parts, fmt.Sprintf("%s=%s", key, strings.TrimSpace(value)))
+			}
+		}
+		if len(parts) > 0 {
+			raw = strings.Join(parts, "; ")
+		}
+	}
+	raw = strings.ReplaceAll(raw, "\n", " ")
+	raw = strings.ReplaceAll(raw, "\r", " ")
+	if len(raw) > 240 {
+		raw = raw[:240]
+	}
+	return raw
+}
+
 func oauthRedirectWithFragment(returnURL string, values url.Values) string {
 	target, err := url.Parse(returnURL)
 	if err != nil || target.Scheme == "" || target.Host == "" {
 		target, _ = url.Parse("http://localhost:3000/overview")
 	}
+	query := target.Query()
+	for key, items := range values {
+		query.Del(key)
+		for _, item := range items {
+			query.Add(key, item)
+		}
+	}
+	target.RawQuery = query.Encode()
 	target.Fragment = values.Encode()
 	return target.String()
 }
