@@ -649,6 +649,7 @@ type SettingsTabKey = "settings" | "role-configs" | "identity-providers";
 const defaultBaseURL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
 const sessionStorageKey = "tokenhub.admin.session";
+const oauthBaseURLStorageKey = "tokenhub.admin.oauth.base_url";
 const authExpiredEventName = "tokenhub-admin-auth-expired";
 const languageStorageKey = "tokenhub.admin.language";
 
@@ -3130,7 +3131,7 @@ export default function AdminHome() {
   const [adminToken, setAdminToken] = useState("");
   const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
   const [loginIdentityProviders, setLoginIdentityProviders] = useState<LoginIdentityProvider[]>([]);
-  const [oauthReturnURL, setOAuthReturnURL] = useState(viewRoutes.overview);
+  const [oauthReturnURL, setOAuthReturnURL] = useState(() => currentOAuthReturnURL());
   const [bootstrapped, setBootstrapped] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [openNavGroups, setOpenNavGroups] = useState<Record<string, boolean>>(() =>
@@ -3190,9 +3191,11 @@ export default function AdminHome() {
     async function bootstrapSession() {
       const saved = readSavedSession();
       const oauth = readOAuthLoginResult();
-      const sessionBaseURL = saved?.baseURL ?? defaultBaseURL;
+      const sessionBaseURL = readPendingOAuthBaseURL() ?? saved?.baseURL ?? defaultBaseURL;
+      if (!oauth && forwardOAuthAuthorizationResponse(sessionBaseURL)) return;
       if (oauth?.error) {
         clearOAuthLoginResult();
+        clearPendingOAuthBaseURL();
         setError(tx("OAuth 登录失败"));
       }
       if (oauth?.token) {
@@ -3202,7 +3205,9 @@ export default function AdminHome() {
           const resp = await fetch(`${sessionBaseURL.replace(/\/$/, "")}/api/admin/auth/me`, {
             headers: { authorization: `Bearer ${oauth.token}` },
           });
-          if (!resp.ok) throw new Error(`oauth me ${resp.status}`);
+          if (!resp.ok) {
+            throw new Error(await readAdminError(resp, "OAuth 会话校验失败"));
+          }
           const payload = (await resp.json()) as { user: AdminUser };
           const expiresAt = oauth.expiresAt || new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
           if (cancelled) return;
@@ -3215,6 +3220,7 @@ export default function AdminHome() {
           if (!cancelled) setError(err instanceof Error ? err.message : tx("OAuth 登录失败"));
         } finally {
           clearOAuthLoginResult();
+          clearPendingOAuthBaseURL();
           if (!cancelled) {
             setLoading(false);
             setBootstrapped(true);
@@ -3237,7 +3243,7 @@ export default function AdminHome() {
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      setOAuthReturnURL(`${window.location.origin}${viewRoutes.overview}`);
+      setOAuthReturnURL(currentOAuthReturnURL());
     }
   }, []);
 
@@ -3302,10 +3308,12 @@ export default function AdminHome() {
   }, [currentUser, activeView]);
 
   useEffect(() => {
+    if (isOAuthAuthorizationResponse()) return;
+    if (readOAuthLoginResult()) return;
     const view = viewFromPath(window.location.pathname);
     setActiveView(view);
     if (window.location.pathname !== viewRoutes[view]) {
-      window.history.replaceState({ view }, "", viewRoutes[view]);
+      window.history.replaceState({ view }, "", `${viewRoutes[view]}${window.location.search}${window.location.hash}`);
     }
     function onPopState() {
       setNotice("");
@@ -4003,6 +4011,11 @@ function identityProviderLoginURL(baseURL: string, provider: LoginIdentityProvid
   return target.toString();
 }
 
+function currentOAuthReturnURL() {
+  if (typeof window === "undefined") return viewRoutes.overview;
+  return `${window.location.origin}${viewRoutes.overview}`;
+}
+
 function loginIdentityProviderDisplayName(provider: LoginIdentityProvider) {
   if (provider.display_name) return provider.display_name;
   const iconKey = loginIdentityProviderIconKey(provider);
@@ -4308,7 +4321,11 @@ function LoginView({
                       href={identityProviderLoginURL(baseURL, provider, oauthReturnURL)}
                       key={provider.id}
                       onClick={(event) => {
-                        if (loading) event.preventDefault();
+                        if (loading) {
+                          event.preventDefault();
+                          return;
+                        }
+                        savePendingOAuthBaseURL(baseURL);
                       }}
                     >
                       <LoginIdentityProviderIcon provider={provider} />
@@ -13683,6 +13700,35 @@ function clearOAuthLoginResult() {
   if (changed) {
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   }
+}
+
+function isOAuthAuthorizationResponse() {
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search.replace(/^\?/, ""));
+  return Boolean(params.get("state") && (params.get("code") || params.get("error")));
+}
+
+function forwardOAuthAuthorizationResponse(baseURL: string) {
+  if (typeof window === "undefined" || !isOAuthAuthorizationResponse()) return false;
+  const target = new URL(`${baseURL.replace(/\/$/, "")}/api/admin/auth/oauth/callback`);
+  target.search = window.location.search;
+  window.location.replace(target.toString());
+  return true;
+}
+
+function readPendingOAuthBaseURL() {
+  if (typeof window === "undefined") return null;
+  return window.sessionStorage.getItem(oauthBaseURLStorageKey);
+}
+
+function savePendingOAuthBaseURL(baseURL: string) {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(oauthBaseURLStorageKey, baseURL);
+}
+
+function clearPendingOAuthBaseURL() {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem(oauthBaseURLStorageKey);
 }
 
 function readSavedSession(): SavedSession | null {

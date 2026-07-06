@@ -1,6 +1,8 @@
 FROM golang:1.26-alpine AS builder
 
 WORKDIR /src
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=$GOPROXY
 RUN apk add --no-cache gcc musl-dev
 COPY backend/go.mod ./backend/go.mod
 COPY backend/go.sum ./backend/go.sum
