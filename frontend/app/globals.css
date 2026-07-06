@@ -6017,6 +6017,8 @@ textarea:focus-visible {
 .field {
   gap: 7px;
   margin-bottom: 18px;
+  align-self: start;
+  align-content: start;
 }
 
 .field > span:first-child,
