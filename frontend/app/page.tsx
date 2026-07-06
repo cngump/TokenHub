@@ -571,6 +571,8 @@ type FieldConfig = {
   visible?: (values: Record<string, string>) => boolean;
 };
 
+type ProviderCredentialMode = "provider_api_key" | "account_integration" | "later";
+
 type ColumnConfig<T> = {
   key: string;
   label: string;
@@ -813,6 +815,93 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "新增模型": "Create Model",
     "新增 Provider": "Create Provider",
     "账号集成": "Account Integration",
+    "创建 Provider 步骤": "Provider Creation Steps",
+    "接入方式": "Access Method",
+    "渠道信息": "Provider Info",
+    "默认通道": "Default Channel",
+    "账号与凭据": "Credentials",
+    "路由与确认": "Routes",
+    "选择接入方式": "Choose Access Method",
+    "先告诉 TokenHub 你手里有什么：上游 API Key、OpenAI 账号资源，或者只是先占位建路由。": "Tell TokenHub what you have first: an upstream API key, an OpenAI account resource, or a placeholder Provider for routes.",
+    "账号资源池会自动推荐 OpenAI 兼容通道，下一步只需确认 Base URL 和账号凭据。": "Account resource pool will recommend an OpenAI-compatible channel automatically. Next, confirm the Base URL and account credential.",
+    "确认账号通道和基础信息": "Confirm account channel and basics",
+    "选择渠道和基础信息": "Choose Provider and basics",
+    "账号资源池已为你选好默认通道。这里通常只确认 Base URL；账号走企业代理时再修改。": "TokenHub selected the default channel for the account pool. Usually you only confirm the Base URL; edit it only when the account goes through an enterprise proxy.",
+    "选择上游渠道商模板，TokenHub 会带出类型、Base URL 和可映射模型。": "Choose an upstream Provider template. TokenHub fills in type, Base URL, and mappable models.",
+    "推荐通道": "Recommended Channel",
+    "默认通道只负责协议与 Base URL，真实账号 Token 会在下一步保存为账号资源。": "The default channel only defines protocol and Base URL. The real account token is saved as an account resource in the next step.",
+    "选择模型类型和渠道商": "Choose model type and Provider",
+    "先确定要接入哪一类模型和哪个上游渠道，下一步再填写凭据和基础配置。": "Choose the model category and upstream Provider first, then fill credentials and basic settings.",
+    "配置账号与凭据": "Configure credentials",
+    "填写 Provider 基础信息，并选择是直接保存 API Key、接入账号资源池，还是稍后补齐凭据。": "Fill the Provider basics and choose whether to store an API key directly, attach an account pool, or configure credentials later.",
+    "选择是直接保存 API Key、接入账号资源池，还是稍后补齐凭据。": "Choose whether to store an API key directly, attach an account pool, or configure credentials later.",
+    "确认路由策略": "Review routing",
+    "选择是否自动创建默认路由，并确认要映射到标准模型目录的上游模型。": "Choose whether to create default routes and review which upstream models map to the standard catalog.",
+    "可映射模型": "Mappable Models",
+    "模型协议": "Model Protocol",
+    "兼容协议": "Compatibility Protocol",
+    "通道名称": "Channel Name",
+    "凭据方式": "Credential Mode",
+    "已选模型": "Selected Models",
+    "无": "None",
+    "保存中": "Saving",
+    "保存 Provider": "Save Provider",
+    "请先选择一个渠道商。": "Choose a Provider first.",
+    "请先选择一种接入方式。": "Choose an access method first.",
+    "请填写渠道名称。": "Enter a Provider name.",
+    "请填写通道名称。": "Enter a channel name.",
+    "账号资源配置不完整": "Account resource setup is incomplete.",
+    "认证与账号来源": "Credential Source",
+    "选择 Provider 使用哪一种上游凭据。账号集成会把账号作为资源池管理，适合 OpenAI subscription 或多个账号轮询。": "Choose how this Provider gets upstream credentials. Account integration manages accounts as a resource pool for OpenAI subscriptions or multi-account routing.",
+    "直接 API Key": "Direct API Key",
+    "把上游 Key 保存到 Provider，适合单账号或兼容 API。": "Store the upstream key on the Provider. Best for one account or compatible APIs.",
+    "账号资源池": "Account Resource Pool",
+    "适合 OpenAI 账号、Subscription 或多账号轮询，默认通道会自动推荐。": "Best for OpenAI accounts, subscriptions, or multi-account rotation. The default channel is recommended automatically.",
+    "稍后配置": "Configure Later",
+    "先创建 Provider 和路由，稍后再添加 Key 或账号资源。": "Create the Provider and routes first, then add a key or account resource later.",
+    "账号资源配置": "Account Resource Setup",
+    "账号资源会在 Provider 创建成功后自动加入当前 Provider。": "The account resource will be attached to this Provider after creation.",
+    "账号资源名称": "Account Resource Name",
+    "账号授权": "Account Authorization",
+    "输入账号地址并打开授权页；授权完成后 TokenHub 会从回调 URL 自动回填 Token。": "Enter the account address and open the authorization page. After authorization, TokenHub fills tokens from the callback URL.",
+    "账号地址/邮箱": "Account Address / Email",
+    "用于区分账号资源，可填写邮箱或账号系统里的唯一地址。": "Used to identify this account resource. Enter an email or the unique address from the account system.",
+    "账号授权地址": "Authorization URL",
+    "粘贴上游账号系统的授权地址；TokenHub 会带上本页回调地址。": "Paste the upstream account authorization URL. TokenHub will attach this page as the callback URL.",
+    "打开授权": "Open Authorization",
+    "本页回调地址": "Callback URL",
+    "授权应用跳回这个地址后，TokenHub 会自动读取 access_token / refresh_token / id_token。": "When the authorization app redirects to this URL, TokenHub reads access_token / refresh_token / id_token automatically.",
+    "复制回调地址": "Copy Callback URL",
+    "回调结果": "Callback Result",
+    "如果授权页没有自动跳回本页，把完整 callback URL 或 URL fragment 粘贴到这里。": "If the authorization page does not redirect back here, paste the full callback URL or URL fragment here.",
+    "解析回填": "Parse and Fill",
+    "等待授权回填": "Waiting for authorization",
+    "已回填账号 Token": "Account token filled",
+    "已回填访问 Token": "Access token filled",
+    "已回填刷新 Token": "Refresh token filled",
+    "已回填 ID Token": "ID token filled",
+    "打开授权页后，请在上游账号系统完成授权。": "After opening the authorization page, complete authorization in the upstream account system.",
+    "请先填写账号授权地址。": "Enter the authorization URL first.",
+    "账号授权地址格式不正确。": "The authorization URL format is invalid.",
+    "未在回调结果中识别到 Token。": "No token was found in the callback result.",
+    "回调里只有授权 code，当前版本还需要返回 Token 的授权地址，或在高级选项中手动粘贴 Token。": "The callback only contains an authorization code. This version needs a callback URL that returns tokens, or manual token paste in Advanced.",
+    "已从回调 URL 自动回填账号 Token。": "Account token was filled from the callback URL.",
+    "已从粘贴的回调结果回填账号 Token。": "Account token was filled from the pasted callback result.",
+    "已复制回调地址。": "Callback URL copied.",
+    "高级：手动粘贴 Token": "Advanced: Paste Token Manually",
+    "只有在授权回填不可用时使用；保存后 Token 不会再次显示。": "Use only when callback filling is unavailable. Tokens will not be shown again after saving.",
+    "资源调度": "Resource Scheduling",
+    "这些配置决定账号资源参与路由时的权重、并发和限流。": "These settings control route weight, concurrency, and rate limits for this account resource.",
+    "先完成账号授权回填；TokenHub 会把回填的 Token 保存为账号资源。": "Complete account authorization first. TokenHub will save the returned token as an account resource.",
+    "请先完成账号授权回填，或在高级选项中手动粘贴 Token。": "Complete account authorization first, or paste a token manually in Advanced.",
+    "收到账号授权回调，已打开账号池创建向导。": "Received the account authorization callback and opened the account pool creation wizard.",
+    "Provider 将直接保存上游 API Key；如果需要账号池、刷新凭据或多账号调度，请切换为账号集成。": "The Provider will store the upstream API key directly. Switch to account integration for account pools, refresh credentials, or multi-account scheduling.",
+    "保存后不会写入上游凭据，可稍后通过编辑 Provider 或账号集成补齐。": "No upstream credential will be saved. You can add one later by editing the Provider or using account integration.",
+    "已创建账号资源": "account resource created",
+    "Provider 已创建，但无法确认账号资源所属 Provider。": "Provider was created, but TokenHub could not determine which Provider should own the account resource.",
+    "创建账号资源": "Create Account Resource",
+    "请填写至少一个账号 Token，或切换为稍后配置。": "Enter at least one account token, or switch to Configure Later.",
+    "请填写账号资源的 API Key，或切换为稍后配置。": "Enter the account resource API key, or switch to Configure Later.",
     "Provider 账号资源": "Provider Account Resources",
     "OpenAI 账号资源": "OpenAI Account Resource",
     "添加账号资源": "Add Account Resource",
@@ -1830,6 +1919,93 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "新增模型": "モデル作成",
     "新增 Provider": "Provider 作成",
     "账号集成": "アカウント連携",
+    "创建 Provider 步骤": "Provider 作成ステップ",
+    "接入方式": "接続方式",
+    "渠道信息": "Provider 情報",
+    "默认通道": "デフォルトチャネル",
+    "账号与凭据": "アカウントと認証情報",
+    "路由与确认": "ルート確認",
+    "选择接入方式": "接続方式を選択",
+    "先告诉 TokenHub 你手里有什么：上游 API Key、OpenAI 账号资源，或者只是先占位建路由。": "まず手元にあるものを選びます。上流 API Key、OpenAI アカウントリソース、またはルート用の仮 Provider です。",
+    "账号资源池会自动推荐 OpenAI 兼容通道，下一步只需确认 Base URL 和账号凭据。": "アカウントリソースプールでは OpenAI 互換チャネルを自動推奨します。次に Base URL とアカウント認証情報を確認します。",
+    "确认账号通道和基础信息": "アカウント用チャネルと基本情報を確認",
+    "选择渠道和基础信息": "Provider と基本情報を選択",
+    "账号资源池已为你选好默认通道。这里通常只确认 Base URL；账号走企业代理时再修改。": "アカウントプール用のデフォルトチャネルを選択済みです。通常は Base URL だけ確認し、企業プロキシ経由の場合のみ変更します。",
+    "选择上游渠道商模板，TokenHub 会带出类型、Base URL 和可映射模型。": "上流 Provider テンプレートを選ぶと、TokenHub が種別、Base URL、マッピング可能モデルを入力します。",
+    "推荐通道": "推奨チャネル",
+    "默认通道只负责协议与 Base URL，真实账号 Token 会在下一步保存为账号资源。": "デフォルトチャネルはプロトコルと Base URL のみを扱います。実際のアカウント Token は次のステップでアカウントリソースとして保存されます。",
+    "选择模型类型和渠道商": "モデル種別と Provider を選択",
+    "先确定要接入哪一类模型和哪个上游渠道，下一步再填写凭据和基础配置。": "先に接続するモデル種別と上流 Provider を決め、次のステップで認証情報と基本設定を入力します。",
+    "配置账号与凭据": "認証情報を設定",
+    "填写 Provider 基础信息，并选择是直接保存 API Key、接入账号资源池，还是稍后补齐凭据。": "Provider の基本情報を入力し、API Key を直接保存するか、アカウントリソースプールを使うか、後で設定するかを選択します。",
+    "选择是直接保存 API Key、接入账号资源池，还是稍后补齐凭据。": "API Key を直接保存するか、アカウントリソースプールを使うか、後で認証情報を追加するかを選択します。",
+    "确认路由策略": "ルーティングを確認",
+    "选择是否自动创建默认路由，并确认要映射到标准模型目录的上游模型。": "デフォルトルートを自動作成するかを選択し、標準モデルカタログへマッピングする上流モデルを確認します。",
+    "可映射模型": "マッピング可能モデル",
+    "模型协议": "モデルプロトコル",
+    "兼容协议": "互換プロトコル",
+    "通道名称": "チャネル名",
+    "凭据方式": "認証情報方式",
+    "已选模型": "選択済みモデル",
+    "无": "なし",
+    "保存中": "保存中",
+    "保存 Provider": "Provider を保存",
+    "请先选择一个渠道商。": "先に Provider を選択してください。",
+    "请先选择一种接入方式。": "先に接続方式を選択してください。",
+    "请填写渠道名称。": "Provider 名を入力してください。",
+    "请填写通道名称。": "チャネル名を入力してください。",
+    "账号资源配置不完整": "アカウントリソース設定が不完全です。",
+    "认证与账号来源": "認証とアカウント元",
+    "选择 Provider 使用哪一种上游凭据。账号集成会把账号作为资源池管理，适合 OpenAI subscription 或多个账号轮询。": "Provider が使用する上流認証情報を選択します。アカウント連携は OpenAI subscription や複数アカウントのルーティングに適したリソースプールとして管理します。",
+    "直接 API Key": "直接 API Key",
+    "把上游 Key 保存到 Provider，适合单账号或兼容 API。": "上流 Key を Provider に保存します。単一アカウントや互換 API に適しています。",
+    "账号资源池": "アカウントリソースプール",
+    "适合 OpenAI 账号、Subscription 或多账号轮询，默认通道会自动推荐。": "OpenAI アカウント、Subscription、複数アカウントのローテーションに適しており、デフォルトチャネルは自動推奨されます。",
+    "稍后配置": "後で設定",
+    "先创建 Provider 和路由，稍后再添加 Key 或账号资源。": "先に Provider とルートを作成し、後で Key またはアカウントリソースを追加します。",
+    "账号资源配置": "アカウントリソース設定",
+    "账号资源会在 Provider 创建成功后自动加入当前 Provider。": "Provider 作成後、このアカウントリソースは自動で紐づきます。",
+    "账号资源名称": "アカウントリソース名",
+    "账号授权": "アカウント認可",
+    "输入账号地址并打开授权页；授权完成后 TokenHub 会从回调 URL 自动回填 Token。": "アカウントアドレスを入力して認可ページを開きます。認可後、TokenHub は callback URL から Token を自動入力します。",
+    "账号地址/邮箱": "アカウントアドレス / メール",
+    "用于区分账号资源，可填写邮箱或账号系统里的唯一地址。": "アカウントリソースを識別するため、メールまたはアカウントシステム内の一意なアドレスを入力します。",
+    "账号授权地址": "認可 URL",
+    "粘贴上游账号系统的授权地址；TokenHub 会带上本页回调地址。": "上流アカウントシステムの認可 URL を貼り付けます。TokenHub はこのページの callback URL を付与します。",
+    "打开授权": "認可を開く",
+    "本页回调地址": "Callback URL",
+    "授权应用跳回这个地址后，TokenHub 会自动读取 access_token / refresh_token / id_token。": "認可アプリがこの URL に戻ると、TokenHub は access_token / refresh_token / id_token を自動で読み取ります。",
+    "复制回调地址": "Callback URL をコピー",
+    "回调结果": "Callback 結果",
+    "如果授权页没有自动跳回本页，把完整 callback URL 或 URL fragment 粘贴到这里。": "認可ページが自動で戻らない場合は、完全な callback URL または URL fragment をここに貼り付けます。",
+    "解析回填": "解析して入力",
+    "等待授权回填": "認可入力待ち",
+    "已回填账号 Token": "アカウント Token 入力済み",
+    "已回填访问 Token": "Access Token 入力済み",
+    "已回填刷新 Token": "Refresh Token 入力済み",
+    "已回填 ID Token": "ID Token 入力済み",
+    "打开授权页后，请在上游账号系统完成授权。": "認可ページを開いた後、上流アカウントシステムで認可を完了してください。",
+    "请先填写账号授权地址。": "先に認可 URL を入力してください。",
+    "账号授权地址格式不正确。": "認可 URL の形式が正しくありません。",
+    "未在回调结果中识别到 Token。": "Callback 結果から Token を識別できませんでした。",
+    "回调里只有授权 code，当前版本还需要返回 Token 的授权地址，或在高级选项中手动粘贴 Token。": "Callback には認可 code のみがあります。現バージョンでは Token を返す認可 URL、または詳細設定での手動 Token 入力が必要です。",
+    "已从回调 URL 自动回填账号 Token。": "Callback URL からアカウント Token を自動入力しました。",
+    "已从粘贴的回调结果回填账号 Token。": "貼り付けた callback 結果からアカウント Token を入力しました。",
+    "已复制回调地址。": "Callback URL をコピーしました。",
+    "高级：手动粘贴 Token": "詳細: Token を手動貼り付け",
+    "只有在授权回填不可用时使用；保存后 Token 不会再次显示。": "Callback 入力が使えない場合のみ使用します。保存後 Token は再表示されません。",
+    "资源调度": "リソース調整",
+    "这些配置决定账号资源参与路由时的权重、并发和限流。": "これらの設定は、このアカウントリソースのルート重み、同時実行数、レート制限を決めます。",
+    "先完成账号授权回填；TokenHub 会把回填的 Token 保存为账号资源。": "先にアカウント認可入力を完了します。TokenHub は戻った Token をアカウントリソースとして保存します。",
+    "请先完成账号授权回填，或在高级选项中手动粘贴 Token。": "先にアカウント認可入力を完了するか、詳細設定で Token を手動貼り付けしてください。",
+    "收到账号授权回调，已打开账号池创建向导。": "アカウント認可 callback を受信し、アカウントプール作成ウィザードを開きました。",
+    "Provider 将直接保存上游 API Key；如果需要账号池、刷新凭据或多账号调度，请切换为账号集成。": "Provider は上流 API Key を直接保存します。アカウントプール、更新用認証情報、複数アカウントの調整が必要な場合はアカウント連携に切り替えてください。",
+    "保存后不会写入上游凭据，可稍后通过编辑 Provider 或账号集成补齐。": "保存時に上流認証情報は書き込まれません。後で Provider 編集またはアカウント連携から追加できます。",
+    "已创建账号资源": "アカウントリソース作成済み",
+    "Provider 已创建，但无法确认账号资源所属 Provider。": "Provider は作成されましたが、アカウントリソースの紐づけ先 Provider を確認できませんでした。",
+    "创建账号资源": "アカウントリソース作成",
+    "请填写至少一个账号 Token，或切换为稍后配置。": "少なくとも 1 つのアカウント Token を入力するか、後で設定に切り替えてください。",
+    "请填写账号资源的 API Key，或切换为稍后配置。": "アカウントリソースの API Key を入力するか、後で設定に切り替えてください。",
     "Provider 账号资源": "Provider アカウントリソース",
     "OpenAI 账号资源": "OpenAI アカウントリソース",
     "添加账号资源": "アカウントリソースを追加",
@@ -3350,6 +3526,11 @@ function loadPlanForView(user: AdminUser, view: ViewKey): LoadPlan {
       plan.overview = true;
       plan.breakdown = true;
       plan.timeseries = true;
+      plan.logs = can("audit");
+      plan.users = appRole(user.role) === "team_leader";
+      if (appRole(user.role) === "team_leader") {
+        addResourceDependency(plan, "teams");
+      }
       addResourceDependency(plan, "announcements");
       break;
     case "playground":
@@ -3619,6 +3800,21 @@ export default function AdminHome() {
       setOAuthReturnURL(currentOAuthReturnURL());
     }
   }, []);
+
+  useEffect(() => {
+    const result = readProviderAccountOAuthResultFromLocation();
+    if (!result) return;
+    savePendingProviderAccountOAuthResult(result);
+    clearProviderAccountOAuthResultFromLocation();
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser || !hasPendingProviderAccountOAuthResult()) return;
+    selectView("providers", { replace: true });
+    setProviderCreateOpen(true);
+    setNotice(tx("收到账号授权回调，已打开账号池创建向导。"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser]);
 
   useEffect(() => {
     if (!bootstrapped || currentUser) return;
@@ -5525,6 +5721,7 @@ function OverviewView({
 }) {
   const [range, setRange] = useState<OverviewRangeKey>("7d");
   const [chartMetric, setChartMetric] = useState<OverviewMetricKey>("requests");
+  const role = appRole(user.role);
   const apiKeyCount = data.summary.api_key_count ?? data.keys.length;
   const can = (view: ViewKey) => canAccessView(user, view);
   const activeProviders = data.providers.filter((provider) => provider.status === "active" && provider.healthy).length;
@@ -5576,6 +5773,15 @@ function OverviewView({
         },
   ].filter(Boolean);
   const chartValue = overviewMetricValue(series, chartMetric);
+
+  if (role === "user" || role === "team_leader") {
+    return (
+      <div className="overview-report role-usage-overview">
+        <RoleUsageMonitorDashboard data={data} user={user} onSelectView={onSelectView} />
+        <OverviewRoleWorkbench data={data} user={user} onSelectView={onSelectView} />
+      </div>
+    );
+  }
 
   return (
     <div className="overview-report">
@@ -5650,6 +5856,289 @@ function OverviewView({
         </aside>
       </section>
     </div>
+  );
+}
+
+function RoleUsageMonitorDashboard({
+  data,
+  user,
+  onSelectView,
+}: {
+  data: AppData;
+  user: AdminUser;
+  onSelectView: (view: ViewKey) => void;
+}) {
+  const role = appRole(user.role);
+  const stats = roleUsageMonitorStats(data);
+  const modelCostRows = usageDashboardCostRows(data.breakdown.models ?? [], (row) => modelDisplayName(data, row.id)).slice(0, 5);
+  const accountRows = usageDashboardAccountRows(data).slice(0, 5);
+  const failures = data.logs
+    .filter((log) => requestLogFailed(log))
+    .sort((left, right) => right.created_at.localeCompare(left.created_at))
+    .slice(0, 5);
+  const generatedAt = new Intl.DateTimeFormat(languageLocale(), {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date());
+  const scopeLabel = role === "team_leader" ? "团队和项目范围" : "个人可见范围";
+
+  return (
+    <section className="usage-monitor-dashboard">
+      <header className="usage-monitor-status">
+        <div className="usage-monitor-title">
+          <span className={stats.successRate >= 95 ? "usage-monitor-dot ok" : stats.successRate >= 85 ? "usage-monitor-dot warn" : "usage-monitor-dot bad"} />
+          <div>
+            <p className="eyebrow">{role === "team_leader" ? "Team Usage Monitor" : "Personal Usage Monitor"}</p>
+            <h1>{tx(role === "team_leader" ? "团队 AI 调用监控" : "我的 AI 调用监控")}</h1>
+            <span>{tx(scopeLabel)} · {tx("统计时间")} {generatedAt}</span>
+          </div>
+        </div>
+        <div className="usage-monitor-actions">
+          <button className="secondary-button" onClick={() => onSelectView("usage")} type="button">
+            <BarChart3 size={15} />
+            {tx(role === "team_leader" ? "团队报表" : "用量统计")}
+          </button>
+          <button className="secondary-button" onClick={() => onSelectView("audit")} type="button">
+            <FileText size={15} />
+            {tx("请求日志")}
+          </button>
+        </div>
+      </header>
+
+      <div className="usage-monitor-kpis">
+        <UsageMonitorKPI label="请求量" value={formatNumber(stats.requests)} detail={countWithUnit(stats.failedRequests, "次失败", "failed", "件失敗")} icon={BarChart3} tone="blue" />
+        <UsageMonitorKPI label="成功率" value={`${stats.successRate.toFixed(stats.successRate >= 99 ? 1 : 2)}%`} detail={`${formatNumber(stats.successRequests)} / ${formatNumber(stats.requests)}`} icon={Check} tone="green" />
+        <UsageMonitorKPI label="平均延迟" value={latencyDisplay(stats.avgLatencyMS)} detail={stats.zeroLatencyRequests > 0 ? countWithUnit(stats.zeroLatencyRequests, "次无延迟记录", "zero-latency", "件の遅延なし") : tx("最近请求")} icon={Gauge} tone="red" />
+        <UsageMonitorKPI label="总成本" value={`$${formatDashboardMoney(stats.cost)}`} detail={`${tx("总 Token")} ${compactNumber(stats.totalTokens)}`} icon={CircleDollarSign} tone="amber" />
+        <UsageMonitorKPI label="Token 消耗" value={compactNumber(stats.totalTokens)} detail={`${tx("输入")} ${compactNumber(stats.inputTokens)} / ${tx("输出")} ${compactNumber(stats.outputTokens)}`} icon={Database} tone="purple" />
+      </div>
+
+      <div className="usage-monitor-grid">
+        <article className="usage-monitor-panel traffic">
+          <div className="usage-monitor-panel-head">
+            <div>
+              <h2>{tx("调用趋势")}</h2>
+              <span>{tx("请求量与 Token 消耗趋势")}</span>
+            </div>
+            <div className="usage-monitor-legend">
+              <span><i className="calls" />{tx("请求")}</span>
+              <span><i className="tokens" />Token</span>
+            </div>
+          </div>
+          <UsageMonitorTrafficChart points={overviewRangePoints(data, "7d")} />
+        </article>
+
+        <article className="usage-monitor-panel health">
+          <div className="usage-monitor-panel-head">
+            <div>
+              <h2>{tx("请求健康时间线")}</h2>
+              <span>{tx("最近请求按成功、告警和失败聚合")}</span>
+            </div>
+            <strong className={stats.successRate >= 95 ? "health-rate ok" : "health-rate warn"}>{stats.successRate.toFixed(1)}%</strong>
+          </div>
+          <UsageHealthTimeline logs={data.logs} />
+        </article>
+
+        <article className="usage-monitor-panel token-mix">
+          <div className="usage-monitor-panel-head compact">
+            <div>
+              <h2>{tx("Token 结构")}</h2>
+              <span>{tx("输入和输出 Token 占比")}</span>
+            </div>
+          </div>
+          <TokenMixPanel input={stats.inputTokens} output={stats.outputTokens} total={stats.totalTokens} />
+        </article>
+      </div>
+
+      <div className="usage-monitor-bottom-grid">
+        <UsageCostRankPanel title="模型成本排行" empty="暂无模型成本数据" rows={modelCostRows} />
+        <UsageCostRankPanel title="账号成本排行" empty="暂无账号成本数据" rows={accountRows} />
+        <RecentFailurePanel logs={failures} data={data} />
+      </div>
+    </section>
+  );
+}
+
+function UsageMonitorKPI({
+  label,
+  value,
+  detail,
+  icon: Icon,
+  tone,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  icon: typeof Activity;
+  tone: "blue" | "green" | "red" | "amber" | "purple";
+}) {
+  return (
+    <article className={`usage-monitor-kpi ${tone}`}>
+      <span className="usage-monitor-kpi-icon"><Icon size={17} /></span>
+      <div>
+        <span>{tx(label)}</span>
+        <strong>{value}</strong>
+        <small>{detail}</small>
+      </div>
+    </article>
+  );
+}
+
+function UsageMonitorTrafficChart({ points }: { points: UsagePoint[] }) {
+  const rows = points.slice(-10);
+  const maxTokens = Math.max(...rows.map((point) => point.total_tokens), 1);
+  const maxRequests = Math.max(...rows.map((point) => point.request_count), 1);
+  const line = usageMonitorRequestLine(rows, maxRequests);
+  return (
+    <div className="usage-traffic-chart">
+      <svg viewBox="0 0 720 260" role="img" aria-label={tx("调用趋势")}>
+        <g className="usage-traffic-grid">
+          {[0.25, 0.5, 0.75].map((tick) => <line key={tick} x1="42" x2="700" y1={220 - 178 * tick} y2={220 - 178 * tick} />)}
+        </g>
+        {rows.map((point, index) => {
+          const x = 58 + index * (rows.length <= 1 ? 0 : 620 / (rows.length - 1));
+          const height = Math.max(5, (point.total_tokens / maxTokens) * 168);
+          return (
+            <g key={`${point.date}-${index}`}>
+              <rect className="usage-traffic-bar" x={x - 14} y={220 - height} width="28" height={height} rx="8" />
+              <text x={x} y="244">{overviewDateLabel(point.date)}</text>
+            </g>
+          );
+        })}
+        <path className="usage-traffic-line" d={line} />
+      </svg>
+    </div>
+  );
+}
+
+function UsageHealthTimeline({ logs }: { logs: RequestLog[] }) {
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [gridSize, setGridSize] = useState({ rows: 14, columns: 42 });
+  useEffect(() => {
+    const element = gridRef.current;
+    if (!element) return;
+    const updateGridSize = () => {
+      const rect = element.getBoundingClientRect();
+      const next = usageHealthGridSize(rect.width, rect.height);
+      setGridSize((current) => (current.rows === next.rows && current.columns === next.columns ? current : next));
+    };
+    updateGridSize();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateGridSize);
+      return () => window.removeEventListener("resize", updateGridSize);
+    }
+    const observer = new ResizeObserver(updateGridSize);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const cells = usageHealthCells(logs, gridSize.rows * gridSize.columns);
+  const rows = Array.from({ length: gridSize.rows }, (_, rowIndex) => cells.filter((_, cellIndex) => cellIndex % gridSize.rows === rowIndex));
+  return (
+    <div className="usage-health-timeline">
+      <div className="usage-health-grid" ref={gridRef}>
+        {rows.map((row, rowIndex) => (
+          <div className="usage-health-row" key={`health-row-${rowIndex}`}>
+            {row.map((cell, index) => <span className={`usage-health-cell ${cell}`} key={`${cell}-${rowIndex}-${index}`} />)}
+          </div>
+        ))}
+      </div>
+      <div className="usage-health-legend">
+        <span><i className="none" />{tx("无请求")}</span>
+        <span><i className="success" />{tx("成功")}</span>
+        <span><i className="warning" />{tx("告警")}</span>
+        <span><i className="failure" />{tx("失败")}</span>
+      </div>
+    </div>
+  );
+}
+
+function TokenMixPanel({ input, output, total }: { input: number; output: number; total: number }) {
+  const safeTotal = Math.max(total, input + output, 1);
+  const rows = [
+    { label: "输入 Token", value: input, className: "input" },
+    { label: "输出 Token", value: output, className: "output" },
+  ];
+  return (
+    <div className="token-mix-list">
+      <div className="token-mix-total">
+        <span>{tx("总 Token")}</span>
+        <strong>{compactNumber(total)}</strong>
+      </div>
+      {rows.map((row) => {
+        const percent = (row.value / safeTotal) * 100;
+        return (
+          <div className="token-mix-row" key={row.label}>
+            <div>
+              <span><i className={row.className} />{tx(row.label)}</span>
+              <strong>{compactNumber(row.value)} <em>{percent.toFixed(percent >= 10 ? 0 : 1)}%</em></strong>
+            </div>
+            <span className="token-mix-bar"><span className={row.className} style={{ width: `${Math.max(1, percent)}%` }} /></span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function UsageCostRankPanel({ title, empty, rows }: { title: string; empty: string; rows: UsageDashboardRankRow[] }) {
+  const max = Math.max(...rows.map((row) => row.cost || row.total_tokens), 1);
+  return (
+    <article className="usage-monitor-panel rank">
+      <div className="usage-monitor-panel-head compact">
+        <div>
+          <h2>{tx(title)}</h2>
+          <span>{tx("按估算成本降序")}</span>
+        </div>
+      </div>
+      <div className="usage-rank-list">
+        {rows.length ? rows.map((row, index) => {
+          const value = row.cost || row.total_tokens;
+          const width = Math.max(4, (value / max) * 100);
+          return (
+            <div className="usage-rank-row" key={row.id || row.label}>
+              <span className="usage-rank-index">{index + 1}</span>
+              <div>
+                <strong>{row.label}</strong>
+                <small>{formatNumber(row.request_count)} {tx("次请求")} · {tx("输入")} {compactNumber(row.input_tokens)} · {tx("输出")} {compactNumber(row.output_tokens)}</small>
+                <span className="usage-rank-progress"><span style={{ width: `${width}%` }} /></span>
+              </div>
+              <em>${formatMoney(row.cost)}</em>
+            </div>
+          );
+        }) : (
+          <div className="compact-empty">{tx(empty)}</div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function RecentFailurePanel({ logs, data }: { logs: RequestLog[]; data: AppData }) {
+  return (
+    <article className="usage-monitor-panel failures">
+      <div className="usage-monitor-panel-head compact">
+        <div>
+          <h2>{tx("最近失败请求")}</h2>
+          <span>{tx("定位错误码、模型和延迟")}</span>
+        </div>
+      </div>
+      <div className="usage-failure-list">
+        {logs.length ? logs.map((log) => (
+          <div className="usage-failure-row" key={log.id || log.request_id}>
+            <div>
+              <strong>{log.error_code || `HTTP ${log.status_code}`}</strong>
+              <span>{log.model || "-"} · {providerFailureLabel(data, log)}</span>
+            </div>
+            <em>{latencyDisplay(log.latency_ms)}</em>
+          </div>
+        )) : (
+          <div className="compact-empty">{tx("暂无失败请求")}</div>
+        )}
+      </div>
+    </article>
   );
 }
 
@@ -6347,6 +6836,104 @@ function overviewTopModelRows(data: AppData) {
     total_tokens: 0,
     estimated_cost_usd: 0,
   }));
+}
+
+type UsageDashboardRankRow = UsageBreakdownRow & {
+  label: string;
+  cost: number;
+};
+
+function roleUsageMonitorStats(data: AppData) {
+  const requests = data.summary.request_count || data.logs.length;
+  const failedRequests = data.summary.errors || data.logs.filter(requestLogFailed).length;
+  const successRequests = Math.max(0, requests - failedRequests);
+  const latencyLogs = data.logs.filter((log) => log.latency_ms > 0);
+  const avgLatencyMS = latencyLogs.length
+    ? Math.round(latencyLogs.reduce((sum, log) => sum + log.latency_ms, 0) / latencyLogs.length)
+    : 0;
+  return {
+    requests,
+    failedRequests,
+    successRequests,
+    successRate: requests > 0 ? (successRequests / requests) * 100 : 100,
+    avgLatencyMS,
+    zeroLatencyRequests: Math.max(0, data.logs.length - latencyLogs.length),
+    inputTokens: data.summary.input_tokens,
+    outputTokens: data.summary.output_tokens,
+    totalTokens: data.summary.total_tokens,
+    cost: data.summary.estimated_cost_usd,
+  };
+}
+
+function usageDashboardCostRows(rows: UsageBreakdownRow[], labelFor: (row: UsageBreakdownRow) => string): UsageDashboardRankRow[] {
+  return rows
+    .filter((row) => hasUsage(row))
+    .map((row) => ({ ...row, label: labelFor(row), cost: row.estimated_cost_usd }))
+    .sort((left, right) => right.cost - left.cost || right.total_tokens - left.total_tokens || right.request_count - left.request_count);
+}
+
+function usageDashboardAccountRows(data: AppData): UsageDashboardRankRow[] {
+  const resourceRows = usageDashboardCostRows(data.breakdown.provider_resources ?? [], (row) => providerResourceAuditLabel(data, row.id));
+  if (resourceRows.length) return resourceRows;
+  return usageDashboardCostRows(data.breakdown.providers ?? [], (row) => findProvider(data, row.id)?.name || row.id);
+}
+
+function modelDisplayName(data: AppData, modelID: string) {
+  const model = data.models.find((item) => item.name === modelID || item.id === modelID);
+  return model?.name || modelID || "-";
+}
+
+function requestLogFailed(log: RequestLog) {
+  return log.status_code >= 400 || Boolean(log.error_code);
+}
+
+function latencyDisplay(value: number) {
+  if (!value) return "-";
+  if (value >= 1000) return `${(value / 1000).toFixed(value >= 10_000 ? 1 : 2)}s`;
+  return `${Math.round(value)}ms`;
+}
+
+function usageMonitorRequestLine(points: UsagePoint[], maxRequests: number) {
+  if (!points.length) return "";
+  return points
+    .map((point, index) => {
+      const x = 58 + index * (points.length <= 1 ? 0 : 620 / (points.length - 1));
+      const y = 220 - (point.request_count / Math.max(maxRequests, 1)) * 168;
+      return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(" ");
+}
+
+function usageHealthGridSize(width: number, height: number) {
+  const cellSize = 6;
+  const gap = 3;
+  return {
+    rows: clampInt(Math.floor((Math.max(height, 120) + gap) / (cellSize + gap)), 7, 28),
+    columns: clampInt(Math.floor((Math.max(width, 180) + gap) / (cellSize + gap)), 24, 120),
+  };
+}
+
+function clampInt(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, Number.isFinite(value) ? value : min));
+}
+
+function usageHealthCells(logs: RequestLog[], cellCount: number) {
+  const recent = logs
+    .slice()
+    .sort((left, right) => left.created_at.localeCompare(right.created_at))
+    .slice(-cellCount)
+    .map((log) => {
+      if (requestLogFailed(log)) return "failure";
+      if (log.status_code >= 300 || log.latency_ms >= 5000) return "warning";
+      return "success";
+    });
+  return [...Array.from({ length: Math.max(0, cellCount - recent.length) }, () => "none"), ...recent];
+}
+
+function providerFailureLabel(data: AppData, log: RequestLog) {
+  if (log.provider_resource_id) return providerResourceAuditLabel(data, log.provider_resource_id);
+  if (log.provider_id) return findProvider(data, log.provider_id)?.name || log.provider_id;
+  return "-";
 }
 
 function GatewayView({
@@ -11878,6 +12465,21 @@ function ProviderUpsertModal({
     healthy: String(provider?.healthy ?? true),
     create_routes: mode === "create" ? "true" : "false",
   }));
+  const [credentialMode, setCredentialMode] = useState<ProviderCredentialMode>("provider_api_key");
+  const [accountValues, setAccountValues] = useState<Record<string, string>>(() =>
+    providerResourceDraftDefaults({
+      provider_id: "",
+      name: mode === "edit" ? provider?.name ?? "" : initialEntry?.display_name || initialEntry?.name || "",
+      base_url: mode === "edit" ? provider?.base_url ?? "" : initialEntry?.base_url ?? "",
+    }),
+  );
+  const [accountOAuthCallback, setAccountOAuthCallback] = useState("");
+  const [accountOAuthStatus, setAccountOAuthStatus] = useState("");
+  const [createStep, setCreateStep] = useState(0);
+  const createSteps = useMemo(() => providerCreateWizardSteps(), []);
+  const lastCreateStep = createSteps.length - 1;
+  const accountCallbackURL = useMemo(() => providerAccountOAuthCallbackURL(), []);
+  const modalRef = useRef<HTMLFormElement | null>(null);
   const existingRouteModels = useMemo(
     () => new Set(routes.filter((route) => provider && route.provider_id === provider.id).map((route) => route.model_name)),
     [provider, routes],
@@ -11955,6 +12557,12 @@ function ProviderUpsertModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [catalogID, catalogReloadKey, customCatalogEntry, initialEntry?.display_name, mode]);
 
+  useEffect(() => {
+    if (mode === "create") {
+      modalRef.current?.scrollTo({ top: 0 });
+    }
+  }, [createStep, mode]);
+
   const models = useMemo(
     () => (detail?.models ?? []).filter((model) => {
       if (modelCategory !== "all" && modelCategoryForCatalog(model) !== modelCategory) return false;
@@ -12000,9 +12608,161 @@ function ProviderUpsertModal({
   const autoRouteEnabled = values.create_routes === "true";
   const selectedRouteCount = autoRouteEnabled ? selectedModelIDs.length : 0;
   const selectedEntry = detail ?? (catalogID === "custom" ? customCatalogEntry : catalog.find((entry) => entry.id === catalogID));
+  const showProviderCatalog = mode === "edit" || (mode === "create" && createStep === 1 && credentialMode !== "account_integration");
+  const providerBodyClassName = mode === "create" && !showProviderCatalog ? "provider-modal-body provider-wizard-single" : "provider-modal-body";
+  const accountRuntimeFields = useMemo(() => providerCreateAccountRuntimeFields(), []);
+  const accountManualTokenFields = useMemo(() => providerCreateAccountManualTokenFields(), []);
+  const accountTokenSummary = useMemo(() => providerAccountTokenSummary(accountValues), [accountValues]);
+
+  useEffect(() => {
+    if (mode !== "create" || !hasPendingProviderAccountOAuthResult()) return;
+    selectCredentialMode("account_integration");
+    setCreateStep(2);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode !== "create" || credentialMode !== "account_integration") return;
+    const pending = consumePendingProviderAccountOAuthResult();
+    if (!pending) return;
+    applyProviderAccountOAuthResult(pending, tx("已从回调 URL 自动回填账号 Token。"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, credentialMode]);
+
+  useEffect(() => {
+    if (mode !== "create" || credentialMode !== "account_integration" || catalog.length === 0 || catalogID !== "custom") return;
+    const recommended = recommendedAccountProviderEntry(catalog);
+    if (!recommended) return;
+    setModelCategory("openai");
+    selectCatalog(recommended);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalog.length, credentialMode, mode, catalogID]);
 
   function update(key: string, value: string) {
+    const previousProviderName = values.name;
+    const previousBaseURL = values.base_url;
     setValues((current) => ({ ...current, [key]: value }));
+    if (mode !== "create") return;
+    if (key === "name") {
+      setAccountValues((current) => {
+        if (current.name && current.name !== defaultProviderResourceName(previousProviderName)) return current;
+        return { ...current, name: defaultProviderResourceName(value) };
+      });
+    }
+    if (key === "base_url") {
+      setAccountValues((current) => {
+        if (current.base_url && current.base_url !== previousBaseURL) return current;
+        return { ...current, base_url: value || "https://api.openai.com/v1" };
+      });
+    }
+  }
+
+  function updateAccountValue(key: string, value: string) {
+    setAccountValues((current) => ({ ...current, [key]: value }));
+  }
+
+  function applyProviderAccountOAuthResult(result: ProviderAccountOAuthResult, message: string) {
+    if (result.authorization_code && !result.access_token && !result.refresh_token && !result.id_token) {
+      setAccountOAuthStatus(tx("回调里只有授权 code，当前版本还需要返回 Token 的授权地址，或在高级选项中手动粘贴 Token。"));
+      setError(tx("回调里只有授权 code，当前版本还需要返回 Token 的授权地址，或在高级选项中手动粘贴 Token。"));
+      return;
+    }
+    if (!result.access_token && !result.refresh_token && !result.id_token) {
+      setAccountOAuthStatus(tx("未在回调结果中识别到 Token。"));
+      setError(tx("未在回调结果中识别到 Token。"));
+      return;
+    }
+    setAccountValues((current) => ({
+      ...current,
+      resource_type: "openai_subscription",
+      auth_type: "oauth",
+      access_token: result.access_token || current.access_token || "",
+      refresh_token: result.refresh_token || current.refresh_token || "",
+      id_token: result.id_token || current.id_token || "",
+      account_email: result.account_email || current.account_email || "",
+      account_id: result.account_id || current.account_id || "",
+      organization_id: result.organization_id || current.organization_id || "",
+      plan_type: result.plan_type || current.plan_type || "",
+      token_type: result.token_type || current.token_type || "",
+      expires_at: result.expires_at || current.expires_at || "",
+      scopes: result.scopes || current.scopes || "",
+    }));
+    setAccountOAuthStatus(message);
+    setError("");
+  }
+
+  function parseAccountOAuthCallback(raw: string) {
+    setAccountOAuthCallback(raw);
+    const result = parseProviderAccountOAuthResult(raw, true);
+    if (!result) return;
+    applyProviderAccountOAuthResult(result, tx("已从粘贴的回调结果回填账号 Token。"));
+  }
+
+  function parseAccountOAuthCallbackNow() {
+    const result = parseProviderAccountOAuthResult(accountOAuthCallback, true);
+    if (!result) {
+      setAccountOAuthStatus(tx("未在回调结果中识别到 Token。"));
+      setError(tx("未在回调结果中识别到 Token。"));
+      return;
+    }
+    applyProviderAccountOAuthResult(result, tx("已从粘贴的回调结果回填账号 Token。"));
+  }
+
+  function openProviderAccountAuthorization() {
+    const rawURL = accountValues.authorization_url?.trim() ?? "";
+    if (!rawURL) {
+      setAccountOAuthStatus(tx("请先填写账号授权地址。"));
+      setError(tx("请先填写账号授权地址。"));
+      return;
+    }
+    try {
+      const url = providerAccountAuthorizeURL(rawURL, accountCallbackURL);
+      window.open(url, "_blank", "noopener,noreferrer");
+      setAccountOAuthStatus(tx("打开授权页后，请在上游账号系统完成授权。"));
+      setError("");
+    } catch {
+      setAccountOAuthStatus(tx("账号授权地址格式不正确。"));
+      setError(tx("账号授权地址格式不正确。"));
+    }
+  }
+
+  async function copyProviderAccountCallbackURL() {
+    if (!accountCallbackURL) return;
+    try {
+      await navigator.clipboard.writeText(accountCallbackURL);
+      setAccountOAuthStatus(tx("已复制回调地址。"));
+    } catch {
+      setAccountOAuthCallback(accountCallbackURL);
+      setAccountOAuthStatus(accountCallbackURL);
+    }
+  }
+
+  function selectCredentialMode(nextMode: ProviderCredentialMode) {
+    setCredentialMode(nextMode);
+    if (nextMode === "account_integration") {
+      setAccountValues((current) => ({
+        ...current,
+        resource_type: "openai_subscription",
+        auth_type: "oauth",
+      }));
+      const recommended = recommendedAccountProviderEntry(catalog);
+      if (recommended) {
+        setModelCategory("openai");
+        setCatalogQuery("");
+        setModelQuery("");
+        setSelectedModels({});
+        selectCatalog(recommended);
+      }
+    }
+  }
+
+  function syncAccountDefaults(providerName: string, baseURL?: string) {
+    if (mode !== "create") return;
+    setAccountValues((current) => ({
+      ...current,
+      name: defaultProviderResourceName(providerName),
+      base_url: baseURL || "https://api.openai.com/v1",
+    }));
   }
 
   function selectCategory(category: string) {
@@ -12015,6 +12775,7 @@ function ProviderUpsertModal({
   }
 
   function selectCatalog(entry: ProviderCatalogEntry) {
+    const nextName = entry.display_name || entry.name || values.name;
     setCatalogID(entry.id);
     setCatalogReloadKey((current) => current + 1);
     setDetail(null);
@@ -12027,6 +12788,7 @@ function ProviderUpsertModal({
       type: entry.type || current.type || "openai_compatible",
       base_url: mode === "create" ? entry.base_url ?? "" : current.base_url,
     }));
+    syncAccountDefaults(nextName, entry.base_url);
   }
 
   function selectCustomCatalog() {
@@ -12043,16 +12805,62 @@ function ProviderUpsertModal({
       type: current.type || "openai_compatible",
       base_url: mode === "create" ? "" : current.base_url,
     }));
+    syncAccountDefaults(values.name || "Provider", "");
+  }
+
+  function canContinueCreateStep(targetStep = createStep) {
+    if (mode !== "create") return true;
+    if (targetStep === 0) return Boolean(credentialMode);
+    if (targetStep === 1) {
+      return Boolean(selectedEntry && values.name?.trim());
+    }
+    if (targetStep === 2 && credentialMode === "account_integration") return providerAccountResourceReady(accountValues);
+    return true;
+  }
+
+  function validateCreateStep(targetStep = createStep) {
+    if (mode !== "create") return true;
+    if (targetStep === 0 && !credentialMode) {
+      setError(tx("请先选择一种接入方式。"));
+      return false;
+    }
+    if (targetStep === 1 && !selectedEntry) {
+      setError(tx("请先选择一个渠道商。"));
+      return false;
+    }
+    if (targetStep === 1 && !values.name?.trim()) {
+      setError(tx(credentialMode === "account_integration" ? "请填写通道名称。" : "请填写渠道名称。"));
+      return false;
+    }
+    if (targetStep === 2 && credentialMode === "account_integration") {
+      try {
+        assertProviderAccountResourceReady(accountValues);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : tx("账号资源配置不完整"));
+        return false;
+      }
+    }
+    setError("");
+    return true;
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (mode === "create" && createStep < lastCreateStep) {
+      if (!validateCreateStep(createStep)) return;
+      setCreateStep((current) => Math.min(current + 1, lastCreateStep));
+      return;
+    }
     setLoading(true);
     setError("");
     setNotice("");
     try {
+      if (mode === "create" && credentialMode === "account_integration") {
+        assertProviderAccountResourceReady(accountValues);
+      }
       const payload = (mode === "edit" ? providerUpdatePayload : providerPayload)({
         ...values,
+        api_key: mode === "create" && credentialMode !== "provider_api_key" ? "" : values.api_key,
         create_routes: autoRouteEnabled && selectedModelIDs.length > 0 ? "true" : "false",
         catalog_id: catalogID,
         model_category: modelCategory,
@@ -12062,10 +12870,28 @@ function ProviderUpsertModal({
         method: mode === "edit" ? "PATCH" : "POST",
         body: JSON.stringify(payload),
       });
-      if (!resp.ok) throw new Error(`${mode === "edit" ? "update" : "create"} provider ${resp.status}`);
+      if (!resp.ok) throw new Error(await readAdminError(resp, `${mode === "edit" ? tx("更新") : tx("创建")} ${tx("Provider 渠道")}`));
       const result = (await resp.json()) as { created_routes?: number; provider?: Provider };
+      let accountResourceCreated = false;
+      if (mode === "create" && credentialMode === "account_integration") {
+        const payloadProviderID = typeof payload.id === "string" ? payload.id : "";
+        const providerID = result.provider?.id || payloadProviderID || values.id;
+        if (!providerID) throw new Error(tx("Provider 已创建，但无法确认账号资源所属 Provider。"));
+        const resourceValues = {
+          ...accountValues,
+          provider_id: providerID,
+          name: accountValues.name?.trim() || defaultProviderResourceName(result.provider?.name || values.name || providerID),
+          base_url: accountValues.base_url?.trim() || values.base_url || "https://api.openai.com/v1",
+        };
+        const resourceResp = await adminFetch(api, "/api/admin/provider-resources", {
+          method: "POST",
+          body: JSON.stringify(providerResourcePayload(resourceValues)),
+        });
+        if (!resourceResp.ok) throw new Error(await readAdminError(resourceResp, tx("创建账号资源")));
+        accountResourceCreated = true;
+      }
       const routed = result.created_routes ?? 0;
-      setNotice(`${tx("Provider 已")}${tx(mode === "edit" ? "更新" : "新增")}${routed ? `，${tx("创建")} ${countWithUnit(routed, `条${modelCategoryLabel(modelCategory)}路由`, `${modelCategoryLabel(modelCategory)} route`, `${modelCategoryLabel(modelCategory)} ルート`)}` : ""}`);
+      setNotice(`${tx("Provider 已")}${tx(mode === "edit" ? "更新" : "新增")}${accountResourceCreated ? `，${tx("已创建账号资源")}` : ""}${routed ? `，${tx("创建")} ${countWithUnit(routed, `条${modelCategoryLabel(modelCategory)}路由`, `${modelCategoryLabel(modelCategory)} route`, `${modelCategoryLabel(modelCategory)} ルート`)}` : ""}`);
       await onSaved();
     } catch (err) {
       if (isAuthExpiredError(err)) return;
@@ -12077,7 +12903,7 @@ function ProviderUpsertModal({
 
   return (
     <div className="modal-backdrop" role="presentation">
-      <form className="modal provider-modal" onSubmit={submit}>
+      <form className={mode === "create" ? "modal provider-modal provider-wizard-modal" : "modal provider-modal"} ref={modalRef} onSubmit={submit}>
         <div className="modal-header">
           <div>
             <p className="eyebrow">{tx(mode === "edit" ? "编辑" : "新增")}</p>
@@ -12085,8 +12911,30 @@ function ProviderUpsertModal({
           </div>
           <button className="icon-button" onClick={onClose} type="button" title={tx("关闭")}>×</button>
         </div>
-        <div className="provider-modal-body">
-          <section className="provider-catalog-pane">
+        {mode === "create" ? (
+          <div className="wizard-stepper provider-wizard-stepper" aria-label={tx("创建 Provider 步骤")}>
+            {createSteps.map((item, index) => {
+              const Icon = item.icon;
+              const title = providerCreateWizardStepTitle(item.title, credentialMode);
+              return (
+                <button
+                  aria-current={createStep === index ? "step" : undefined}
+                  className={createStep === index ? "wizard-step active" : index < createStep ? "wizard-step done" : "wizard-step"}
+                  disabled={index > createStep || loading}
+                  key={item.title}
+                  onClick={() => setCreateStep(index)}
+                  type="button"
+                >
+                  <span><Icon size={14} /></span>
+                  <strong>{tx(title)}</strong>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+        <div className={providerBodyClassName}>
+          {showProviderCatalog ? (
+            <section className="provider-catalog-pane">
             <div className="provider-catalog-head">
               <strong>{tx("模型类型")}</strong>
               <span>{countWithLabel(availableCategories.length, "类")}</span>
@@ -12145,24 +12993,238 @@ function ProviderUpsertModal({
               ))}
             </div>
           </section>
+          ) : null}
 
           <section className="provider-config-pane">
-            <div className="provider-selected-summary">
-              <strong>{modelCategoryLabel(modelCategory)}</strong>
-              <span>{selectedEntry?.display_name || selectedEntry?.name || tx("请选择渠道商")}</span>
-              <em>{providerTypeLabel(selectedEntry?.type || values.type || "openai_compatible")}</em>
-            </div>
-            <div className="provider-form-grid">
+            {mode === "edit" || createStep > 0 ? (
+              <div className="provider-selected-summary">
+                <strong>{modelCategoryLabel(modelCategory)}</strong>
+                <span>{selectedEntry?.display_name || selectedEntry?.name || tx("请选择渠道商")}</span>
+                <em>{providerTypeLabel(selectedEntry?.type || values.type || "openai_compatible")}</em>
+              </div>
+            ) : null}
+            {mode === "create" && createStep === 0 ? (
+              <section className="provider-wizard-panel provider-access-panel">
+                <div className="wizard-panel-head">
+                  <h3>{tx("选择接入方式")}</h3>
+                  <p>{tx("先告诉 TokenHub 你手里有什么：上游 API Key、OpenAI 账号资源，或者只是先占位建路由。")}</p>
+                </div>
+                <div className="provider-access-options" role="radiogroup" aria-label={tx("选择接入方式")}>
+                  {providerCredentialOptions().map((option) => {
+                    const Icon = option.icon;
+                    const active = credentialMode === option.key;
+                    return (
+                      <button
+                        aria-checked={active}
+                        className={active ? "provider-access-card active" : "provider-access-card"}
+                        key={option.key}
+                        onClick={() => selectCredentialMode(option.key)}
+                        role="radio"
+                        type="button"
+                      >
+                        <span><Icon size={18} /></span>
+                        <strong>{tx(option.label)}</strong>
+                        <em>{tx(option.description)}</em>
+                        {option.key === "account_integration" ? <small>{tx("账号资源池会自动推荐 OpenAI 兼容通道，下一步只需确认 Base URL 和账号凭据。")}</small> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : null}
+            {mode === "create" && createStep === 1 ? (
+              <section className="provider-wizard-panel">
+                <div className="wizard-panel-head">
+                  <h3>{tx(credentialMode === "account_integration" ? "确认账号通道和基础信息" : "选择渠道和基础信息")}</h3>
+                  <p>{tx(credentialMode === "account_integration" ? "账号资源池已为你选好默认通道。这里通常只确认 Base URL；账号走企业代理时再修改。" : "选择上游渠道商模板，TokenHub 会带出类型、Base URL 和可映射模型。")}</p>
+                </div>
+                {credentialMode === "account_integration" ? (
+                  <div className="provider-account-channel-note">
+                    <strong>{tx("推荐通道")}</strong>
+                    <span>{tx("默认通道只负责协议与 Base URL，真实账号 Token 会在下一步保存为账号资源。")}</span>
+                  </div>
+                ) : null}
+                {!showProviderCatalog ? (
+                  <div className="wizard-review-grid provider-create-review">
+                    <ReviewItem label={credentialMode === "account_integration" ? "模型协议" : "模型类型"} value={modelCategoryLabel(modelCategory)} />
+                    <ReviewItem label={credentialMode === "account_integration" ? "默认通道" : "渠道商"} value={selectedEntry?.display_name || selectedEntry?.name || "-"} />
+                    <ReviewItem label={credentialMode === "account_integration" ? "兼容协议" : "渠道商类型"} value={providerTypeLabel(selectedEntry?.type || values.type || "openai_compatible")} />
+                    <ReviewItem label="可映射模型" value={detail ? `${models.length}/${detail.models_count}` : tx("加载中")} />
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+            {mode === "create" && createStep === 2 ? (
+              <section className="provider-wizard-panel">
+                <div className="wizard-panel-head">
+                  <h3>{tx("配置账号与凭据")}</h3>
+                  <p>{tx(credentialMode === "account_integration" ? "先完成账号授权回填；TokenHub 会把回填的 Token 保存为账号资源。" : "选择是直接保存 API Key、接入账号资源池，还是稍后补齐凭据。")}</p>
+                </div>
+              </section>
+            ) : null}
+            {mode === "create" && createStep === 3 ? (
+              <section className="provider-wizard-panel">
+                <div className="wizard-panel-head">
+                  <h3>{tx("确认路由策略")}</h3>
+                  <p>{tx("选择是否自动创建默认路由，并确认要映射到标准模型目录的上游模型。")}</p>
+                </div>
+                <div className="wizard-review-grid provider-create-review">
+                  <ReviewItem label="渠道商" value={values.name || selectedEntry?.display_name || selectedEntry?.name || "-"} />
+                  <ReviewItem label="凭据方式" value={providerCredentialModeLabel(credentialMode)} />
+                  <ReviewItem label="自动路由" value={autoRouteEnabled ? tx("开启") : tx("关闭开关")} />
+                  <ReviewItem label="已选模型" value={selectedRouteCount ? String(selectedRouteCount) : tx("无")} />
+                </div>
+              </section>
+            ) : null}
+            {mode === "create" && createStep === 2 ? (
+              <section className="provider-credential-panel">
+                <div className="provider-credential-head">
+                  <div>
+                    <strong>{tx("认证与账号来源")}</strong>
+                    <span>{tx("选择 Provider 使用哪一种上游凭据。账号集成会把账号作为资源池管理，适合 OpenAI subscription 或多个账号轮询。")}</span>
+                  </div>
+                </div>
+                <div className="provider-credential-options" role="radiogroup" aria-label={tx("认证与账号来源")}>
+                  {providerCredentialOptions().map((option) => {
+                    const Icon = option.icon;
+                    const active = credentialMode === option.key;
+                    return (
+                      <button
+                        aria-checked={active}
+                        className={active ? "provider-credential-option active" : "provider-credential-option"}
+                        key={option.key}
+                        onClick={() => selectCredentialMode(option.key)}
+                        role="radio"
+                        type="button"
+                      >
+                        <Icon size={16} />
+                        <span>
+                          <strong>{tx(option.label)}</strong>
+                          <em>{tx(option.description)}</em>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {credentialMode === "provider_api_key" ? (
+                  <div className="provider-direct-key-fields">
+                    <label className="field">
+                      <span>API Key</span>
+                      <input value={values.api_key ?? ""} type="password" onChange={(event) => update("api_key", event.target.value)} />
+                    </label>
+                  </div>
+                ) : credentialMode === "account_integration" ? (
+                  <div className="provider-account-inline">
+                    <div className="provider-account-inline-head">
+                      <strong>{tx("账号授权")}</strong>
+                      <span>{tx("输入账号地址并打开授权页；授权完成后 TokenHub 会从回调 URL 自动回填 Token。")}</span>
+                    </div>
+                    <div className="provider-account-auth-grid">
+                      <label className="field">
+                        <span>{tx("账号资源名称")}</span>
+                        <input value={accountValues.name ?? ""} onChange={(event) => updateAccountValue("name", event.target.value)} required />
+                      </label>
+                      <label className="field">
+                        <span>{tx("账号地址/邮箱")}</span>
+                        <input value={accountValues.account_email ?? ""} onChange={(event) => updateAccountValue("account_email", event.target.value)} placeholder="name@example.com" />
+                        <small>{tx("用于区分账号资源，可填写邮箱或账号系统里的唯一地址。")}</small>
+                      </label>
+                      <label className="field provider-account-auth-wide">
+                        <span>{tx("账号授权地址")}</span>
+                        <div className="field-action-row">
+                          <input value={accountValues.authorization_url ?? ""} onChange={(event) => updateAccountValue("authorization_url", event.target.value)} placeholder="https://accounts.example.com/oauth/authorize" />
+                          <button className="secondary-button" onClick={openProviderAccountAuthorization} type="button">
+                            <Send size={14} />
+                            {tx("打开授权")}
+                          </button>
+                        </div>
+                        <small>{tx("粘贴上游账号系统的授权地址；TokenHub 会带上本页回调地址。")}</small>
+                      </label>
+                      <label className="field provider-account-auth-wide">
+                        <span>{tx("本页回调地址")}</span>
+                        <div className="field-action-row">
+                          <input readOnly value={accountCallbackURL} />
+                          <button className="secondary-button" onClick={copyProviderAccountCallbackURL} type="button">
+                            <Copy size={14} />
+                            {tx("复制回调地址")}
+                          </button>
+                        </div>
+                        <small>{tx("授权应用跳回这个地址后，TokenHub 会自动读取 access_token / refresh_token / id_token。")}</small>
+                      </label>
+                      <label className="field provider-account-auth-wide">
+                        <span>{tx("回调结果")}</span>
+                        <textarea
+                          value={accountOAuthCallback}
+                          onChange={(event) => parseAccountOAuthCallback(event.target.value)}
+                          placeholder="http://localhost:3000/providers?provider_account_oauth=1#access_token=..."
+                        />
+                        <small>{tx("如果授权页没有自动跳回本页，把完整 callback URL 或 URL fragment 粘贴到这里。")}</small>
+                      </label>
+                      <div className="provider-account-auth-actions">
+                        <button className="secondary-button" onClick={parseAccountOAuthCallbackNow} type="button">
+                          <Check size={14} />
+                          {tx("解析回填")}
+                        </button>
+                        <div className={accountTokenSummary.ready ? "provider-account-token-status ready" : "provider-account-token-status"}>
+                          {accountTokenSummary.ready ? <Check size={15} /> : <AlertCircle size={15} />}
+                          <span>{tx(accountTokenSummary.ready ? "已回填账号 Token" : "等待授权回填")}</span>
+                          {accountTokenSummary.items.map((item) => <em key={item}>{tx(item)}</em>)}
+                        </div>
+                      </div>
+                    </div>
+                    {accountOAuthStatus ? <p className="provider-credential-note">{accountOAuthStatus}</p> : null}
+                    <div className="provider-account-runtime">
+                      <div className="provider-account-inline-head">
+                        <strong>{tx("资源调度")}</strong>
+                        <span>{tx("这些配置决定账号资源参与路由时的权重、并发和限流。")}</span>
+                      </div>
+                      <div className="provider-account-fields compact">
+                        {accountRuntimeFields.filter((field) => field.visible?.(accountValues) ?? true).map((field) => (
+                          <ProviderInlineField
+                            key={field.key}
+                            field={field}
+                            value={accountValues[field.key] ?? ""}
+                            values={accountValues}
+                            onChange={(value) => updateAccountValue(field.key, value)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <details className="provider-account-advanced">
+                      <summary>{tx("高级：手动粘贴 Token")}</summary>
+                      <p>{tx("只有在授权回填不可用时使用；保存后 Token 不会再次显示。")}</p>
+                      <div className="provider-account-fields">
+                        {accountManualTokenFields.filter((field) => field.visible?.(accountValues) ?? true).map((field) => (
+                          <ProviderInlineField
+                            key={field.key}
+                            field={field}
+                            value={accountValues[field.key] ?? ""}
+                            values={accountValues}
+                            onChange={(value) => updateAccountValue(field.key, value)}
+                          />
+                        ))}
+                      </div>
+                    </details>
+                  </div>
+                ) : (
+                  <p className="provider-credential-note">
+                    {tx("保存后不会写入上游凭据，可稍后通过编辑 Provider 或账号集成补齐。")}
+                  </p>
+                )}
+              </section>
+            ) : null}
+            {mode === "edit" || createStep === 1 ? (
+              <div className="provider-form-grid">
               <label className="field">
                 <span>Provider ID</span>
                 <input value={values.id ?? ""} onChange={(event) => update("id", event.target.value)} placeholder={catalogID === "custom" ? tx("例如 prv_company_proxy") : tx("留空自动生成")} readOnly={mode === "edit"} />
               </label>
               <label className="field">
-                <span>{tx("渠道名称")}</span>
+                <span>{tx(credentialMode === "account_integration" ? "通道名称" : "渠道名称")}</span>
                 <input value={values.name ?? ""} onChange={(event) => update("name", event.target.value)} required />
               </label>
               <label className="field">
-                <span>{tx("渠道商类型")}</span>
+                <span>{tx(credentialMode === "account_integration" ? "兼容协议" : "渠道商类型")}</span>
                 <select value={values.type ?? ""} onChange={(event) => update("type", event.target.value)} required>
                   {providerTypeOptions.map((option) => <option key={option} value={option}>{providerTypeLabel(option)}</option>)}
                 </select>
@@ -12171,17 +13233,22 @@ function ProviderUpsertModal({
                 <span>Base URL</span>
                 <input value={values.base_url ?? ""} onChange={(event) => update("base_url", event.target.value)} />
               </label>
-              <label className="field">
-                <span>API Key</span>
-                <input value={values.api_key ?? ""} type="password" onChange={(event) => update("api_key", event.target.value)} />
-                {mode === "edit" ? <small>{tx("留空表示不修改现有 Key；填写新值才会覆盖。")}</small> : null}
-              </label>
+              {mode === "edit" ? (
+                <label className="field">
+                  <span>API Key</span>
+                  <input value={values.api_key ?? ""} type="password" onChange={(event) => update("api_key", event.target.value)} />
+                  {mode === "edit" ? <small>{tx("留空表示不修改现有 Key；填写新值才会覆盖。")}</small> : null}
+                </label>
+              ) : null}
               <label className="field">
                 <span>{tx("优先级")}</span>
                 <input value={values.priority ?? "10"} type="number" onChange={(event) => update("priority", event.target.value)} />
               </label>
             </div>
+            ) : null}
 
+            {mode === "edit" || createStep === 3 ? (
+              <>
             <div className="provider-import-options">
               <div>
                 <strong>{tx("自动路由")}</strong>
@@ -12257,15 +13324,169 @@ function ProviderUpsertModal({
                   ? `${tx("保存后会为")} ${selectedRouteCount} ${tx("个已选")} ${modelCategoryLabel(modelCategory)} ${tx("模型创建缺失的默认路由。")}`
                   : tx("当前没有勾选模型，保存后不会生成路由策略。")}
             </p>
+              </>
+            ) : null}
           </section>
         </div>
         <div className="modal-actions">
           <button className="secondary-button" onClick={onClose} type="button">{tx("取消")}</button>
-          <button className="button" disabled={loading} type="submit">{tx("保存")}</button>
+          {mode === "create" && createStep > 0 ? (
+            <button className="secondary-button" onClick={() => setCreateStep((current) => Math.max(current - 1, 0))} type="button" disabled={loading}>
+              {tx("上一步")}
+            </button>
+          ) : null}
+          <button className="button" disabled={loading} type="submit">
+            {mode === "create"
+              ? createStep === lastCreateStep
+                ? loading ? tx("保存中") : tx("保存 Provider")
+                : tx("下一步")
+              : tx("保存")}
+          </button>
         </div>
       </form>
     </div>
   );
+}
+
+function ProviderInlineField({
+  field,
+  value,
+  values,
+  onChange,
+}: {
+  field: FieldConfig;
+  value: string;
+  values: Record<string, string>;
+  onChange: (value: string) => void;
+}) {
+  if (!(field.visible?.(values) ?? true)) return null;
+  const autoComplete = field.autoComplete ?? "off";
+  const inputName = `tokenhub-provider-account-${field.key}`;
+  const options = (field.options ?? []).map((option) => ({ value: option, label: enumOptionLabel(field.key, option) }));
+  if (field.type === "select") {
+    return (
+      <label className="field" data-field-key={field.key}>
+        <span>{tx(field.label)}</span>
+        <select value={value} onChange={(event) => onChange(event.target.value)} required={field.required}>
+          <option value="">{tx("请选择")}</option>
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>{tx(option.label)}</option>
+          ))}
+        </select>
+        {field.help ? <small>{tx(field.help)}</small> : null}
+      </label>
+    );
+  }
+  if (field.type === "textarea") {
+    return (
+      <label className="field" data-field-key={field.key}>
+        <span>{tx(field.label)}</span>
+        <textarea
+          autoComplete={autoComplete}
+          data-1p-ignore={autoComplete === "off" || autoComplete === "new-password" ? "true" : undefined}
+          data-lpignore={autoComplete === "off" || autoComplete === "new-password" ? "true" : undefined}
+          name={inputName}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={tx(field.placeholder)}
+          required={field.required}
+        />
+        {field.help ? <small>{tx(field.help)}</small> : null}
+      </label>
+    );
+  }
+  if (field.type === "boolean") {
+    const checked = value === "true";
+    return (
+      <label className="field" data-field-key={field.key}>
+        <span>{tx(field.label)}</span>
+        <div className="boolean-toggle" role="radiogroup" aria-label={tx(field.label)}>
+          <button aria-checked={checked} className={checked ? "active" : ""} onClick={() => onChange("true")} role="radio" type="button">
+            {tx("开启")}
+          </button>
+          <button aria-checked={!checked} className={!checked ? "active" : ""} onClick={() => onChange("false")} role="radio" type="button">
+            {tx("关闭开关")}
+          </button>
+        </div>
+        {field.help ? <small>{tx(field.help)}</small> : null}
+      </label>
+    );
+  }
+  return (
+    <label className="field" data-field-key={field.key}>
+      <span>{tx(field.label)}</span>
+      <input
+        autoComplete={autoComplete}
+        data-1p-ignore={autoComplete === "off" || autoComplete === "new-password" ? "true" : undefined}
+        data-lpignore={autoComplete === "off" || autoComplete === "new-password" ? "true" : undefined}
+        name={inputName}
+        value={value}
+        type={field.type === "number" ? "number" : field.type === "password" ? "password" : "text"}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={tx(field.placeholder)}
+        required={field.required}
+      />
+      {field.help ? <small>{tx(field.help)}</small> : null}
+    </label>
+  );
+}
+
+function providerCredentialOptions(): Array<{ key: ProviderCredentialMode; label: string; description: string; icon: typeof KeyRound }> {
+  return [
+    {
+      key: "provider_api_key",
+      label: "直接 API Key",
+      description: "把上游 Key 保存到 Provider，适合单账号或兼容 API。",
+      icon: KeyRound,
+    },
+    {
+      key: "account_integration",
+      label: "账号资源池",
+      description: "适合 OpenAI 账号、Subscription 或多账号轮询，默认通道会自动推荐。",
+      icon: UserRoundCheck,
+    },
+    {
+      key: "later",
+      label: "稍后配置",
+      description: "先创建 Provider 和路由，稍后再添加 Key 或账号资源。",
+      icon: Settings,
+    },
+  ];
+}
+
+function providerCreateWizardSteps(): Array<{ title: string; icon: typeof Search }> {
+  return [
+    { title: "接入方式", icon: UserRoundCheck },
+    { title: "渠道信息", icon: Server },
+    { title: "账号与凭据", icon: KeyRound },
+    { title: "路由与确认", icon: Boxes },
+  ];
+}
+
+function providerCreateWizardStepTitle(title: string, credentialMode: ProviderCredentialMode) {
+  if (credentialMode === "account_integration" && title === "渠道信息") return "默认通道";
+  return title;
+}
+
+function providerCredentialModeLabel(mode: ProviderCredentialMode) {
+  return providerCredentialOptions().find((option) => option.key === mode)?.label ?? mode;
+}
+
+function providerAccountResourceReady(values: Record<string, string>) {
+  if (values.resource_type === "openai_subscription") {
+    return Boolean(values.access_token?.trim() || values.refresh_token?.trim() || values.id_token?.trim());
+  }
+  return Boolean(values.api_key?.trim());
+}
+
+function recommendedAccountProviderEntry(catalog: ProviderCatalogEntry[]) {
+  const openAIEntries = catalog.filter((entry) => providerEntrySupportsCategory(entry, "openai"));
+  const exactOpenAI = openAIEntries.find((entry) => {
+    const candidates = [entry.id, entry.name, entry.display_name].map((item) => item?.trim().toLowerCase()).filter(Boolean);
+    return candidates.some((item) => item === "openai" || item === "openai official");
+  });
+  if (exactOpenAI) return exactOpenAI;
+  return openAIEntries.find((entry) => ["openai", "openai_compatible"].includes(entry.type)) ?? openAIEntries[0] ?? catalog[0];
 }
 
 function ConfirmDialog({
@@ -13102,6 +14323,32 @@ function providerConfig(): ResourceConfig<Provider> {
   };
 }
 
+function providerResourceFieldConfigs(provider?: Provider): FieldConfig[] {
+  return [
+    { key: "provider_id", label: "Provider", type: "select", optionsFromData: providerSelectOptions, required: true, readOnlyOnEdit: Boolean(provider) },
+    { key: "name", label: "名称", required: true },
+    { key: "resource_type", label: "账号类型", type: "select", options: ["openai_subscription", "api_key"], required: true },
+    { key: "auth_type", label: "认证方式", type: "select", options: ["oauth", "personal_access_token", "api_key"], visible: openAIAccountFieldVisible },
+    { key: "access_token", label: "访问 Token", type: "password", autoComplete: "new-password", visible: openAIAccountFieldVisible, help: "OpenAI subscription / Codex OAuth access token 或 PAT；保存后不会再次显示。" },
+    { key: "refresh_token", label: "刷新 Token", type: "password", autoComplete: "new-password", visible: openAIAccountFieldVisible, help: "可选，保存到加密凭据中，用于后续自动刷新能力。" },
+    { key: "id_token", label: "ID Token", type: "textarea", autoComplete: "off", visible: openAIAccountFieldVisible, help: "可选。填写后会自动提取账号邮箱、账号 ID、组织 ID 和计划类型。" },
+    { key: "api_key", label: "API Key", type: "password", autoComplete: "new-password", visible: (values) => values.resource_type !== "openai_subscription", help: "普通资源实例的上游 API Key；编辑时留空表示不修改。" },
+    { key: "account_email", label: "账号邮箱", autoComplete: "off", visible: openAIAccountFieldVisible },
+    { key: "account_id", label: "账号 ID", autoComplete: "off", visible: openAIAccountFieldVisible },
+    { key: "organization_id", label: "组织 ID", autoComplete: "off", visible: openAIAccountFieldVisible },
+    { key: "plan_type", label: "计划类型", visible: openAIAccountFieldVisible },
+    { key: "base_url", label: "Base URL", placeholder: "https://api.openai.com/v1" },
+    { key: "group", label: "分组" },
+    { key: "priority", label: "优先级", type: "number" },
+    { key: "weight", label: "权重", type: "number" },
+    { key: "rate_limit_rpm", label: "RPM 限制", type: "number" },
+    { key: "token_limit_tpm", label: "TPM 限制", type: "number" },
+    { key: "max_concurrency", label: "最大并发", type: "number" },
+    { key: "status", label: "状态", type: "select", options: ["active", "disabled"], required: true },
+    { key: "healthy", label: "健康", type: "boolean" },
+  ];
+}
+
 function providerResourceConfig(provider?: Provider): ResourceConfig<ProviderResource> {
   return {
     view: "providers",
@@ -13117,29 +14364,7 @@ function providerResourceConfig(provider?: Provider): ResourceConfig<ProviderRes
       { key: "weight", label: "权重" },
       { key: "status", label: "状态", render: (item) => <StatusPill status={item.status} /> },
     ],
-    fields: [
-      { key: "provider_id", label: "Provider", type: "select", optionsFromData: providerSelectOptions, required: true, readOnlyOnEdit: Boolean(provider) },
-      { key: "name", label: "名称", required: true },
-      { key: "resource_type", label: "账号类型", type: "select", options: ["openai_subscription", "api_key"], required: true },
-      { key: "auth_type", label: "认证方式", type: "select", options: ["oauth", "personal_access_token", "api_key"], visible: openAIAccountFieldVisible },
-      { key: "access_token", label: "访问 Token", type: "password", autoComplete: "new-password", visible: openAIAccountFieldVisible, help: "OpenAI subscription / Codex OAuth access token 或 PAT；保存后不会再次显示。" },
-      { key: "refresh_token", label: "刷新 Token", type: "password", autoComplete: "new-password", visible: openAIAccountFieldVisible, help: "可选，保存到加密凭据中，用于后续自动刷新能力。" },
-      { key: "id_token", label: "ID Token", type: "textarea", autoComplete: "off", visible: openAIAccountFieldVisible, help: "可选。填写后会自动提取账号邮箱、账号 ID、组织 ID 和计划类型。" },
-      { key: "api_key", label: "API Key", type: "password", autoComplete: "new-password", visible: (values) => values.resource_type !== "openai_subscription", help: "普通资源实例的上游 API Key；编辑时留空表示不修改。" },
-      { key: "account_email", label: "账号邮箱", autoComplete: "off", visible: openAIAccountFieldVisible },
-      { key: "account_id", label: "账号 ID", autoComplete: "off", visible: openAIAccountFieldVisible },
-      { key: "organization_id", label: "组织 ID", autoComplete: "off", visible: openAIAccountFieldVisible },
-      { key: "plan_type", label: "计划类型", visible: openAIAccountFieldVisible },
-      { key: "base_url", label: "Base URL", placeholder: "https://api.openai.com/v1" },
-      { key: "group", label: "分组" },
-      { key: "priority", label: "优先级", type: "number" },
-      { key: "weight", label: "权重", type: "number" },
-      { key: "rate_limit_rpm", label: "RPM 限制", type: "number" },
-      { key: "token_limit_tpm", label: "TPM 限制", type: "number" },
-      { key: "max_concurrency", label: "最大并发", type: "number" },
-      { key: "status", label: "状态", type: "select", options: ["active", "disabled"], required: true },
-      { key: "healthy", label: "健康", type: "boolean" },
-    ],
+    fields: providerResourceFieldConfigs(provider),
     list: (ctx) => ctx.providerResources.filter((item) => !provider || item.provider_id === provider.id),
     create: (ctx, values) => adminMutate(ctx, "/api/admin/provider-resources", "POST", providerResourcePayload(values)),
     update: (ctx, item, values) => adminMutate(ctx, `/api/admin/provider-resources/${item.id}`, "PATCH", providerResourceUpdatePayload(values)),
@@ -13152,12 +14377,45 @@ function openAIAccountFieldVisible(values: Record<string, string>) {
   return values.resource_type === "openai_subscription";
 }
 
-function providerResourceDefaults(provider: Provider) {
+function providerCreateAccountResourceFields() {
+  const hiddenKeys = new Set(["provider_id", "healthy"]);
+  return providerResourceFieldConfigs()
+    .filter((field) => !hiddenKeys.has(field.key))
+    .map((field) => field.key === "name" ? { ...field, label: "账号资源名称" } : field);
+}
+
+function providerCreateAccountRuntimeFields() {
+  const keys = new Set(["base_url", "group", "priority", "weight", "rate_limit_rpm", "token_limit_tpm", "max_concurrency", "status"]);
+  return providerResourceFieldConfigs()
+    .filter((field) => keys.has(field.key))
+    .map((field) => field.key === "base_url" ? { ...field, required: true } : field);
+}
+
+function providerCreateAccountManualTokenFields() {
+  const keys = new Set(["access_token", "refresh_token", "id_token", "account_id", "organization_id", "plan_type"]);
+  return providerResourceFieldConfigs().filter((field) => keys.has(field.key));
+}
+
+function providerAccountTokenSummary(values: Record<string, string>) {
+  const items: string[] = [];
+  if (values.access_token?.trim()) items.push("已回填访问 Token");
+  if (values.refresh_token?.trim()) items.push("已回填刷新 Token");
+  if (values.id_token?.trim()) items.push("已回填 ID Token");
+  return { ready: items.length > 0, items };
+}
+
+function defaultProviderResourceName(providerName?: string) {
+  const normalized = providerName?.trim() || "Provider";
+  return `${normalized} OpenAI Account`;
+}
+
+function providerResourceDraftDefaults(provider: { provider_id?: string; name?: string; base_url?: string }) {
   return {
-    provider_id: provider.id,
-    name: `${provider.name || provider.id} OpenAI Account`,
+    provider_id: provider.provider_id ?? "",
+    name: defaultProviderResourceName(provider.name),
     resource_type: "openai_subscription",
     auth_type: "oauth",
+    authorization_url: "",
     base_url: provider.base_url || "https://api.openai.com/v1",
     group: "default",
     priority: "1",
@@ -13165,9 +14423,30 @@ function providerResourceDefaults(provider: Provider) {
     rate_limit_rpm: "",
     token_limit_tpm: "",
     max_concurrency: "3",
+    token_type: "",
+    expires_at: "",
+    scopes: "",
     status: "active",
     healthy: "true",
   };
+}
+
+function providerResourceDefaults(provider: Provider) {
+  return providerResourceDraftDefaults({
+    provider_id: provider.id,
+    name: provider.name || provider.id,
+    base_url: provider.base_url,
+  });
+}
+
+function assertProviderAccountResourceReady(values: Record<string, string>) {
+  if (values.resource_type === "openai_subscription") {
+    if (values.access_token?.trim() || values.refresh_token?.trim() || values.id_token?.trim()) return;
+    throw new Error(tx("请先完成账号授权回填，或在高级选项中手动粘贴 Token。"));
+  }
+  if (!values.api_key?.trim()) {
+    throw new Error(tx("请填写账号资源的 API Key，或切换为稍后配置。"));
+  }
 }
 
 function modelConfig(): ResourceConfig<Model> {
@@ -14122,6 +15401,9 @@ function providerResourcePayload(values: Record<string, string>) {
         account_id: values.account_id,
         organization_id: values.organization_id,
         plan_type: values.plan_type,
+        token_type: values.token_type,
+        expires_at: values.expires_at,
+        scopes: values.scopes,
       }
     : undefined;
   return {
@@ -14163,6 +15445,8 @@ function providerResourceOptions(values: Record<string, string>) {
     account_id: values.account_id,
     organization_id: values.organization_id,
     plan_type: values.plan_type,
+    token_expires_at: values.expires_at,
+    scopes: values.scopes,
   };
 }
 
@@ -14181,6 +15465,9 @@ function providerResourceToForm(item: ProviderResource) {
     account_id: summary.account_id || "",
     organization_id: summary.organization_id || "",
     plan_type: summary.plan_type || "",
+    token_type: summary.token_type || "",
+    expires_at: summary.token_expires_at || item.options?.token_expires_at || "",
+    scopes: summary.scopes || item.options?.scopes || "",
     base_url: item.base_url ?? "",
     group: item.group ?? "default",
     priority: String(item.priority ?? 1),
@@ -16587,6 +17874,16 @@ function formatMoney(value: number) {
   return (value || 0).toFixed(value >= 1 ? 2 : 6);
 }
 
+function formatDashboardMoney(value: number) {
+  const amount = Math.max(0, value || 0);
+  if (amount === 0) return "0.00";
+  if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(amount >= 10_000_000 ? 1 : 2)}M`;
+  if (amount >= 1_000) return `${(amount / 1_000).toFixed(amount >= 10_000 ? 1 : 2)}K`;
+  if (amount >= 1) return amount.toFixed(2);
+  if (amount >= 0.01) return amount.toFixed(4);
+  return "<0.01";
+}
+
 function modelCapabilities(model: ProviderCatalogModel) {
   return [
     ...(model.capabilities ?? []),
@@ -16652,6 +17949,20 @@ type OAuthLoginResult = {
   error?: string;
 };
 
+type ProviderAccountOAuthResult = {
+  access_token?: string;
+  refresh_token?: string;
+  id_token?: string;
+  account_email?: string;
+  account_id?: string;
+  organization_id?: string;
+  plan_type?: string;
+  token_type?: string;
+  expires_at?: string;
+  scopes?: string;
+  authorization_code?: string;
+};
+
 function readOAuthLoginResult(): OAuthLoginResult | null {
   if (typeof window === "undefined") return null;
   const sources = [window.location.hash.replace(/^#/, ""), window.location.search.replace(/^\?/, "")];
@@ -16669,6 +17980,178 @@ function readOAuthLoginResult(): OAuthLoginResult | null {
     }
   }
   return null;
+}
+
+const providerAccountOAuthStorageKey = "tokenhub_provider_account_oauth_result";
+
+function providerAccountOAuthCallbackURL() {
+  if (typeof window === "undefined") return "";
+  const url = new URL(window.location.href);
+  url.hash = "";
+  url.search = "";
+  url.searchParams.set("provider_account_oauth", "1");
+  return url.toString();
+}
+
+function providerAccountAuthorizeURL(rawURL: string, callbackURL: string) {
+  const url = new URL(rawURL.trim());
+  if (callbackURL && !url.searchParams.has("redirect_uri")) {
+    url.searchParams.set("redirect_uri", callbackURL);
+  }
+  if (!url.searchParams.has("state")) {
+    url.searchParams.set("state", "tokenhub_provider_account");
+  }
+  return url.toString();
+}
+
+function parseProviderAccountOAuthResult(source: string, allowGenericTokenNames = false): ProviderAccountOAuthResult | null {
+  const raw = source.trim();
+  if (!raw) return null;
+  const candidates: string[] = [];
+  try {
+    const url = new URL(raw);
+    const search = url.search.replace(/^\?/, "");
+    const hash = url.hash.replace(/^#/, "");
+    candidates.push(search);
+    candidates.push(hash);
+    candidates.push([search, hash].filter(Boolean).join("&"));
+  } catch {
+    candidates.push(raw.replace(/^[?#]/, ""));
+  }
+  for (const candidate of candidates) {
+    if (!candidate || !candidate.includes("=")) continue;
+    const params = new URLSearchParams(candidate);
+    const marked = allowGenericTokenNames || params.get("provider_account_oauth") === "1" || params.get("tokenhub_provider_account") === "1";
+    const result: ProviderAccountOAuthResult = {};
+    result.access_token = firstParam(params, marked ? ["account_access_token", "provider_access_token", "access_token", "token"] : ["account_access_token", "provider_access_token"]);
+    result.refresh_token = firstParam(params, marked ? ["account_refresh_token", "refresh_token"] : ["account_refresh_token"]);
+    result.id_token = firstParam(params, marked ? ["account_id_token", "id_token"] : ["account_id_token"]);
+    result.account_email = firstParam(params, ["account_email", "email", "login", "username"]);
+    result.account_id = firstParam(params, ["account_id", "sub", "user_id"]);
+    result.organization_id = firstParam(params, ["organization_id", "org_id"]);
+    result.plan_type = firstParam(params, ["plan_type", "plan"]);
+    result.token_type = firstParam(params, ["token_type"]);
+    result.expires_at = firstParam(params, ["expires_at", "token_expires_at"]);
+    result.scopes = firstParam(params, ["scope", "scopes"]);
+    result.authorization_code = firstParam(params, ["code", "authorization_code"]);
+    if (result.access_token || result.refresh_token || result.id_token) return result;
+    if (result.authorization_code) return result;
+  }
+  return null;
+}
+
+function firstParam(params: URLSearchParams, keys: string[]) {
+  for (const key of keys) {
+    const value = params.get(key)?.trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function readProviderAccountOAuthResultFromLocation() {
+  if (typeof window === "undefined") return null;
+  const search = window.location.search.replace(/^\?/, "");
+  const hash = window.location.hash.replace(/^#/, "");
+  const sources = [search, hash, [search, hash].filter(Boolean).join("&")];
+  for (const source of sources) {
+    const result = parseProviderAccountOAuthResult(source, false);
+    if (result) return result;
+  }
+  return null;
+}
+
+function clearProviderAccountOAuthResultFromLocation() {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  let changed = false;
+  for (const key of [
+    "provider_account_oauth",
+    "tokenhub_provider_account",
+    "account_access_token",
+    "provider_access_token",
+    "account_refresh_token",
+    "account_id_token",
+    "account_email",
+    "email",
+    "login",
+    "username",
+    "account_id",
+    "sub",
+    "user_id",
+    "organization_id",
+    "org_id",
+    "plan_type",
+    "plan",
+    "authorization_code",
+    "code",
+  ]) {
+    if (url.searchParams.has(key)) {
+      url.searchParams.delete(key);
+      changed = true;
+    }
+  }
+  if (url.hash) {
+    const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+    let hashChanged = false;
+    for (const key of [
+      "provider_account_oauth",
+      "tokenhub_provider_account",
+      "access_token",
+      "refresh_token",
+      "id_token",
+      "account_access_token",
+      "account_refresh_token",
+      "account_id_token",
+      "account_email",
+      "account_id",
+      "email",
+      "login",
+      "username",
+      "sub",
+      "user_id",
+      "organization_id",
+      "org_id",
+      "plan_type",
+      "plan",
+      "code",
+      "authorization_code",
+    ]) {
+      if (hashParams.has(key)) {
+        hashParams.delete(key);
+        hashChanged = true;
+      }
+    }
+    if (hashChanged) {
+      const nextHash = hashParams.toString();
+      url.hash = nextHash ? `#${nextHash}` : "";
+      changed = true;
+    }
+  }
+  if (changed) {
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+}
+
+function savePendingProviderAccountOAuthResult(result: ProviderAccountOAuthResult) {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(providerAccountOAuthStorageKey, JSON.stringify(result));
+}
+
+function hasPendingProviderAccountOAuthResult() {
+  if (typeof window === "undefined") return false;
+  return Boolean(window.sessionStorage.getItem(providerAccountOAuthStorageKey));
+}
+
+function consumePendingProviderAccountOAuthResult() {
+  if (typeof window === "undefined") return null;
+  const raw = window.sessionStorage.getItem(providerAccountOAuthStorageKey);
+  if (!raw) return null;
+  window.sessionStorage.removeItem(providerAccountOAuthStorageKey);
+  try {
+    return JSON.parse(raw) as ProviderAccountOAuthResult;
+  } catch {
+    return null;
+  }
 }
 
 function clearOAuthLoginResult() {
