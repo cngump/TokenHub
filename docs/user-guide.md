@@ -1,56 +1,97 @@
-# User Guide
+# User LLM API Guide
 
 Language: English | [简体中文](zh-CN/user-guide.md) | [日本語](ja/user-guide.md)
 
-This guide is for employees and application developers who consume approved AI models through TokenHub.
+This guide is for employees and application developers who call approved large language models through TokenHub.
 
-## What You Can Access
+## What You Need
 
-| Area | Purpose |
+| Item | Purpose |
 | --- | --- |
-| Overview | See your visible projects, keys, and recent activity |
-| API Documentation | Copy the Base URL, review model API examples, and search role-based guidance |
-| Model Playground | Test prompts against models that your account can call |
-| Available Models | Review models backed by enabled routing rules |
-| Key Management | Create or copy API keys under projects assigned to you |
-| Usage Analytics | Review requests, tokens, and cost visible to your account |
-| Request Logs | Debug failed calls with request IDs |
+| Base URL | OpenAI-compatible endpoint root, for example `http://localhost:8080/v1` |
+| Project API Key | Sent as `Authorization: Bearer YOUR_TOKENHUB_API_KEY` |
+| Model ID | Returned by `GET /v1/models` and used as the `model` field |
+| Request ID | Used in Request Logs when troubleshooting failures |
 
-## Daily Workflow
+Console login tokens cannot call model APIs. Use a project API key from **Key Management**.
 
-1. Open **Available Models** or **Model Playground** to confirm which models are callable.
-2. Open **Key Management** and choose an assigned project such as `Payments Assistant`.
-3. Create an API key only when you need one for an application. Copy the new key immediately because TokenHub shows it once.
-4. Configure your application with the TokenHub Base URL and project API key.
-5. Use **Usage Analytics** and **Request Logs** to review your own traffic.
+## Call Sequence
 
-## Call the Model API
+1. Open **Key Management** and choose the project that should own usage and cost.
+2. Create or copy a project API key. New keys are shown only once.
+3. Call `GET /v1/models` to see the model list available to that key.
+4. Use one model ID in `POST /v1/chat/completions`, `POST /v1/responses`, or `POST /v1/embeddings`.
+5. Review **Usage Analytics** and **Request Logs** for requests, tokens, cost, and errors.
 
-Use a project API key for model traffic. Console login tokens are not accepted by the model API.
+## List Models
 
 ```bash
-curl -X POST "http://localhost:8080/v1/chat/completions" \
-  -H "Authorization: Bearer YOUR_TOKENHUB_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
+curl --request GET \
+  --url "http://localhost:8080/v1/models" \
+  --header "Authorization: Bearer YOUR_TOKENHUB_API_KEY" \
+  --header "Content-Type: application/json"
+```
+
+Typical model fields:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Model identifier used in API calls |
+| `object` | Object type, usually `model` |
+| `context_size` | Maximum context window when configured |
+| `input_token_price_per_m` | Input price per million tokens when configured |
+| `output_token_price_per_m` | Output price per million tokens when configured |
+
+## Chat Completions
+
+```bash
+curl --request POST \
+  --url "http://localhost:8080/v1/chat/completions" \
+  --header "Authorization: Bearer YOUR_TOKENHUB_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{
     "model": "gpt-4.1-mini",
     "messages": [
       {"role": "system", "content": "You are an internal enterprise AI assistant."},
-      {"role": "user", "content": "Summarize today'\''s support tickets for the Payments project."}
+      {"role": "user", "content": "Summarize today'\''s support tickets."}
     ],
     "temperature": 0.7,
     "stream": false
   }'
 ```
 
+Common request fields:
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `model` | Yes | Must be available in `GET /v1/models` |
+| `messages` | Yes | `system`, `user`, and `assistant` message list |
+| `max_tokens` | No | Maximum generated tokens |
+| `temperature` | No | Sampling temperature |
+| `stream` | No | `true` returns Server-Sent Events |
+| `tools` | No | Function tools when supported by the upstream model |
+| `response_format` | No | JSON object or JSON schema when supported |
+
+## SDK Setup
+
+```ts
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: process.env.TOKENHUB_API_KEY,
+  baseURL: "http://localhost:8080/v1",
+});
+```
+
 ## Troubleshooting
 
-| Status | Meaning | What to do |
+| Status | Likely cause | What to do |
 | --- | --- | --- |
-| 401 | Invalid or missing API key | Check the `Authorization` header and make sure the key is active |
-| 403 | Project or model is not allowed | Ask your team leader to confirm project membership and model access |
-| 429 | Quota or concurrency limit reached | Wait for the quota window to reset or request a quota increase |
-| 503 | No healthy route is available | Ask an administrator to check routing rules and provider health |
+| 401 | Missing, malformed, disabled, or expired API key | Check `Authorization` and key status |
+| 403 | Project, key, or model permission does not allow the request | Ask your team leader to check project membership and model access |
+| 404/503 | No enabled healthy route can serve the model | Ask an administrator to check routes and provider health |
+| 429 | Quota, concurrency, or provider resource limit reached | Wait for reset or request a quota increase |
+| 500 | Upstream provider or routing error | Search `request_id` in Request Logs |
 
 ## Screenshot
 

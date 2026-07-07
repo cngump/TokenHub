@@ -1,56 +1,97 @@
-# 普通用户指南
+# 普通用户大模型 API 指南
 
 Language: [English](../user-guide.md) | 简体中文 | [日本語](../ja/user-guide.md)
 
-本指南面向通过 TokenHub 消费企业已批准 AI 模型的员工和应用开发者。
+本指南面向通过 TokenHub 调用企业已批准大语言模型的员工和应用开发者。
 
-## 你可以访问什么
+## 你需要什么
 
-| 区域 | 用途 |
+| 项目 | 用途 |
 | --- | --- |
-| Overview | 查看可见项目、Key 和最近活动 |
-| API Documentation | 复制 Base URL，查看模型 API 示例，搜索角色指南 |
-| Model Playground | 使用账号可调用模型测试提示词 |
-| Available Models | 查看已经配置启用路由的模型 |
-| Key Management | 在被分配的项目下创建或复制 API Key |
-| Usage Analytics | 查看当前账号可见的请求、Token 和成本 |
-| Request Logs | 使用 request ID 排查失败调用 |
+| Base URL | OpenAI 兼容接口根地址，例如 `http://localhost:8080/v1` |
+| 项目 API Key | 通过 `Authorization: Bearer YOUR_TOKENHUB_API_KEY` 发送 |
+| 模型 ID | 由 `GET /v1/models` 返回，并填写到 `model` 字段 |
+| request_id | 调用失败时用于在请求日志中排查 |
 
-## 日常流程
+控制台登录 Token 不能调用模型 API。请在 **Key 管理** 中使用项目 API Key。
 
-1. 打开 **Available Models** 或 **Model Playground**，确认哪些模型可以调用。
-2. 打开 **Key Management**，选择被分配的项目，例如 `Payments Assistant`。
-3. 只有应用需要时才创建 API Key。新 Key 只展示一次，请立即复制。
-4. 在应用里配置 TokenHub Base URL 和项目 API Key。
-5. 使用 **Usage Analytics** 和 **Request Logs** 查看自己的调用流量。
+## 调用顺序
 
-## 调用模型 API
+1. 打开 **Key 管理**，选择承担用量和成本的项目。
+2. 创建或复制项目 API Key。新 Key 只展示一次。
+3. 调用 `GET /v1/models` 查看这个 Key 可用的模型列表。
+4. 选择一个模型 ID，调用 `POST /v1/chat/completions`、`POST /v1/responses` 或 `POST /v1/embeddings`。
+5. 在 **用量统计** 和 **请求日志** 中查看请求、Token、成本和错误。
 
-模型流量使用项目 API Key。控制台登录 Token 不能用于模型 API。
+## 获取模型列表
 
 ```bash
-curl -X POST "http://localhost:8080/v1/chat/completions" \
-  -H "Authorization: Bearer YOUR_TOKENHUB_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
+curl --request GET \
+  --url "http://localhost:8080/v1/models" \
+  --header "Authorization: Bearer YOUR_TOKENHUB_API_KEY" \
+  --header "Content-Type: application/json"
+```
+
+常见模型字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `id` | 后续 API 调用使用的模型标识符 |
+| `object` | 对象类型，通常为 `model` |
+| `context_size` | 配置可用时返回最大上下文长度 |
+| `input_token_price_per_m` | 配置可用时返回每百万输入 tokens 价格 |
+| `output_token_price_per_m` | 配置可用时返回每百万输出 tokens 价格 |
+
+## 创建聊天对话
+
+```bash
+curl --request POST \
+  --url "http://localhost:8080/v1/chat/completions" \
+  --header "Authorization: Bearer YOUR_TOKENHUB_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{
     "model": "gpt-4.1-mini",
     "messages": [
       {"role": "system", "content": "You are an internal enterprise AI assistant."},
-      {"role": "user", "content": "Summarize today'\''s support tickets for the Payments project."}
+      {"role": "user", "content": "Summarize today'\''s support tickets."}
     ],
     "temperature": 0.7,
     "stream": false
   }'
 ```
 
-## 排查问题
+常见请求字段：
 
-| 状态 | 含义 | 处理方式 |
+| 字段 | 必填 | 说明 |
 | --- | --- | --- |
-| 401 | API Key 无效或缺失 | 检查 `Authorization` header，确认 Key 处于启用状态 |
-| 403 | Project 或模型不允许访问 | 请团队负责人确认项目成员和模型权限 |
-| 429 | 额度或并发限制触发 | 等待额度窗口恢复，或申请提升额度 |
-| 503 | 没有健康路由 | 请管理员检查路由策略和 Provider 健康状态 |
+| `model` | 是 | 必须来自 `GET /v1/models` |
+| `messages` | 是 | `system`、`user`、`assistant` 消息数组 |
+| `max_tokens` | 否 | 最大生成 tokens |
+| `temperature` | 否 | 采样温度 |
+| `stream` | 否 | `true` 时返回 SSE 流 |
+| `tools` | 否 | 上游模型支持时可传函数工具 |
+| `response_format` | 否 | 上游模型支持时可传 JSON object 或 JSON schema |
+
+## SDK 配置
+
+```ts
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: process.env.TOKENHUB_API_KEY,
+  baseURL: "http://localhost:8080/v1",
+});
+```
+
+## 错误排查
+
+| 状态 | 常见原因 | 处理方式 |
+| --- | --- | --- |
+| 401 | API Key 缺失、格式错误、已停用或已过期 | 检查 `Authorization` 和 Key 状态 |
+| 403 | 项目、Key 或模型权限不允许当前请求 | 联系团队负责人检查项目成员和模型权限 |
+| 404/503 | 该模型没有可用健康路由 | 请管理员检查路由和 Provider 健康状态 |
+| 429 | 额度、并发或 Provider 资源限制触发 | 等待恢复或申请提升额度 |
+| 500 | 上游 Provider 或路由错误 | 在请求日志中搜索 `request_id` |
 
 ## 截图
 

@@ -755,8 +755,67 @@ func TestAdminCreatesProjectAndKey(t *testing.T) {
 	if key.Code != http.StatusCreated {
 		t.Fatalf("expected key created, got %d: %s", key.Code, key.Body)
 	}
-	if !strings.Contains(key.Body, `"plain_text_visible_once":true`) || !strings.Contains(key.Body, `"api_key":"thk_`) {
+	if !strings.Contains(key.Body, `"plain_text_visible_once":true`) || !strings.Contains(key.Body, `"api_key":"sk_`) {
 		t.Fatalf("expected one-time key response: %s", key.Body)
+	}
+}
+
+func TestAPIKeyGenerationUsesSystemSettings(t *testing.T) {
+	store := NewMemoryStore()
+	if err := BootstrapBaseData(store); err != nil {
+		t.Fatal(err)
+	}
+	store.CreateResource("settings", AdminResource{
+		ID:          "cfg_gateway",
+		Name:        "Gateway Base Settings",
+		Description: "Default OpenAI-compatible gateway configuration.",
+		Status:      StatusActive,
+		Fields: map[string]any{
+			"public_base_url":       "http://localhost:8080",
+			"default_timeout":       "120s",
+			"audit_retention":       "180d",
+			"api_key_prefix":        "corp_",
+			"api_key_random_length": 32,
+		},
+	})
+	app := New(store).Handler()
+
+	key := doJSON(t, app, http.MethodPost, "/api/admin/projects/"+defaultProjectID+"/keys", map[string]any{
+		"name":           "custom-format-key",
+		"allowed_models": []string{"gpt-4.1-mini"},
+	}, "")
+	if key.Code != http.StatusCreated {
+		t.Fatalf("expected key created, got %d: %s", key.Code, key.Body)
+	}
+	var created struct {
+		ID     string `json:"id"`
+		APIKey string `json:"api_key"`
+	}
+	if err := json.Unmarshal([]byte(key.Body), &created); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(created.APIKey, "corp_") {
+		t.Fatalf("expected custom prefix, got %s", created.APIKey)
+	}
+	if randomPart := strings.TrimPrefix(created.APIKey, "corp_"); len(randomPart) != 32 {
+		t.Fatalf("expected 32 random characters, got %d in %s", len(randomPart), created.APIKey)
+	}
+
+	rotated := doJSON(t, app, http.MethodPost, "/api/admin/api-keys/"+created.ID+"/rotate", map[string]any{}, "")
+	if rotated.Code != http.StatusCreated {
+		t.Fatalf("expected rotated key, got %d: %s", rotated.Code, rotated.Body)
+	}
+	var rotatedPayload struct {
+		APIKey string `json:"api_key"`
+	}
+	if err := json.Unmarshal([]byte(rotated.Body), &rotatedPayload); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(rotatedPayload.APIKey, "corp_") {
+		t.Fatalf("expected rotated key to use custom prefix, got %s", rotatedPayload.APIKey)
+	}
+	if randomPart := strings.TrimPrefix(rotatedPayload.APIKey, "corp_"); len(randomPart) != 32 {
+		t.Fatalf("expected rotated key to use 32 random characters, got %d in %s", len(randomPart), rotatedPayload.APIKey)
 	}
 }
 
@@ -783,7 +842,14 @@ func TestApprovalFlowInterceptsAPIKeyCreate(t *testing.T) {
 	if key.Code != http.StatusAccepted {
 		t.Fatalf("expected approval response, got %d: %s", key.Code, key.Body)
 	}
-	if !strings.Contains(key.Body, `"approval_required":true`) || strings.Contains(key.Body, `"api_key":"thk_`) {
+	var pendingKeyResponse struct {
+		ApprovalRequired bool   `json:"approval_required"`
+		APIKey           string `json:"api_key"`
+	}
+	if err := json.Unmarshal([]byte(key.Body), &pendingKeyResponse); err != nil {
+		t.Fatal(err)
+	}
+	if !pendingKeyResponse.ApprovalRequired || pendingKeyResponse.APIKey != "" {
 		t.Fatalf("expected pending approval without secret: %s", key.Body)
 	}
 
@@ -805,7 +871,7 @@ func TestApprovalFlowInterceptsAPIKeyCreate(t *testing.T) {
 	if approved.Code != http.StatusOK {
 		t.Fatalf("expected approval apply, got %d: %s", approved.Code, approved.Body)
 	}
-	if !strings.Contains(approved.Body, `"api_key":"thk_`) || !strings.Contains(approved.Body, `"status":"approved"`) {
+	if !strings.Contains(approved.Body, `"api_key":"sk_`) || !strings.Contains(approved.Body, `"status":"approved"`) {
 		t.Fatalf("expected approved key result: %s", approved.Body)
 	}
 	if len(store.ListAPIKeys()) != 1 {
@@ -1600,6 +1666,112 @@ func TestAdminOAuthLoginCreatesSession(t *testing.T) {
 	if me.Code != http.StatusOK || !strings.Contains(me.Body, `"email":"gitlab.user@example.test"`) || !strings.Contains(me.Body, `"role":"user"`) {
 		t.Fatalf("unexpected me response: %d %s", me.Code, me.Body)
 	}
+}
+
+func TestOAuthDefaultProvisioningAssignsTeamRoleAndProject(t *testing.T) {
+	store := NewMemoryStore()
+	store.CreateResource("teams", AdminResource{
+		ID:     "team_product",
+		Name:   "Product",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"code": "PRODUCT",
+		},
+	})
+	project := store.CreateProject(Project{Name: "AI Platform", TeamID: "team_product", Status: StatusActive})
+	provider := AdminResource{
+		ID:     "idp_enterprise",
+		Name:   "Enterprise SSO",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"username_claim":       "name",
+			"email_claim":          "email",
+			"team_claim":           "department",
+			"default_role":         "team_leader",
+			"default_team_id":      "team_product",
+			"default_project_id":   project.ID,
+			"default_project_role": "developer",
+		},
+	}
+	server := New(store)
+
+	user, err := server.upsertOAuthAdminUser(provider, map[string]any{
+		"name":       "OAuth Leader",
+		"email":      "leader@example.test",
+		"department": "Unknown Department",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user.Role != "team_leader" || user.TeamID != "team_product" {
+		t.Fatalf("unexpected oauth user defaults: role=%s team=%s", user.Role, user.TeamID)
+	}
+	member, ok := findProjectMember(store.ListResources("project-members"), project.ID, user.ID)
+	if !ok {
+		t.Fatalf("expected default project membership for %s in %s", user.ID, project.ID)
+	}
+	if stringField(member.Fields, "role") != "developer" || !truthyField(member.Fields, "can_issue_keys") {
+		t.Fatalf("unexpected default project member fields: %+v", member.Fields)
+	}
+
+	existing, err := store.CreateAdminUser(AdminUser{
+		Username: "existing-oauth",
+		Name:     "Existing OAuth",
+		Email:    "existing@example.test",
+		Role:     "team_leader",
+		Status:   StatusActive,
+	}, "existing123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider.Fields["default_role"] = "user"
+	provider.Fields["default_project_role"] = "viewer"
+	updated, err := server.upsertOAuthAdminUser(provider, map[string]any{
+		"name":  "Existing OAuth Renamed",
+		"email": existing.Email,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Role != "team_leader" {
+		t.Fatalf("existing oauth user role should not be overwritten, got %s", updated.Role)
+	}
+	if updated.TeamID != "team_product" {
+		t.Fatalf("existing oauth user without team should receive default team, got %s", updated.TeamID)
+	}
+	if _, ok := findProjectMember(store.ListResources("project-members"), project.ID, updated.ID); !ok {
+		t.Fatalf("expected default project membership for existing user")
+	}
+	if _, err := server.upsertOAuthAdminUser(provider, map[string]any{
+		"name":  "Existing OAuth Renamed",
+		"email": existing.Email,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := countProjectMembers(store.ListResources("project-members"), project.ID, updated.ID); got != 1 {
+		t.Fatalf("expected one default project membership after repeated login, got %d", got)
+	}
+}
+
+func findProjectMember(items []AdminResource, projectID string, userID string) (AdminResource, bool) {
+	for _, item := range items {
+		if strings.TrimSpace(stringField(item.Fields, "project_id")) == projectID &&
+			strings.TrimSpace(stringField(item.Fields, "user_id")) == userID {
+			return item, true
+		}
+	}
+	return AdminResource{}, false
+}
+
+func countProjectMembers(items []AdminResource, projectID string, userID string) int {
+	count := 0
+	for _, item := range items {
+		if strings.TrimSpace(stringField(item.Fields, "project_id")) == projectID &&
+			strings.TrimSpace(stringField(item.Fields, "user_id")) == userID {
+			count++
+		}
+	}
+	return count
 }
 
 func TestRBACAndAdminAuditEvents(t *testing.T) {
