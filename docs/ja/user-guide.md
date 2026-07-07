@@ -38,9 +38,23 @@ curl --request GET \
 | --- | --- |
 | `id` | API 呼び出しで使うモデル ID |
 | `object` | オブジェクト種別。通常は `model` |
-| `context_size` | 設定済みの場合の最大コンテキスト長 |
-| `input_token_price_per_m` | 設定済みの場合の 100 万 input tokens あたり価格 |
-| `output_token_price_per_m` | 設定済みの場合の 100 万 output tokens あたり価格 |
+| `created` | モデル作成 Unix timestamp |
+| `input_token_price_per_m` | JieKou 互換の 100 万 input tokens あたり整数価格 |
+| `output_token_price_per_m` | JieKou 互換の 100 万 output tokens あたり整数価格 |
+| `title` | モデルタイトル |
+| `description` | モデル説明 |
+| `context_size` | 最大コンテキスト長 |
+
+## 指定モデル情報
+
+```bash
+curl --request GET \
+  --url "http://localhost:8080/v1/models/gpt-4.1-mini" \
+  --header "Authorization: Bearer YOUR_TOKENHUB_API_KEY" \
+  --header "Content-Type: application/json"
+```
+
+この API は単一モデルオブジェクトを返し、フィールドは `GET /v1/models` のモデル項目と同じです。
 
 ## Chat Completions
 

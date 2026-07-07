@@ -38,9 +38,23 @@ Typical model fields:
 | --- | --- |
 | `id` | Model identifier used in API calls |
 | `object` | Object type, usually `model` |
-| `context_size` | Maximum context window when configured |
-| `input_token_price_per_m` | Input price per million tokens when configured |
-| `output_token_price_per_m` | Output price per million tokens when configured |
+| `created` | Model creation Unix timestamp |
+| `input_token_price_per_m` | JieKou-compatible integer input price per million tokens |
+| `output_token_price_per_m` | JieKou-compatible integer output price per million tokens |
+| `title` | Model title |
+| `description` | Model description |
+| `context_size` | Maximum context window |
+
+## Retrieve Model
+
+```bash
+curl --request GET \
+  --url "http://localhost:8080/v1/models/gpt-4.1-mini" \
+  --header "Authorization: Bearer YOUR_TOKENHUB_API_KEY" \
+  --header "Content-Type: application/json"
+```
+
+This returns one model object using the same fields as `GET /v1/models`.
 
 ## Chat Completions
 

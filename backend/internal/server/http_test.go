@@ -75,6 +75,128 @@ func TestGatewayModelsAndChatCompletion(t *testing.T) {
 	}
 }
 
+func TestGatewayModelsExposeJieKouCompatibleFields(t *testing.T) {
+	app := newTestServer()
+
+	resp := doJSON(t, app, http.MethodGet, "/v1/models", nil, "thk_demo_local")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body)
+	}
+	var payload struct {
+		Object string `json:"object"`
+		Data   []struct {
+			ID                   string `json:"id"`
+			Created              int64  `json:"created"`
+			Object               string `json:"object"`
+			OwnedBy              string `json:"owned_by"`
+			InputTokenPricePerM  int64  `json:"input_token_price_per_m"`
+			OutputTokenPricePerM int64  `json:"output_token_price_per_m"`
+			Title                string `json:"title"`
+			Description          string `json:"description"`
+			ContextSize          int64  `json:"context_size"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(resp.Body), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Object != "list" {
+		t.Fatalf("expected list object, got %q", payload.Object)
+	}
+	var model struct {
+		ID                   string `json:"id"`
+		Created              int64  `json:"created"`
+		Object               string `json:"object"`
+		OwnedBy              string `json:"owned_by"`
+		InputTokenPricePerM  int64  `json:"input_token_price_per_m"`
+		OutputTokenPricePerM int64  `json:"output_token_price_per_m"`
+		Title                string `json:"title"`
+		Description          string `json:"description"`
+		ContextSize          int64  `json:"context_size"`
+	}
+	for _, item := range payload.Data {
+		if item.ID == "gpt-4.1-mini" {
+			model = item
+			break
+		}
+	}
+	if model.ID == "" {
+		t.Fatalf("expected gpt-4.1-mini in model list: %s", resp.Body)
+	}
+	if model.Created <= 0 || model.Object != "model" || model.OwnedBy != "tokenhub" {
+		t.Fatalf("unexpected model identity fields: %+v", model)
+	}
+	if model.InputTokenPricePerM != 4000 || model.OutputTokenPricePerM != 16000 {
+		t.Fatalf("unexpected jiekou-compatible price fields: %+v", model)
+	}
+	if model.Title != "gpt-4.1-mini" || model.Description == "" || model.ContextSize != 128000 {
+		t.Fatalf("unexpected model metadata fields: %+v", model)
+	}
+}
+
+func TestGatewayRetrieveModelExposeJieKouCompatibleFields(t *testing.T) {
+	app := newTestServer()
+
+	resp := doJSON(t, app, http.MethodGet, "/v1/models/gpt-4.1-mini", nil, "thk_demo_local")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body)
+	}
+	var model struct {
+		ID                   string `json:"id"`
+		Created              int64  `json:"created"`
+		Object               string `json:"object"`
+		OwnedBy              string `json:"owned_by"`
+		InputTokenPricePerM  int64  `json:"input_token_price_per_m"`
+		OutputTokenPricePerM int64  `json:"output_token_price_per_m"`
+		Title                string `json:"title"`
+		Description          string `json:"description"`
+		ContextSize          int64  `json:"context_size"`
+	}
+	if err := json.Unmarshal([]byte(resp.Body), &model); err != nil {
+		t.Fatal(err)
+	}
+	if model.ID != "gpt-4.1-mini" || model.Object != "model" || model.OwnedBy != "tokenhub" {
+		t.Fatalf("unexpected model identity fields: %+v", model)
+	}
+	if model.Created <= 0 || model.InputTokenPricePerM != 4000 || model.OutputTokenPricePerM != 16000 {
+		t.Fatalf("unexpected jiekou-compatible fields: %+v", model)
+	}
+	if model.Title != "gpt-4.1-mini" || model.Description == "" || model.ContextSize != 128000 {
+		t.Fatalf("unexpected model metadata fields: %+v", model)
+	}
+
+	missing := doJSON(t, app, http.MethodGet, "/v1/models/not-a-visible-model", nil, "thk_demo_local")
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for missing model, got %d: %s", missing.Code, missing.Body)
+	}
+	if !strings.Contains(missing.Body, "model_not_found") {
+		t.Fatalf("expected model_not_found error, got %s", missing.Body)
+	}
+}
+
+func TestGatewayRetrieveModelSupportsEscapedModelIDs(t *testing.T) {
+	store := NewMemoryStore()
+	project := store.CreateProject(Project{ID: "prj_path_model", Name: "Path Model Project", Status: StatusActive})
+	_, _, err := store.CreateAPIKey(project.ID, APIKey{
+		ID:      "key_path_model",
+		Name:    "Path Model Key",
+		Allowed: []string{"provider/model"},
+		Status:  StatusActive,
+	}, "thk_path_model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.AddModel(Model{Name: "provider/model", Modality: "chat", ContextWindow: 32000, Status: StatusActive})
+	app := New(store).Handler()
+
+	resp := doJSON(t, app, http.MethodGet, "/v1/models/provider%2Fmodel", nil, "thk_path_model")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body)
+	}
+	if !strings.Contains(resp.Body, `"id":"provider/model"`) || !strings.Contains(resp.Body, `"context_size":32000`) {
+		t.Fatalf("expected escaped path model lookup to resolve provider/model: %s", resp.Body)
+	}
+}
+
 func TestGatewayStreamingChatCompletion(t *testing.T) {
 	app := newTestServer()
 	resp := doJSON(t, app, http.MethodPost, "/v1/chat/completions", map[string]any{

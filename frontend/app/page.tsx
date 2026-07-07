@@ -44,7 +44,7 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import { type Dispatch, type FormEvent, type SetStateAction, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type Dispatch, type FormEvent, type SetStateAction, useEffect, useMemo, useRef, useState } from "react";
 
 type Summary = {
   request_count: number;
@@ -175,6 +175,7 @@ type Model = {
   output_modalities?: string[];
   capabilities?: string[];
   supported_parameters?: string[];
+  metadata?: Record<string, string>;
 };
 
 type ModelRoute = {
@@ -3565,8 +3566,11 @@ function loadPlanForView(user: AdminUser, view: ViewKey): LoadPlan {
       break;
     case "providers":
       plan.providers = true;
+      plan.providerResources = true;
       plan.overview = true;
       plan.routes = true;
+      plan.logs = can("audit");
+      plan.breakdown = can("usage") || can("billing");
       plan.providerCatalog = true;
       break;
     case "models":
@@ -4401,6 +4405,7 @@ export default function AdminHome() {
               config={activeConfig}
               data={data}
               items={pagedItems}
+              monitorItems={filteredItems}
               totalItems={filteredItems.length}
               loading={loading}
               query={query}
@@ -5436,18 +5441,20 @@ function PageHeader({
 }) {
   const path = navPathForView(user, activeView);
   const chips = pageHeaderChips(activeView, data, user);
+  const pathGroup = path.group || pageHeaderFallbackGroup(activeView, user);
+  const pathSegments = ["TokenHub", pathGroup, path.parent, path.label || meta.title].filter(Boolean);
   return (
     <header className="page-header page-context-header">
       <div className="page-context-main">
         <div className="page-breadcrumb" aria-label={tx("当前位置")}>
-          <span>TokenHub</span>
-          {path.group ? <span>{tx(path.group)}</span> : null}
-          {path.parent ? <span>{tx(path.parent)}</span> : null}
-        </div>
-        <div>
-          <p className="eyebrow">{tx(meta.eyebrow || "Enterprise AI Gateway")}</p>
-          <h1>{tx(meta.title)}</h1>
-          {meta.description ? <p className="page-description">{tx(meta.description)}</p> : null}
+          {pathSegments.map((segment, index) => (
+            <Fragment key={`${segment}-${index}`}>
+              {index > 0 ? <ChevronRight aria-hidden="true" className="page-breadcrumb-separator" size={13} /> : null}
+              <span className={index === pathSegments.length - 1 ? "current" : undefined}>
+                {tx(segment)}
+              </span>
+            </Fragment>
+          ))}
         </div>
       </div>
       <div className="page-context-side">
@@ -5513,6 +5520,16 @@ function navPathForView(user: AdminUser, view: ViewKey) {
     }
   }
   return { group: "", parent: "", label: standaloneViewMeta[view]?.title ?? view };
+}
+
+function pageHeaderFallbackGroup(view: ViewKey, user: AdminUser) {
+  if (view === "gateway") {
+    const role = appRole(user.role);
+    if (role === "team_leader") return "团队管理";
+    if (role === "user") return "开始使用";
+    return "接入参考";
+  }
+  return "";
 }
 
 function pageHeaderChips(view: ViewKey, data: AppData, user: AdminUser) {
@@ -7317,6 +7334,13 @@ function gatewayListModelsCurl(stats: GatewayDocStats) {
   --header "Content-Type: application/json"`;
 }
 
+function gatewayRetrieveModelCurl(stats: GatewayDocStats) {
+  return `curl --request GET \\
+  --url "${stats.baseURL}/models/${encodeURIComponent(stats.sampleModel)}" \\
+  --header "${stats.authHeader}" \\
+  --header "Content-Type: application/json"`;
+}
+
 function gatewayStreamingCurl(stats: GatewayDocStats) {
   return `curl -N --request POST \\
   --url "${stats.baseURL}/chat/completions" \\
@@ -7482,7 +7506,10 @@ function gatewayEnglishLLMUsageDocs(stats: GatewayDocStats, role: AppRole): Gate
             params: {
               title: "Request headers",
               columns: ["Field", "Type", "Required", "Description"],
-              rows: [["Authorization", "header", "Yes", "Bearer YOUR_TOKENHUB_API_KEY"]],
+              rows: [
+                ["Authorization", "header", "Yes", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["Content-Type", "header", "Yes", "application/json"],
+              ],
             },
             table: {
               title: "Model fields",
@@ -7490,14 +7517,49 @@ function gatewayEnglishLLMUsageDocs(stats: GatewayDocStats, role: AppRole): Gate
               rows: [
                 ["id", "Model identifier used in later API calls."],
                 ["object", "Object type, usually model."],
-                ["created", "Unix timestamp when available."],
-                ["input_token_price_per_m", "Estimated input price per million tokens when configured."],
-                ["output_token_price_per_m", "Estimated output price per million tokens when configured."],
-                ["context_size", "Maximum context size when configured."],
+                ["created", "Model creation Unix timestamp."],
+                ["input_token_price_per_m", "JieKou-compatible integer input price per million tokens."],
+                ["output_token_price_per_m", "JieKou-compatible integer output price per million tokens."],
+                ["title", "Model title."],
+                ["description", "Model description."],
+                ["context_size", "Maximum context size."],
               ],
             },
             examplesTitle: "Example",
             examples: [{ title: "cURL", code: gatewayListModelsCurl(stats) }],
+          },
+          {
+            id: "retrieve-model",
+            group: "LLM API Reference",
+            method: "GET",
+            path: "/v1/models/{model}",
+            title: "Retrieve Model",
+            description: "Return one model visible to the API key. The response fields match the JieKou-compatible model object.",
+            params: {
+              title: "Path and headers",
+              columns: ["Field", "Type", "Required", "Description"],
+              rows: [
+                ["model", "path", "Yes", `Model ID from /v1/models, for example ${stats.sampleModel}.`],
+                ["Authorization", "header", "Yes", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["Content-Type", "header", "Yes", "application/json"],
+              ],
+            },
+            table: {
+              title: "Response fields",
+              columns: ["Field", "Description"],
+              rows: [
+                ["id", "Model identifier used in API calls."],
+                ["created", "Model creation Unix timestamp."],
+                ["object", "Object type, always model."],
+                ["input_token_price_per_m", "JieKou-compatible integer input price per million tokens."],
+                ["output_token_price_per_m", "JieKou-compatible integer output price per million tokens."],
+                ["title", "Model title."],
+                ["description", "Model description."],
+                ["context_size", "Maximum context size."],
+              ],
+            },
+            examplesTitle: "Example",
+            examples: [{ title: "cURL", code: gatewayRetrieveModelCurl(stats) }],
           },
           {
             id: "chat-completions",
@@ -7730,7 +7792,10 @@ function gatewayChineseLLMUsageDocs(stats: GatewayDocStats, role: AppRole): Gate
             params: {
               title: "请求头",
               columns: ["字段", "类型", "必填", "说明"],
-              rows: [["Authorization", "header", "是", "Bearer YOUR_TOKENHUB_API_KEY"]],
+              rows: [
+                ["Authorization", "header", "是", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["Content-Type", "header", "是", "application/json"],
+              ],
             },
             table: {
               title: "模型字段",
@@ -7738,14 +7803,49 @@ function gatewayChineseLLMUsageDocs(stats: GatewayDocStats, role: AppRole): Gate
               rows: [
                 ["id", "模型标识符，后续调用时填写到 model 字段。"],
                 ["object", "对象类型，通常为 model。"],
-                ["created", "创建时间戳，配置可用时返回。"],
-                ["input_token_price_per_m", "每百万输入 tokens 估算价格，配置可用时返回。"],
-                ["output_token_price_per_m", "每百万输出 tokens 估算价格，配置可用时返回。"],
-                ["context_size", "模型最大上下文长度，配置可用时返回。"],
+                ["created", "模型创建 Unix 时间戳。"],
+                ["input_token_price_per_m", "兼容 jiekou 的每百万输入 tokens 整数价格。"],
+                ["output_token_price_per_m", "兼容 jiekou 的每百万输出 tokens 整数价格。"],
+                ["title", "模型标题。"],
+                ["description", "模型描述。"],
+                ["context_size", "模型最大上下文长度。"],
               ],
             },
             examplesTitle: "示例",
             examples: [{ title: "cURL", code: gatewayListModelsCurl(stats) }],
+          },
+          {
+            id: "retrieve-model",
+            group: "大模型 API",
+            method: "GET",
+            path: "/v1/models/{model}",
+            title: "获取指定模型信息",
+            description: "返回当前 API Key 可见的单个模型信息。响应字段与 jiekou 兼容模型对象一致。",
+            params: {
+              title: "路径参数和请求头",
+              columns: ["字段", "类型", "必填", "说明"],
+              rows: [
+                ["model", "path", "是", `来自 /v1/models 的模型 ID，例如 ${stats.sampleModel}。`],
+                ["Authorization", "header", "是", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["Content-Type", "header", "是", "application/json"],
+              ],
+            },
+            table: {
+              title: "响应字段",
+              columns: ["字段", "说明"],
+              rows: [
+                ["id", "模型 ID，在 API Endpoints 中引用。"],
+                ["created", "模型创建 Unix 时间戳。"],
+                ["object", "对象类型，始终为 model。"],
+                ["input_token_price_per_m", "兼容 jiekou 的每百万输入 tokens 整数价格。"],
+                ["output_token_price_per_m", "兼容 jiekou 的每百万输出 tokens 整数价格。"],
+                ["title", "模型标题。"],
+                ["description", "模型描述。"],
+                ["context_size", "模型最大上下文长度。"],
+              ],
+            },
+            examplesTitle: "示例",
+            examples: [{ title: "cURL", code: gatewayRetrieveModelCurl(stats) }],
           },
           {
             id: "chat-completions",
@@ -7978,7 +8078,10 @@ function gatewayJapaneseLLMUsageDocs(stats: GatewayDocStats, role: AppRole): Gat
             params: {
               title: "リクエスト Header",
               columns: ["フィールド", "型", "必須", "説明"],
-              rows: [["Authorization", "header", "はい", "Bearer YOUR_TOKENHUB_API_KEY"]],
+              rows: [
+                ["Authorization", "header", "はい", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["Content-Type", "header", "はい", "application/json"],
+              ],
             },
             table: {
               title: "モデルフィールド",
@@ -7986,14 +8089,49 @@ function gatewayJapaneseLLMUsageDocs(stats: GatewayDocStats, role: AppRole): Gat
               rows: [
                 ["id", "以降の API 呼び出しで model に指定するモデル ID。"],
                 ["object", "オブジェクト種別。通常は model。"],
-                ["created", "利用可能な場合の Unix タイムスタンプ。"],
-                ["input_token_price_per_m", "設定済みの場合の 100 万 input tokens あたりの見積価格。"],
-                ["output_token_price_per_m", "設定済みの場合の 100 万 output tokens あたりの見積価格。"],
-                ["context_size", "設定済みの場合の最大コンテキスト長。"],
+                ["created", "モデル作成 Unix timestamp。"],
+                ["input_token_price_per_m", "JieKou 互換の 100 万 input tokens あたり整数価格。"],
+                ["output_token_price_per_m", "JieKou 互換の 100 万 output tokens あたり整数価格。"],
+                ["title", "モデルタイトル。"],
+                ["description", "モデル説明。"],
+                ["context_size", "最大コンテキスト長。"],
               ],
             },
             examplesTitle: "例",
             examples: [{ title: "cURL", code: gatewayListModelsCurl(stats) }],
+          },
+          {
+            id: "retrieve-model",
+            group: "LLM API",
+            method: "GET",
+            path: "/v1/models/{model}",
+            title: "指定モデル情報を取得",
+            description: "現在の API Key で利用できる単一モデル情報を返します。レスポンスは JieKou 互換のモデルオブジェクトです。",
+            params: {
+              title: "Path と Header",
+              columns: ["フィールド", "型", "必須", "説明"],
+              rows: [
+                ["model", "path", "はい", `/v1/models のモデル ID。例: ${stats.sampleModel}`],
+                ["Authorization", "header", "はい", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["Content-Type", "header", "はい", "application/json"],
+              ],
+            },
+            table: {
+              title: "レスポンスフィールド",
+              columns: ["フィールド", "説明"],
+              rows: [
+                ["id", "API 呼び出しで使うモデル ID。"],
+                ["created", "モデル作成 Unix timestamp。"],
+                ["object", "オブジェクト種別。常に model。"],
+                ["input_token_price_per_m", "JieKou 互換の 100 万 input tokens あたり整数価格。"],
+                ["output_token_price_per_m", "JieKou 互換の 100 万 output tokens あたり整数価格。"],
+                ["title", "モデルタイトル。"],
+                ["description", "モデル説明。"],
+                ["context_size", "最大コンテキスト長。"],
+              ],
+            },
+            examplesTitle: "例",
+            examples: [{ title: "cURL", code: gatewayRetrieveModelCurl(stats) }],
           },
           {
             id: "chat-completions",
@@ -8839,14 +8977,50 @@ function gatewayDocGroups({
           path: "/v1/models",
           description: "按当前 API Key 的权限返回可用统一模型。",
           status: "active",
-          params: [["Authorization", "header", "是", "Bearer API Key"]],
-          examples: [{ title: "请求示例", code: `curl "${baseURL}/models" -H "${authHeader}"` }],
+          params: [
+            ["Authorization", "header", "是", "Bearer API Key"],
+            ["Content-Type", "header", "是", "application/json"],
+          ],
+          examples: [{ title: "请求示例", code: `curl "${baseURL}/models" -H "${authHeader}" -H "Content-Type: application/json"` }],
           table: {
             columns: ["字段", "说明"],
             rows: [
               ["id", "统一模型名称，用于后续调用的 model 字段"],
               ["object", "OpenAI 兼容对象类型，通常为 model"],
-              ["owned_by", "模型归属或 Provider 标识"],
+              ["created", "模型创建 Unix 时间戳"],
+              ["input_token_price_per_m", "兼容 jiekou 的每百万输入 tokens 整数价格"],
+              ["output_token_price_per_m", "兼容 jiekou 的每百万输出 tokens 整数价格"],
+              ["title", "模型标题"],
+              ["description", "模型描述"],
+              ["context_size", "模型最大上下文长度"],
+            ],
+          },
+        },
+        {
+          id: "model-detail",
+          group: "模型 API",
+          title: "指定模型信息",
+          method: "GET",
+          path: "/v1/models/{model}",
+          description: "按当前 API Key 的权限返回单个可用统一模型。",
+          status: "active",
+          params: [
+            ["model", "path", "是", "来自 /v1/models 的统一模型名"],
+            ["Authorization", "header", "是", "Bearer API Key"],
+            ["Content-Type", "header", "是", "application/json"],
+          ],
+          examples: [{ title: "请求示例", code: `curl "${baseURL}/models/${encodeURIComponent(sampleModel)}" -H "${authHeader}" -H "Content-Type: application/json"` }],
+          table: {
+            columns: ["字段", "说明"],
+            rows: [
+              ["id", "统一模型名称，用于后续调用的 model 字段"],
+              ["created", "模型创建 Unix 时间戳"],
+              ["object", "OpenAI 兼容对象类型，始终为 model"],
+              ["input_token_price_per_m", "兼容 jiekou 的每百万输入 tokens 整数价格"],
+              ["output_token_price_per_m", "兼容 jiekou 的每百万输出 tokens 整数价格"],
+              ["title", "模型标题"],
+              ["description", "模型描述"],
+              ["context_size", "模型最大上下文长度"],
             ],
           },
         },
@@ -10016,6 +10190,7 @@ function CrudView<T>({
   config,
   data,
   items,
+  monitorItems = items,
   totalItems,
   loading = false,
   query,
@@ -10035,6 +10210,7 @@ function CrudView<T>({
   config: ResourceConfig<T>;
   data: AppData;
   items: T[];
+  monitorItems?: T[];
   totalItems: number;
   loading?: boolean;
   query: string;
@@ -10092,6 +10268,7 @@ function CrudView<T>({
           onChange={onCategoryFilter}
         />
       ) : null}
+      {config.view === "providers" ? <ProviderAvailabilityMonitor data={data} providers={monitorItems as Provider[]} /> : null}
       {config.view === "notification-channels" ? (
         <NotificationChannelTabs
           data={data}
@@ -10159,6 +10336,317 @@ function CrudView<T>({
       </div>
     </DataSection>
   );
+}
+
+type ProviderMonitorTone = "healthy" | "degraded" | "down";
+type ProviderProbeTone = "ok" | "warn" | "down" | "na";
+type ProviderTrendTone = "success" | "warning" | "failure" | "none";
+
+type ProviderMonitorRow = {
+  provider: Provider;
+  resources: ProviderResource[];
+  routeCount: number;
+  activeRouteCount: number;
+  statusTone: ProviderMonitorTone;
+  statusLabel: string;
+  statusDetail: string;
+  basicPrimaryTone: ProviderProbeTone;
+  basicPrimaryDetail: string;
+  basicSecondaryTone: ProviderProbeTone;
+  basicSecondaryDetail: string;
+  realTone: ProviderProbeTone;
+  realDetail: string;
+  latencyMS: number;
+  availability24h: number;
+  observed24h: boolean;
+  qualityScore: number;
+  trend: ProviderTrendTone[];
+};
+
+function ProviderAvailabilityMonitor({ data, providers }: { data: AppData; providers: Provider[] }) {
+  if (providers.length === 0) return null;
+  const rows = providerMonitorRows(data, providers);
+  const summary = providerMonitorSummary(rows);
+  return (
+    <section className="provider-monitor-card" aria-label={tx("Provider 可用性监控")}>
+      <div className="provider-monitor-head">
+        <div>
+          <p className="eyebrow">Provider Availability</p>
+          <h2>{tx("Provider 可用性监控")}</h2>
+          <span>{tx("按健康检测、账号资源和真实请求日志汇总上游渠道可用性。")}</span>
+        </div>
+        <div className="provider-monitor-summary" aria-label={tx("Provider 健康摘要")}>
+          <span><strong>{summary.healthy}</strong>{tx("正常")}</span>
+          <span><strong>{summary.degraded}</strong>{tx("降级")}</span>
+          <span><strong>{summary.down}</strong>{tx("故障")}</span>
+        </div>
+      </div>
+      <div className="provider-monitor-table-wrap">
+        <table className="provider-monitor-table">
+          <thead>
+            <tr>
+              <th>{tx("服务商 / 通道")}</th>
+              <th>{tx("综合状态")}</th>
+              <th>{tx("基础监控 · L1/L2")}</th>
+              <th>{tx("真实监控 · L3")}</th>
+              <th>{tx("真实延迟")}</th>
+              <th>{tx("24H 可用率")}</th>
+              <th>{tx("质量评分")}</th>
+              <th>{tx("近30天趋势")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.provider.id}>
+                <td>
+                  <div className="provider-monitor-name">
+                    <span className={`provider-monitor-avatar ${row.statusTone}`}>{providerInitial(row.provider)}</span>
+                    <div>
+                      <strong>{row.provider.name || row.provider.id}</strong>
+                      <span>{providerTypeLabel(row.provider.type)} · {row.activeRouteCount}/{row.routeCount || 0} {tx("启用路由")} · {row.resources.length || 0} {tx("账号资源")}</span>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div className="provider-monitor-status-cell">
+                    <span className={`provider-monitor-status ${row.statusTone}`}>
+                      <i />
+                      {tx(row.statusLabel)}
+                    </span>
+                    <small>{row.statusDetail}</small>
+                  </div>
+                </td>
+                <td>
+                  <ProviderProbeLine tone={row.basicPrimaryTone} detail={row.basicPrimaryDetail} />
+                  <ProviderProbeLine tone={row.basicSecondaryTone} detail={row.basicSecondaryDetail} />
+                </td>
+                <td>
+                  <ProviderProbeLine tone={row.realTone} detail={row.realDetail} />
+                  <small className="provider-monitor-subtle">{row.observed24h ? tx("真实请求样本") : tx("无请求样本")}</small>
+                </td>
+                <td><strong className="provider-monitor-metric">{latencyDisplay(row.latencyMS)}</strong></td>
+                <td><strong className="provider-monitor-metric">{providerPercent(row.availability24h)}</strong></td>
+                <td>
+                  <div className="provider-quality-score">
+                    <strong>{row.qualityScore}</strong>
+                    <span><i style={{ width: `${row.qualityScore}%` }} /></span>
+                  </div>
+                </td>
+                <td>
+                  <div className="provider-trend-bars" aria-label={tx("近30天趋势")}>
+                    {row.trend.map((tone, index) => <span className={tone} key={`${row.provider.id}-trend-${index}`} />)}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="provider-monitor-legend">
+        <span><i className="success" />{tx("正常")}</span>
+        <span><i className="warning" />{tx("降级/慢响应")}</span>
+        <span><i className="failure" />{tx("故障")}</span>
+        <em>{tx("真实监控来自最近请求日志；基础监控来自 Provider 和账号资源健康状态。")}</em>
+      </div>
+    </section>
+  );
+}
+
+function ProviderProbeLine({ tone, detail }: { tone: ProviderProbeTone; detail: string }) {
+  return (
+    <span className={`provider-probe-line ${tone}`}>
+      <i />
+      {tx(providerProbeLabel(tone))}
+      <small>{detail}</small>
+    </span>
+  );
+}
+
+function providerMonitorRows(data: AppData, providers: Provider[]): ProviderMonitorRow[] {
+  return providers
+    .slice()
+    .sort((left, right) => (left.priority - right.priority) || left.name.localeCompare(right.name))
+    .map((provider) => providerMonitorRow(data, provider));
+}
+
+function providerMonitorRow(data: AppData, provider: Provider): ProviderMonitorRow {
+  const resources = data.providerResources.filter((resource) => resource.provider_id === provider.id);
+  const routes = providerRoutesFor(provider, data);
+  const logs = providerLogsFor(data, provider, resources);
+  const now = Date.now();
+  const recent24h = logs.filter((log) => now - safeTime(log.created_at) <= 24 * 60 * 60 * 1000);
+  const success24h = recent24h.filter((log) => !requestLogFailed(log));
+  const warning24h = recent24h.filter((log) => !requestLogFailed(log) && (log.status_code >= 300 || log.latency_ms >= 5000));
+  const failed24h = recent24h.length - success24h.length;
+  const observed24h = recent24h.length > 0;
+  const activeResources = resources.filter((resource) => resource.status === "active");
+  const healthyResources = activeResources.filter((resource) => resource.healthy);
+  const healthyProvider = provider.status === "active" && provider.healthy;
+  const resourceScore = activeResources.length > 0 ? (healthyResources.length / activeResources.length) * 100 : (healthyProvider ? 100 : 0);
+  const availability24h = observed24h ? (success24h.length / recent24h.length) * 100 : (healthyProvider ? 100 : 0);
+  const latencyLogs = (success24h.length ? success24h : logs.filter((log) => !requestLogFailed(log))).filter((log) => log.latency_ms > 0);
+  const latencyMS = percentileLatency(latencyLogs, 0.5);
+  const statusTone = providerMonitorTone(provider, observed24h, availability24h, warning24h.length, failed24h, activeResources.length, healthyResources.length);
+  const activeRouteCount = routes.filter((route) => route.status === "active").length;
+  return {
+    provider,
+    resources,
+    routeCount: routes.length,
+    activeRouteCount,
+    statusTone,
+    statusLabel: providerStatusLabel(statusTone),
+    statusDetail: providerStatusDetail(provider, logs, resources),
+    basicPrimaryTone: healthyProvider ? "ok" : "down",
+    basicPrimaryDetail: provider.status === "active" ? tx("Provider 在线") : enumValueLabel(provider.status),
+    basicSecondaryTone: providerResourceProbeTone(activeResources.length, healthyResources.length),
+    basicSecondaryDetail: activeResources.length > 0
+      ? `${formatNumber(healthyResources.length)}/${formatNumber(activeResources.length)} ${tx("资源健康")}`
+      : tx("未配置账号资源"),
+    realTone: providerRealProbeTone(observed24h, availability24h, warning24h.length, failed24h),
+    realDetail: observed24h
+      ? `${providerPercent(availability24h)} · ${formatNumber(recent24h.length)} ${tx("次请求")}`
+      : tx("无真实请求"),
+    latencyMS,
+    availability24h,
+    observed24h,
+    qualityScore: providerQualityScore(availability24h, latencyMS, resourceScore, observed24h, healthyProvider),
+    trend: providerTrend(data, provider, resources),
+  };
+}
+
+function providerMonitorSummary(rows: ProviderMonitorRow[]) {
+  return rows.reduce(
+    (summary, row) => {
+      summary[row.statusTone] += 1;
+      return summary;
+    },
+    { healthy: 0, degraded: 0, down: 0 } as Record<ProviderMonitorTone, number>,
+  );
+}
+
+function providerLogsFor(data: AppData, provider: Provider, resources: ProviderResource[]) {
+  const resourceIDs = new Set(resources.map((resource) => resource.id));
+  return data.logs
+    .filter((log) => log.provider_id === provider.id || (log.provider_resource_id ? resourceIDs.has(log.provider_resource_id) : false))
+    .sort((left, right) => safeTime(left.created_at) - safeTime(right.created_at));
+}
+
+function providerMonitorTone(provider: Provider, observed: boolean, availability: number, warnings: number, failures: number, activeResources: number, healthyResources: number): ProviderMonitorTone {
+  if (provider.status !== "active" || !provider.healthy) return "down";
+  if (observed && (availability < 90 || failures > 0 && availability < 95)) return "down";
+  if (activeResources > 0 && healthyResources === 0) return "down";
+  if ((observed && availability < 99) || warnings > 0 || (activeResources > 0 && healthyResources < activeResources)) return "degraded";
+  return "healthy";
+}
+
+function providerStatusLabel(tone: ProviderMonitorTone) {
+  if (tone === "healthy") return "Healthy";
+  if (tone === "degraded") return "Degraded";
+  return "Functional Down";
+}
+
+function providerStatusDetail(provider: Provider, logs: RequestLog[], resources: ProviderResource[]) {
+  const latestLog = logs.slice().sort((left, right) => safeTime(right.created_at) - safeTime(left.created_at))[0];
+  if (latestLog?.error_code) return `${timeLabel(latestLog.created_at)} · ${latestLog.error_code}`;
+  if (latestLog) return timeLabel(latestLog.created_at);
+  const latestResourceCheck = resources
+    .map((resource) => resource.last_checked_at || resource.updated_at || "")
+    .filter(Boolean)
+    .sort((left, right) => safeTime(right) - safeTime(left))[0];
+  if (latestResourceCheck) return timeLabel(latestResourceCheck);
+  return enumValueLabel(provider.status);
+}
+
+function providerResourceProbeTone(total: number, healthy: number): ProviderProbeTone {
+  if (total === 0) return "na";
+  if (healthy === total) return "ok";
+  if (healthy > 0) return "warn";
+  return "down";
+}
+
+function providerRealProbeTone(observed: boolean, availability: number, warnings: number, failures: number): ProviderProbeTone {
+  if (!observed) return "na";
+  if (availability < 90 || failures > 0 && availability < 95) return "down";
+  if (availability < 99 || warnings > 0 || failures > 0) return "warn";
+  return "ok";
+}
+
+function providerProbeLabel(tone: ProviderProbeTone) {
+  if (tone === "ok") return "ok";
+  if (tone === "warn") return "warn";
+  if (tone === "down") return "down";
+  return "na";
+}
+
+function percentileLatency(logs: RequestLog[], percentile: number) {
+  const values = logs.map((log) => log.latency_ms || 0).filter((value) => value > 0).sort((left, right) => left - right);
+  if (values.length === 0) return 0;
+  const index = Math.min(values.length - 1, Math.max(0, Math.floor((values.length - 1) * percentile)));
+  return values[index];
+}
+
+function providerQualityScore(availability: number, latencyMS: number, resourceScore: number, observed: boolean, healthyProvider: boolean) {
+  const availabilityScore = observed ? availability : (healthyProvider ? 95 : 20);
+  const latencyScore = latencyMS === 0
+    ? (healthyProvider ? 86 : 25)
+    : latencyMS <= 250
+      ? 100
+      : latencyMS <= 800
+        ? 94
+        : latencyMS <= 1800
+          ? 84
+          : latencyMS <= 3500
+            ? 68
+            : latencyMS <= 6000
+              ? 48
+              : 30;
+  return Math.round(clampNumber(availabilityScore * 0.62 + latencyScore * 0.24 + resourceScore * 0.14, 0, 100));
+}
+
+function providerTrend(data: AppData, provider: Provider, resources: ProviderResource[]) {
+  const logs = providerLogsFor(data, provider, resources);
+  const days = 30;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return Array.from({ length: days }, (_, index) => {
+    const dayStart = today - (days - 1 - index) * 24 * 60 * 60 * 1000;
+    const dayEnd = dayStart + 24 * 60 * 60 * 1000;
+    const dayLogs = logs.filter((log) => {
+      const time = safeTime(log.created_at);
+      return time >= dayStart && time < dayEnd;
+    });
+    if (dayLogs.length === 0) return "none" as ProviderTrendTone;
+    const failures = dayLogs.filter((log) => requestLogFailed(log)).length;
+    const slow = dayLogs.filter((log) => !requestLogFailed(log) && log.latency_ms >= 5000).length;
+    const availability = ((dayLogs.length - failures) / dayLogs.length) * 100;
+    if (availability < 90) return "failure" as ProviderTrendTone;
+    if (failures > 0 || slow > 0 || availability < 99) return "warning" as ProviderTrendTone;
+    return "success" as ProviderTrendTone;
+  });
+}
+
+function providerInitial(provider: Provider) {
+  return (provider.name || provider.type || provider.id || "P").trim().slice(0, 1).toUpperCase();
+}
+
+function providerPercent(value: number) {
+  return `${clampNumber(value, 0, 100).toFixed(1)}%`;
+}
+
+function safeTime(value: string | undefined) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function timeLabel(value: string | undefined) {
+  const time = safeTime(value);
+  if (!time) return "-";
+  return new Intl.DateTimeFormat(languageLocale(), { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(time));
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, Number.isFinite(value) ? value : min));
 }
 
 function TeamMembersPanel({ data, team, onClose }: { data: AppData; team: AdminResource; onClose: () => void }) {
@@ -10579,29 +11067,31 @@ function ModelCatalogView({
 
   return (
     <DataSection title={config.eyebrow}>
-      <div className="model-catalog">
-        <aside className="model-catalog-sidebar">
-          <div className="model-catalog-sidebar-head">
-            <strong>{tx("模型大类")}</strong>
-            <span>{data.models.length} {tx("个模型")}</span>
-          </div>
-          <div className="model-provider-list">
-            {categories.map((item) => (
-              <button
-                className={category === item.key ? "model-provider-filter active" : "model-provider-filter"}
-                key={item.key}
-                onClick={() => setCategory(item.key)}
-                type="button"
-              >
-                <span className="model-provider-icon">{modelCategoryInitial(item.key, item.label)}</span>
-                <strong>{tx(item.label)}</strong>
-                <em>{item.count}</em>
-              </button>
-            ))}
-          </div>
-        </aside>
-
+      <div className="model-catalog model-catalog-table-mode">
         <section className="model-catalog-main">
+          <div className="model-category-strip">
+            <div className="model-category-strip-head">
+              <strong>{tx("模型大类")}</strong>
+              <span>{data.models.length} {tx("个模型")}</span>
+            </div>
+            <div className="model-category-tabs" role="tablist" aria-label={tx("模型大类")}>
+              {categories.map((item) => (
+                <button
+                  aria-selected={category === item.key}
+                  className={category === item.key ? "model-category-tab active" : "model-category-tab"}
+                  key={item.key}
+                  onClick={() => setCategory(item.key)}
+                  role="tab"
+                  type="button"
+                >
+                  <ModelBrandIcon compact category={item.key} label={tx(item.label)} />
+                  <strong>{tx(item.label)}</strong>
+                  <em>{item.count}</em>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="model-filterbar">
             <div className="model-capability-tabs" role="tablist" aria-label={tx("模型能力筛选")}>
               {capabilities.map((item) => (
@@ -10652,24 +11142,124 @@ function ModelCatalogView({
               {modelCatalogEmptyText(data, readOnly, query)}
             </div>
           ) : (
-            <div className="model-card-grid">
-              {filtered.map((model) => (
-                <ModelCatalogCard
-                  key={model.name}
-                  model={model}
-                  data={data}
-                  readOnly={readOnly}
-                  actions={readOnly ? [] : config.actions ?? []}
-                  onAction={onAction}
-                  onEdit={readOnly ? undefined : onEdit}
-                  onDelete={readOnly ? undefined : onDelete}
-                />
-              ))}
-            </div>
+            <ModelCatalogPriceTable
+              models={filtered}
+              data={data}
+              readOnly={readOnly}
+              actions={readOnly ? [] : config.actions ?? []}
+              onAction={onAction}
+              onEdit={readOnly ? undefined : onEdit}
+              onDelete={readOnly ? undefined : onDelete}
+            />
           )}
         </section>
       </div>
     </DataSection>
+  );
+}
+
+function ModelCatalogPriceTable({
+  models,
+  data,
+  readOnly,
+  actions,
+  onAction,
+  onEdit,
+  onDelete,
+}: {
+  models: Model[];
+  data: AppData;
+  readOnly: boolean;
+  actions: ResourceAction<Model>[];
+  onAction: (action: ResourceAction<Model>, item: Model) => void;
+  onEdit?: (item: Model) => void;
+  onDelete?: (item: Model) => void;
+}) {
+  const sorted = modelCatalogPriceSortedModels(models);
+  const baseline = modelCatalogPriceBaseline(sorted);
+  const rows = sorted.map((model) => modelCatalogPriceRow(model, data, readOnly, baseline));
+  const maxIndex = Math.max(1, ...rows.map((row) => row.priceIndex || 0));
+  return (
+    <div className="model-price-table-wrap">
+      <table className={readOnly ? "model-price-table" : "model-price-table admin"}>
+        <thead>
+          <tr>
+            <th>{tx("模型")}</th>
+            <th>{tx("类型")}</th>
+            <th>{tx("输入价")}</th>
+            <th>{tx("输出价")}</th>
+            <th>{tx("缓存读")}</th>
+            <th>{tx("上下文")}</th>
+            <th>{tx("估算月成本")}</th>
+            <th>{tx("价格指数")}</th>
+            <th>{tx("来源")}</th>
+            {!readOnly ? <th>{tx("操作")}</th> : null}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const visibleActions = actions.filter((action) => !action.visible || action.visible(row.model));
+            return (
+              <tr className={row.availability.tone === "blocked" && !readOnly ? "unrouted" : undefined} key={row.model.name}>
+                <td>
+                  <div className="model-price-name">
+                    <ModelBrandIcon category={row.category} label={row.categoryLabel} />
+                    <div>
+                      <strong>{modelDisplayTitle(row.model)}</strong>
+                      <span>{row.categoryLabel} · {row.model.name}</span>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <span className={`model-type-badge ${row.typeTone}`}>{tx(row.typeLabel)}</span>
+                </td>
+                <td><strong className="model-price-number">{modelCatalogPriceValue(row.inputPrice)}</strong></td>
+                <td><strong className="model-price-number output">{modelCatalogPriceValue(row.outputPrice)}</strong></td>
+                <td><strong className={row.cacheReadPrice ? "model-price-number" : "model-price-number muted"}>{modelCatalogPriceValue(row.cacheReadPrice)}</strong></td>
+                <td>
+                  <div className="model-context-cell">
+                    <strong>{row.contextLabel}</strong>
+                    <span>{row.contextDetail}</span>
+                  </div>
+                </td>
+                <td><strong className="model-monthly-cost">{row.monthlyCost > 0 ? `$${modelCatalogMoney(row.monthlyCost)}` : "-"}</strong></td>
+                <td>
+                  <div className="model-price-index">
+                    <span>
+                      <i style={{ width: row.priceIndex > 0 ? `${clampNumber((row.priceIndex / maxIndex) * 100, 8, 100)}%` : "0%" }} />
+                    </span>
+                    <strong>{row.priceIndex > 0 ? `${row.priceIndex.toFixed(2)}x` : "-"}</strong>
+                  </div>
+                </td>
+                <td>
+                  <div className="model-source-cell">
+                    <span className={`model-source-pill ${row.sourceTone}`}>{tx(row.sourceLabel)}</span>
+                    <small>{row.availability.activeRoutes}/{row.availability.totalRoutes} {tx("启用路由")}</small>
+                  </div>
+                </td>
+                {!readOnly ? (
+                  <td>
+                    <div className="model-row-actions">
+                      {visibleActions.map((action) => (
+                        <button className="text-button" key={action.label} onClick={() => onAction(action, row.model)} type="button">
+                          {tx(action.label)}
+                        </button>
+                      ))}
+                      {onEdit ? <button className="text-button" onClick={() => onEdit(row.model)} type="button">{tx("编辑")}</button> : null}
+                      {onDelete ? (
+                        <button className="danger-button" onClick={() => onDelete(row.model)} title={tx("删除")} type="button">
+                          <Trash2 size={15} />
+                        </button>
+                      ) : null}
+                    </div>
+                  </td>
+                ) : null}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -11027,6 +11617,184 @@ function ModelMetric({ label, value, muted }: { label: string; value: string; mu
       <span>{tx(label)}</span>
     </div>
   );
+}
+
+function ModelBrandIcon({ category, label, compact = false }: { category: string; label: string; compact?: boolean }) {
+  const source = modelBrandIconSource(category);
+  const className = `model-brand-icon${compact ? " compact" : ""}${source ? "" : " fallback"}`;
+  if (source) {
+    return (
+      <span aria-label={label} className={className} title={label}>
+        <img alt="" src={source} />
+      </span>
+    );
+  }
+  return (
+    <span aria-label={label} className={className} title={label}>
+      <Boxes size={18} />
+    </span>
+  );
+}
+
+function modelCatalogPriceSortedModels(models: Model[]) {
+  return models.slice().sort((left, right) => {
+    const leftCost = modelEstimatedMonthlyCost(left);
+    const rightCost = modelEstimatedMonthlyCost(right);
+    const leftMissingPrice = leftCost <= 0 ? 1 : 0;
+    const rightMissingPrice = rightCost <= 0 ? 1 : 0;
+    return leftMissingPrice - rightMissingPrice
+      || leftCost - rightCost
+      || modelCategoryRank(left) - modelCategoryRank(right)
+      || left.name.localeCompare(right.name);
+  });
+}
+
+function modelCatalogPriceBaseline(models: Model[]) {
+  const preferred = models.find((model) => /gpt-4\.1-mini|gpt-4o-mini|deepseek-chat/i.test(model.name));
+  const preferredCost = preferred ? modelEstimatedMonthlyCost(preferred) : 0;
+  if (preferredCost > 0) return preferredCost;
+  const costs = models.map(modelEstimatedMonthlyCost).filter((cost) => cost > 0).sort((left, right) => left - right);
+  return costs[Math.floor(costs.length / 2)] || costs[0] || 1;
+}
+
+function modelCatalogPriceRow(model: Model, data: AppData, readOnly: boolean, baseline: number) {
+  const category = modelCategory(model);
+  const inputPrice = modelCatalogInputPrice(model);
+  const outputPrice = model.output_price_usd_per_1m || undefined;
+  const cacheReadPrice = modelCachedReadPrice(model);
+  const monthlyCost = modelEstimatedMonthlyCost(model);
+  const priceIndex = monthlyCost > 0 && baseline > 0 ? monthlyCost / baseline : 0;
+  const availability = modelAvailabilitySummary(model, data, readOnly);
+  const source = modelCatalogSource(model, data);
+  const type = modelCatalogTypeBadge(model, monthlyCost, baseline);
+  return {
+    model,
+    availability,
+    category,
+    categoryLabel: modelCategoryLabel(category),
+    inputPrice,
+    outputPrice,
+    cacheReadPrice,
+    monthlyCost,
+    priceIndex,
+    contextLabel: model.context_window ? modelCatalogCompactNumber(model.context_window) : "-",
+    contextDetail: model.context_window ? tx("上下文窗口") : tx("未配置"),
+    sourceLabel: source.label,
+    sourceTone: source.tone,
+    typeLabel: type.label,
+    typeTone: type.tone,
+  };
+}
+
+function modelCatalogInputPrice(model: Model) {
+  if (model.input_price_usd_per_1m) return model.input_price_usd_per_1m;
+  if (model.modality === "embedding" && model.embedding_price_usd_per_1m) return model.embedding_price_usd_per_1m;
+  return undefined;
+}
+
+function modelCachedReadPrice(model: Model) {
+  const configured = readModelMetadataNumber(model, [
+    "cached_input_price_usd_per_1m",
+    "cache_read_price_usd_per_1m",
+    "cached_read_price_usd_per_1m",
+  ]);
+  if (configured > 0) return configured;
+  const input = model.input_price_usd_per_1m || 0;
+  if (!input || model.modality === "embedding") return undefined;
+  const category = modelCategory(model);
+  const cacheHint = [model.name, model.family, ...(model.capabilities ?? []), ...(model.supported_parameters ?? [])]
+    .join(" ")
+    .toLowerCase();
+  const commonlyCached = ["openai", "claude", "gemini", "deepseek"].includes(category)
+    || cacheHint.includes("cache")
+    || cacheHint.includes("prompt");
+  return commonlyCached ? input * 0.25 : undefined;
+}
+
+function readModelMetadataNumber(model: Model, keys: string[]) {
+  for (const key of keys) {
+    const value = Number(model.metadata?.[key] ?? "");
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return 0;
+}
+
+function modelEstimatedMonthlyCost(model: Model) {
+  const embeddingPrice = model.embedding_price_usd_per_1m || 0;
+  if (model.modality === "embedding" && embeddingPrice > 0) return embeddingPrice * 100;
+  const input = model.input_price_usd_per_1m || 0;
+  const output = model.output_price_usd_per_1m || 0;
+  return input * 100 + output * 50;
+}
+
+function modelCatalogTypeBadge(model: Model, monthlyCost: number, baseline: number) {
+  const text = [model.name, model.family, model.modality, ...(model.capabilities ?? [])].join(" ").toLowerCase();
+  if (/code|coder|codestral|devstral|codex|build/.test(text)) return { label: "代码", tone: "code" };
+  if (/reason|thinking|r1|o1|o3/.test(text)) return { label: "推理", tone: "reasoning" };
+  if (/image|vision|video|audio|ocr|multimodal/.test(text)) return { label: "多模态", tone: "media" };
+  const index = monthlyCost > 0 && baseline > 0 ? monthlyCost / baseline : 0;
+  if (index > 0 && index <= 0.8) return { label: "低价", tone: "low" };
+  if (index >= 2.4 || /pro|opus|large|gpt-5|grok-4/.test(text)) return { label: "旗舰", tone: "flagship" };
+  return { label: "均衡", tone: "balanced" };
+}
+
+function modelCatalogSource(model: Model, data: AppData) {
+  const hasPrice = modelEstimatedMonthlyCost(model) > 0;
+  if (!hasPrice) return { label: "未配置", tone: "missing" };
+  if (hasThirdPartyRoute(model, data)) return { label: "三方价", tone: "third" };
+  return { label: "官方价", tone: "official" };
+}
+
+function modelBrandIconSource(category: string) {
+  const sources: Record<string, string> = {
+    openai: "/model-icons/openai.svg",
+    claude: "/model-icons/claude.svg",
+    deepseek: "/model-icons/deepseek.svg",
+    gemini: "/model-icons/gemini.svg",
+    qwen: "/model-icons/qwen.svg",
+    glm: "/model-icons/glm.svg",
+    kimi: "/model-icons/kimi.svg",
+    doubao: "/model-icons/doubao.svg",
+    ernie: "/model-icons/ernie.svg",
+    baichuan: "/model-icons/baichuan.svg",
+    minimax: "/model-icons/minimax.svg",
+    stepfun: "/model-icons/stepfun.svg",
+    wanx: "/model-icons/wanx.svg",
+    paddlepaddle: "/model-icons/paddlepaddle.svg",
+    microsoft: "/model-icons/microsoft.svg",
+    llama: "/model-icons/llama.svg",
+    mistral: "/model-icons/mistral.svg",
+    grok: "/model-icons/grok.svg",
+  };
+  return sources[category] ?? "";
+}
+
+function modelDisplayTitle(model: Model) {
+  return model.metadata?.title || model.name;
+}
+
+function modelCatalogPriceValue(value: number | undefined) {
+  return value && value > 0 ? `$${modelCatalogMoney(value)}` : "-";
+}
+
+function modelCatalogMoney(value: number) {
+  const amount = Math.max(0, value || 0);
+  if (amount >= 100) return amount.toFixed(0);
+  if (amount >= 10) return amount.toFixed(1);
+  if (amount >= 1) return amount.toFixed(2);
+  return amount.toFixed(3);
+}
+
+function modelCatalogCompactNumber(value: number) {
+  if (value >= 1_000_000) {
+    const scaled = value / 1_000_000;
+    return `${Number.isInteger(scaled) ? scaled.toFixed(0) : scaled.toFixed(1)}M`;
+  }
+  if (value >= 1_000) {
+    const scaled = value / 1_000;
+    return `${Number.isInteger(scaled) ? scaled.toFixed(0) : scaled.toFixed(1)}K`;
+  }
+  return formatNumber(value || 0);
 }
 
 function SettingsView({

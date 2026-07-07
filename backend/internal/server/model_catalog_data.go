@@ -10,6 +10,8 @@ import (
 
 type modelCatalogSeed struct {
 	Name                   string   `yaml:"name"`
+	Title                  string   `yaml:"title"`
+	Description            string   `yaml:"description"`
 	Category               string   `yaml:"category"`
 	Family                 string   `yaml:"family"`
 	Modality               string   `yaml:"modality"`
@@ -92,6 +94,15 @@ func buildCatalogModel(seed modelCatalogSeed) Model {
 	if outputPrice == 0 {
 		outputPrice = catalogOutputPrice(name, modality)
 	}
+	metadata := map[string]string{
+		"source": "tokenhub-standard-catalog",
+	}
+	if title := strings.TrimSpace(seed.Title); title != "" {
+		metadata["title"] = title
+	}
+	if description := strings.TrimSpace(seed.Description); description != "" {
+		metadata["description"] = description
+	}
 	return Model{
 		ID:                     name,
 		Name:                   name,
@@ -105,9 +116,7 @@ func buildCatalogModel(seed modelCatalogSeed) Model {
 		OutputPriceUSDPer1M:    outputPrice,
 		EmbeddingPriceUSDPer1M: seed.EmbeddingPriceUSDPer1M,
 		Status:                 StatusActive,
-		Metadata: map[string]string{
-			"source": "tokenhub-standard-catalog",
-		},
+		Metadata:               metadata,
 	}
 }
 

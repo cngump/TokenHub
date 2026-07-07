@@ -13,6 +13,7 @@ import (
 	"hash/fnv"
 	"io"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"net/smtp"
@@ -65,6 +66,7 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) routes() {
 	s.mux.HandleFunc("/healthz", s.handleHealth)
 	s.mux.HandleFunc("/v1/models", s.handleModels)
+	s.mux.HandleFunc("/v1/models/", s.handleModel)
 	s.mux.HandleFunc("/v1/chat/completions", s.handleChatCompletions)
 	s.mux.HandleFunc("/v1/responses", s.handleResponses)
 	s.mux.HandleFunc("/v1/embeddings", s.handleEmbeddings)
@@ -132,15 +134,109 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	models := s.store.AccessibleModels(key)
-	data := make([]map[string]any, 0, len(models))
+	data := make([]modelListItem, 0, len(models))
 	for _, model := range models {
-		data = append(data, map[string]any{
-			"id":       model.Name,
-			"object":   "model",
-			"owned_by": "tokenhub",
-		})
+		data = append(data, buildModelListItem(model))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": data})
+}
+
+func (s *Server) handleModel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
+		return
+	}
+	_, key, err := s.authenticate(r)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	modelID, err := modelIDFromPath(r)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	for _, model := range s.store.AccessibleModels(key) {
+		if model.Name == modelID || model.ID == modelID {
+			writeJSON(w, http.StatusOK, buildModelListItem(model))
+			return
+		}
+	}
+	writeError(w, r, NewHTTPError(404, "model_not_found", "Model not found"))
+}
+
+func modelIDFromPath(r *http.Request) (string, error) {
+	escaped := strings.TrimPrefix(r.URL.EscapedPath(), "/v1/models/")
+	escaped = strings.Trim(escaped, "/")
+	if escaped == "" {
+		return "", NewHTTPError(404, "model_not_found", "Model not found")
+	}
+	modelID, err := url.PathUnescape(escaped)
+	if err != nil || strings.TrimSpace(modelID) == "" {
+		return "", NewHTTPError(400, "invalid_model", "model path parameter is invalid")
+	}
+	return strings.TrimSpace(modelID), nil
+}
+
+type modelListItem struct {
+	ID                   string `json:"id"`
+	Created              int64  `json:"created"`
+	Object               string `json:"object"`
+	OwnedBy              string `json:"owned_by,omitempty"`
+	InputTokenPricePerM  int64  `json:"input_token_price_per_m"`
+	OutputTokenPricePerM int64  `json:"output_token_price_per_m"`
+	Title                string `json:"title"`
+	Description          string `json:"description"`
+	ContextSize          int64  `json:"context_size"`
+}
+
+func buildModelListItem(model Model) modelListItem {
+	inputPrice := model.InputPriceUSDPer1M
+	if inputPrice == 0 && model.EmbeddingPriceUSDPer1M > 0 {
+		inputPrice = model.EmbeddingPriceUSDPer1M
+	}
+	return modelListItem{
+		ID:                   model.Name,
+		Created:              modelCreatedUnix(model),
+		Object:               "model",
+		OwnedBy:              "tokenhub",
+		InputTokenPricePerM:  modelTokenPricePerM(inputPrice),
+		OutputTokenPricePerM: modelTokenPricePerM(model.OutputPriceUSDPer1M),
+		Title:                modelTitle(model),
+		Description:          modelDescription(model),
+		ContextSize:          model.ContextWindow,
+	}
+}
+
+func modelCreatedUnix(model Model) int64 {
+	if model.CreatedAt.IsZero() {
+		return 0
+	}
+	return model.CreatedAt.Unix()
+}
+
+func modelTokenPricePerM(priceUSDPer1M float64) int64 {
+	if priceUSDPer1M <= 0 {
+		return 0
+	}
+	// JieKou-compatible model listings use integer price units; 1 USD/1M tokens is 10000.
+	return int64(math.Round(priceUSDPer1M * 10000))
+}
+
+func modelTitle(model Model) string {
+	if value := strings.TrimSpace(model.Metadata["title"]); value != "" {
+		return value
+	}
+	return model.Name
+}
+
+func modelDescription(model Model) string {
+	if value := strings.TrimSpace(model.Metadata["description"]); value != "" {
+		return value
+	}
+	modality := firstNonEmpty(model.Modality, "chat")
+	family := firstNonEmpty(model.Family, model.Category, "custom")
+	return fmt.Sprintf("TokenHub %s model in the %s family.", modality, family)
 }
 
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
