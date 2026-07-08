@@ -15066,14 +15066,6 @@ function providerConfig(): ResourceConfig<Provider> {
         }),
       },
       {
-        label: "账号集成",
-        title: "为该 Provider 添加账号资源",
-        modal: (item) => ({
-          config: providerResourceConfig(item),
-          initialValues: providerResourceDefaults(item),
-        }),
-      },
-      {
         label: "测试",
         title: "检测 Provider 可用性",
         run: (ctx, item) => adminMutate(ctx, `/api/admin/providers/${item.id}/test`, "POST", {}),

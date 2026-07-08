@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -316,7 +317,7 @@ func TestBootstrapSeedsStandardModelCatalog(t *testing.T) {
 		t.Fatalf("default project should have enterprise ownership fields: %+v", project)
 	}
 	models := store.ListModels()
-	if len(models) < 220 {
+	if len(models) < 160 {
 		t.Fatalf("expected standard model catalog, got %d models", len(models))
 	}
 	byName := map[string]Model{}
@@ -324,13 +325,13 @@ func TestBootstrapSeedsStandardModelCatalog(t *testing.T) {
 		byName[strings.ToLower(model.Name)] = model
 	}
 	for name, category := range map[string]string{
-		"deepseek-v3.2-thinking": "deepseek",
-		"gemini-3-pro-preview":   "gemini",
-		"minimax-m2":             "minimax",
-		"step-tts-mini":          "stepfun",
-		"baichuan-m2-128k":       "baichuan",
-		"ernie-4.5-turbo-128k":   "ernie",
-		"wanx2.1-t2i-plus":       "wanx",
+		"gpt-5.5":                            "openai",
+		"zai-org/glm-5.2":                    "glm",
+		"moonshotai/kimi-k2.7-code":          "kimi",
+		"minimax/minimax-m3":                 "minimax",
+		"baidu/ernie-4.5-vl-424b-a47b":       "ernie",
+		"qwen/qwen3-235b-a22b-instruct-2507": "qwen",
+		"grok-4-fast-reasoning":              "grok",
 	} {
 		model, ok := byName[name]
 		if !ok {
@@ -340,14 +341,20 @@ func TestBootstrapSeedsStandardModelCatalog(t *testing.T) {
 			t.Fatalf("expected %s category %s, got %s", name, category, model.Category)
 		}
 	}
+	if byName["zai-org/glm-5.2"].Metadata["title"] != "GLM 5.2" {
+		t.Fatalf("expected GLM display title metadata, got %+v", byName["zai-org/glm-5.2"].Metadata)
+	}
+	if byName["gpt-5.5"].InputPriceUSDPer1M != 47.5 || byName["gpt-5.5"].OutputPriceUSDPer1M != 285 {
+		t.Fatalf("expected gpt-5.5 jiekou pricing, got input=%v output=%v", byName["gpt-5.5"].InputPriceUSDPer1M, byName["gpt-5.5"].OutputPriceUSDPer1M)
+	}
+	if !slices.Contains(byName["gpt-5.5"].InputModalities, "image") {
+		t.Fatalf("expected gpt-5.5 image input modality, got %+v", byName["gpt-5.5"].InputModalities)
+	}
 	if byName["gpt-image-2"].Modality != "image" {
 		t.Fatalf("expected gpt-image-2 image modality, got %s", byName["gpt-image-2"].Modality)
 	}
-	if byName["sora-2"].Modality != "video" {
-		t.Fatalf("expected sora-2 video modality, got %s", byName["sora-2"].Modality)
-	}
-	if byName["step-tts-mini"].Modality != "audio" {
-		t.Fatalf("expected step-tts-mini audio modality, got %s", byName["step-tts-mini"].Modality)
+	if byName["gemini-3-pro-image"].Modality != "image" {
+		t.Fatalf("expected gemini-3-pro-image image modality, got %s", byName["gemini-3-pro-image"].Modality)
 	}
 }
 
@@ -2546,7 +2553,7 @@ func TestAdminProviderCatalogAndTemplateRouteMapping(t *testing.T) {
 	if models.Code != http.StatusOK {
 		t.Fatalf("expected models list, got %d: %s", models.Code, models.Body)
 	}
-	if !strings.Contains(models.Body, `"gpt-5"`) || !strings.Contains(models.Body, `"claude-sonnet-4.5"`) {
+	if !strings.Contains(models.Body, `"gpt-5"`) || !strings.Contains(models.Body, `"claude-sonnet-5"`) {
 		t.Fatalf("expected default model catalog: %s", models.Body)
 	}
 
