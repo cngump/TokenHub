@@ -758,6 +758,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "界面语言": "Interface Language",
     "选择控制台显示语言，偏好会保存在当前浏览器。": "Choose the console display language. The preference is saved in this browser.",
     "当前语言": "Current language",
+    "点击排序": "Sort",
     "平台管理员": "Platform Admin",
     "默认项目空间": "Default Project Space",
     "平台工程团队": "Platform Engineering Team",
@@ -2065,6 +2066,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "请先创建项目，再在项目下发放 API Key。": "先にプロジェクトを作成してから API Key を発行してください。",
     "请先新增 Provider 渠道，再配置路由策略。": "先に Provider チャネルを作成してからルートを設定してください。",
     "请先维护模型目录，再新增路由策略。": "先にモデルカタログを整備してからルートを作成してください。",
+    "点击排序": "並べ替え",
     "新 Key 仅展示一次：": "新しい Key は一度だけ表示されます: ",
     "新 Key 已生成": "新しい Key を生成しました",
     "请现在复制并保存这个 Key。关闭弹窗后将无法再次查看完整 Key，只能通过轮换生成新的 Key。": "この Key を今すぐコピーして保存してください。ダイアログを閉じると完全な Key は再表示できず、ローテーションで新しい Key を生成する必要があります。",
@@ -11158,6 +11160,14 @@ function ModelCatalogView({
   );
 }
 
+type ModelCatalogPriceSortKey = "default" | "name" | "input" | "output" | "cache" | "context" | "monthly" | "index";
+type ModelCatalogPriceSortDirection = "asc" | "desc";
+type ModelCatalogPriceSort = {
+  key: ModelCatalogPriceSortKey;
+  direction: ModelCatalogPriceSortDirection;
+};
+type ModelCatalogPriceRowData = ReturnType<typeof modelCatalogPriceRow>;
+
 function ModelCatalogPriceTable({
   models,
   data,
@@ -11175,23 +11185,38 @@ function ModelCatalogPriceTable({
   onEdit?: (item: Model) => void;
   onDelete?: (item: Model) => void;
 }) {
-  const sorted = modelCatalogPriceSortedModels(models);
-  const baseline = modelCatalogPriceBaseline(sorted);
-  const rows = sorted.map((model) => modelCatalogPriceRow(model, data, readOnly, baseline));
+  const [sort, setSort] = useState<ModelCatalogPriceSort>({ key: "default", direction: "asc" });
+  const defaultSorted = modelCatalogPriceSortedModels(models);
+  const baseline = modelCatalogPriceBaseline(defaultSorted);
+  const rows = modelCatalogSortRows(defaultSorted.map((model) => modelCatalogPriceRow(model, data, readOnly, baseline)), sort);
   const maxIndex = Math.max(1, ...rows.map((row) => row.priceIndex || 0));
   return (
     <div className="model-price-table-wrap">
       <table className={readOnly ? "model-price-table" : "model-price-table admin"}>
         <thead>
           <tr>
-            <th>{tx("模型")}</th>
+            <th aria-sort={modelCatalogSortAria(sort, "name")}>
+              <ModelCatalogSortHeader label="模型" sortKey="name" sort={sort} onSort={setSort} />
+            </th>
             <th>{tx("类型")}</th>
-            <th>{tx("输入价")}</th>
-            <th>{tx("输出价")}</th>
-            <th>{tx("缓存读")}</th>
-            <th>{tx("上下文")}</th>
-            <th>{tx("估算月成本")}</th>
-            <th>{tx("价格指数")}</th>
+            <th aria-sort={modelCatalogSortAria(sort, "input")}>
+              <ModelCatalogSortHeader label="输入价" sortKey="input" sort={sort} onSort={setSort} />
+            </th>
+            <th aria-sort={modelCatalogSortAria(sort, "output")}>
+              <ModelCatalogSortHeader label="输出价" sortKey="output" sort={sort} onSort={setSort} />
+            </th>
+            <th aria-sort={modelCatalogSortAria(sort, "cache")}>
+              <ModelCatalogSortHeader label="缓存读" sortKey="cache" sort={sort} onSort={setSort} />
+            </th>
+            <th aria-sort={modelCatalogSortAria(sort, "context")}>
+              <ModelCatalogSortHeader label="上下文" sortKey="context" sort={sort} onSort={setSort} />
+            </th>
+            <th aria-sort={modelCatalogSortAria(sort, "monthly")}>
+              <ModelCatalogSortHeader label="估算月成本" sortKey="monthly" sort={sort} onSort={setSort} />
+            </th>
+            <th aria-sort={modelCatalogSortAria(sort, "index")}>
+              <ModelCatalogSortHeader label="价格指数" sortKey="index" sort={sort} onSort={setSort} />
+            </th>
             <th>{tx("来源")}</th>
             {!readOnly ? <th>{tx("操作")}</th> : null}
           </tr>
@@ -11636,6 +11661,48 @@ function ModelBrandIcon({ category, label, compact = false }: { category: string
   );
 }
 
+function ModelCatalogSortHeader({
+  label,
+  sortKey,
+  sort,
+  onSort,
+}: {
+  label: string;
+  sortKey: Exclude<ModelCatalogPriceSortKey, "default">;
+  sort: ModelCatalogPriceSort;
+  onSort: (sort: ModelCatalogPriceSort) => void;
+}) {
+  const active = sort.key === sortKey;
+  return (
+    <button
+      className={active ? `model-sort-button active ${sort.direction}` : "model-sort-button"}
+      onClick={() => onSort(modelCatalogNextSort(sort, sortKey))}
+      title={tx("点击排序")}
+      type="button"
+    >
+      <span>{tx(label)}</span>
+      <ChevronDown aria-hidden="true" className="model-sort-icon" size={13} />
+    </button>
+  );
+}
+
+function modelCatalogNextSort(current: ModelCatalogPriceSort, key: Exclude<ModelCatalogPriceSortKey, "default">): ModelCatalogPriceSort {
+  if (current.key === key) {
+    return { key, direction: current.direction === "asc" ? "desc" : "asc" };
+  }
+  return { key, direction: modelCatalogDefaultSortDirection(key) };
+}
+
+function modelCatalogDefaultSortDirection(key: ModelCatalogPriceSortKey): ModelCatalogPriceSortDirection {
+  if (key === "name" || key === "input" || key === "output" || key === "cache" || key === "monthly" || key === "index") return "asc";
+  return "desc";
+}
+
+function modelCatalogSortAria(sort: ModelCatalogPriceSort, key: ModelCatalogPriceSortKey) {
+  if (sort.key !== key) return "none";
+  return sort.direction === "asc" ? "ascending" : "descending";
+}
+
 function modelCatalogPriceSortedModels(models: Model[]) {
   return models.slice().sort((left, right) => {
     const leftCost = modelEstimatedMonthlyCost(left);
@@ -11647,6 +11714,55 @@ function modelCatalogPriceSortedModels(models: Model[]) {
       || modelCategoryRank(left) - modelCategoryRank(right)
       || left.name.localeCompare(right.name);
   });
+}
+
+function modelCatalogSortRows(rows: ModelCatalogPriceRowData[], sort: ModelCatalogPriceSort) {
+  if (sort.key === "default") return rows;
+  const direction = sort.direction === "asc" ? 1 : -1;
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((left, right) => {
+      const compared = modelCatalogCompareSortValues(
+        modelCatalogSortValue(left.row, sort.key),
+        modelCatalogSortValue(right.row, sort.key),
+        direction,
+      );
+      return compared || left.index - right.index;
+    })
+    .map((item) => item.row);
+}
+
+function modelCatalogSortValue(row: ModelCatalogPriceRowData, key: ModelCatalogPriceSortKey) {
+  switch (key) {
+    case "name":
+      return modelDisplayTitle(row.model).toLowerCase();
+    case "input":
+      return row.inputPrice || undefined;
+    case "output":
+      return row.outputPrice || undefined;
+    case "cache":
+      return row.cacheReadPrice || undefined;
+    case "context":
+      return row.model.context_window || undefined;
+    case "monthly":
+      return row.monthlyCost || undefined;
+    case "index":
+      return row.priceIndex || undefined;
+    default:
+      return undefined;
+  }
+}
+
+function modelCatalogCompareSortValues(left: string | number | undefined, right: string | number | undefined, direction: number) {
+  const leftMissing = left === undefined || left === "";
+  const rightMissing = right === undefined || right === "";
+  if (leftMissing && rightMissing) return 0;
+  if (leftMissing) return 1;
+  if (rightMissing) return -1;
+  if (typeof left === "string" || typeof right === "string") {
+    return String(left).localeCompare(String(right)) * direction;
+  }
+  return (left - right) * direction;
 }
 
 function modelCatalogPriceBaseline(models: Model[]) {
