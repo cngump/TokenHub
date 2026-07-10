@@ -26,10 +26,11 @@ import (
 )
 
 type Server struct {
-	store    Store
-	adapters map[string]ProviderAdapter
-	mux      *http.ServeMux
-	config   Config
+	store                    Store
+	adapters                 map[string]ProviderAdapter
+	mux                      *http.ServeMux
+	config                   Config
+	providerAccountOAuthFlow *providerAccountOAuthSessionStore
 }
 
 func New(store Store) *Server {
@@ -52,8 +53,9 @@ func NewWithConfig(store Store, config Config) *Server {
 			ProviderAnthropic:        AnthropicAdapter{Client: client},
 			ProviderGemini:           GeminiAdapter{Client: client},
 		},
-		mux:    http.NewServeMux(),
-		config: config,
+		mux:                      http.NewServeMux(),
+		config:                   config,
+		providerAccountOAuthFlow: newProviderAccountOAuthSessionStore(),
 	}
 	s.routes()
 	return s
@@ -87,6 +89,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/admin/users/", s.handleAdminUserItem)
 	s.mux.HandleFunc("/api/admin/provider-catalog", s.handleAdminProviderCatalog)
 	s.mux.HandleFunc("/api/admin/provider-catalog/", s.handleAdminProviderCatalogItem)
+	s.mux.HandleFunc("/api/admin/provider-account-oauth/openai/generate-auth-url", s.handleAdminOpenAIAccountOAuthGenerateAuthURL)
+	s.mux.HandleFunc("/api/admin/provider-account-oauth/openai/exchange-code", s.handleAdminOpenAIAccountOAuthExchangeCode)
+	s.mux.HandleFunc("/api/admin/provider-account-oauth/openai/oauth/callback", s.handleOpenAIAccountOAuthCallback)
 	s.mux.HandleFunc("/api/admin/api-keys", s.handleAdminAPIKeys)
 	s.mux.HandleFunc("/api/admin/api-keys/", s.handleAdminAPIKeyItem)
 	s.mux.HandleFunc("/api/admin/providers", s.handleAdminProviders)
@@ -278,6 +283,16 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			writeError(w, r, err)
 			return
 		}
+		preparedRoute, err := s.prepareRouteForUpstream(r.Context(), route)
+		if err != nil {
+			s.store.FinishProviderResourceAttempt(resourceID, false, Usage{})
+			httpErr := AsHTTPError(err)
+			s.store.FinishCall(routed.Call, route, Usage{}, httpErr.Status, httpErr.Code, clientIP(r), r.UserAgent())
+			s.recordRequestPayload(routed.Call.RequestID, req, auditErrorPayload(err, routed.Call.RequestID))
+			writeError(w, r, err)
+			return
+		}
+		route = preparedRoute
 		adapter, err := s.adapterForRoute(route)
 		if err != nil {
 			s.store.FinishProviderResourceAttempt(resourceID, false, Usage{})
@@ -428,6 +443,10 @@ func (s *Server) startRoutedCall(w http.ResponseWriter, r *http.Request, project
 
 func (s *Server) executeRoutedChat(r *http.Request, routed RoutedCall, req ChatCompletionRequest) (any, RouteSelection, Usage, []RouteAttempt, error) {
 	return executeRoutedWithStore(s.store, routed, func(route RouteSelection) (any, Usage, error) {
+		route, err := s.prepareRouteForUpstream(r.Context(), route)
+		if err != nil {
+			return nil, Usage{}, err
+		}
 		adapter, err := s.adapterForRoute(route)
 		if err != nil {
 			return nil, Usage{}, err
@@ -438,6 +457,10 @@ func (s *Server) executeRoutedChat(r *http.Request, routed RoutedCall, req ChatC
 
 func (s *Server) executeRoutedResponses(r *http.Request, routed RoutedCall, req ResponsesRequest) (any, RouteSelection, Usage, []RouteAttempt, error) {
 	return executeRoutedWithStore(s.store, routed, func(route RouteSelection) (any, Usage, error) {
+		route, err := s.prepareRouteForUpstream(r.Context(), route)
+		if err != nil {
+			return nil, Usage{}, err
+		}
 		adapter, err := s.adapterForRoute(route)
 		if err != nil {
 			return nil, Usage{}, err
@@ -448,6 +471,10 @@ func (s *Server) executeRoutedResponses(r *http.Request, routed RoutedCall, req 
 
 func (s *Server) executeRoutedEmbeddings(r *http.Request, routed RoutedCall, req EmbeddingsRequest) (any, RouteSelection, Usage, []RouteAttempt, error) {
 	return executeRoutedWithStore(s.store, routed, func(route RouteSelection) (any, Usage, error) {
+		route, err := s.prepareRouteForUpstream(r.Context(), route)
+		if err != nil {
+			return nil, Usage{}, err
+		}
 		adapter, err := s.adapterForRoute(route)
 		if err != nil {
 			return nil, Usage{}, err
@@ -968,10 +995,12 @@ type oauthStatePayload struct {
 }
 
 type oauthTokenResponse struct {
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
-	ExpiresIn   int64  `json:"expires_in"`
-	IDToken     string `json:"id_token"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int64  `json:"expires_in"`
+	IDToken      string `json:"id_token"`
+	Scope        string `json:"scope,omitempty"`
 }
 
 func (s *Server) handleAdminAuthIdentityProviders(w http.ResponseWriter, r *http.Request) {
@@ -2851,7 +2880,7 @@ func (s *Server) handleAdminProviderNested(w http.ResponseWriter, r *http.Reques
 		}
 		return
 	}
-	if len(parts) != 2 || (parts[1] != "health" && parts[1] != "test") {
+	if len(parts) != 2 || (parts[1] != "health" && parts[1] != "test" && parts[1] != "refresh-token") {
 		writeError(w, r, NewHTTPError(404, "not_found", "Not found"))
 		return
 	}
@@ -2972,6 +3001,16 @@ func (s *Server) handleAdminProviderResourceNested(w http.ResponseWriter, r *htt
 		}
 		s.recordAdminAudit(r, user, "test", "provider_resource", parts[0], "", map[string]any{"healthy": resource.Healthy})
 		writeJSON(w, http.StatusOK, resource)
+		return
+	}
+	if parts[1] == "refresh-token" {
+		creds, err := s.store.RefreshProviderResourceCredentials(r.Context(), parts[0], true)
+		if err != nil {
+			writeError(w, r, err)
+			return
+		}
+		s.recordAdminAudit(r, user, "refresh_token", "provider_resource", parts[0], "", providerAccountCredentialSummary(creds))
+		writeJSON(w, http.StatusOK, map[string]any{"credential_summary": providerAccountCredentialSummary(creds)})
 		return
 	}
 	var req struct {
@@ -4400,21 +4439,31 @@ func (s *Server) deliverAlert(ctx context.Context, alertID string, channelID str
 		}
 		return s.store.RecordAlertDelivery(delivery), nil
 	}
-	if delivery.Target == "" {
+	target, err := notificationChannelRequestTarget(channel)
+	if err != nil {
 		delivery.Status = "failed"
-		delivery.Error = "webhook_url is required"
+		delivery.Error = err.Error()
 		return s.store.RecordAlertDelivery(delivery), nil
 	}
-	body, _ := json.Marshal(notificationChannelPayload(delivery.Channel, payload, alert))
+	bodyPayload, headers, err := notificationChannelPayloadForChannel(channel, payload, alert)
+	if err != nil {
+		delivery.Status = "failed"
+		delivery.Error = err.Error()
+		return s.store.RecordAlertDelivery(delivery), nil
+	}
+	body, _ := json.Marshal(bodyPayload)
 	reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, delivery.Target, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		delivery.Status = "failed"
 		delivery.Error = err.Error()
 		return s.store.RecordAlertDelivery(delivery), nil
 	}
 	req.Header.Set("content-type", "application/json")
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
 	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
 	if err != nil {
 		delivery.Status = "failed"
@@ -4443,6 +4492,12 @@ func normalizeNotificationChannelType(channelType string) string {
 		return "wecom"
 	case "slack":
 		return "slack"
+	case "discord":
+		return "discord"
+	case "telegram", "tg":
+		return "telegram"
+	case "whatsapp", "whatsapp_cloud", "whatsapp_business", "wa":
+		return "whatsapp"
 	case "email", "mail", "smtp":
 		return "email"
 	default:
@@ -4452,7 +4507,7 @@ func normalizeNotificationChannelType(channelType string) string {
 
 func supportedNotificationChannel(channelType string) bool {
 	switch normalizeNotificationChannelType(channelType) {
-	case "webhook", "feishu", "dingtalk", "wecom", "slack", "email":
+	case "webhook", "feishu", "dingtalk", "wecom", "slack", "discord", "telegram", "whatsapp", "email":
 		return true
 	default:
 		return false
@@ -4460,7 +4515,7 @@ func supportedNotificationChannel(channelType string) bool {
 }
 
 func notificationChannelPayload(channelType string, payload map[string]any, alert AlertEvent) any {
-	text := fmt.Sprintf("[TokenHub] %s\n%s\n对象：%s/%s", alert.Code, alert.Message, alert.ScopeType, alert.ScopeID)
+	text := notificationChannelText(alert)
 	switch normalizeNotificationChannelType(channelType) {
 	case "feishu":
 		return map[string]any{
@@ -4476,9 +4531,61 @@ func notificationChannelPayload(channelType string, payload map[string]any, aler
 		return map[string]any{
 			"text": text,
 		}
+	case "discord":
+		return map[string]any{
+			"content":          text,
+			"allowed_mentions": map[string]any{"parse": []string{}},
+		}
 	default:
 		return payload
 	}
+}
+
+func notificationChannelPayloadForChannel(channel AdminResource, payload map[string]any, alert AlertEvent) (any, map[string]string, error) {
+	fields := channel.Fields
+	text := notificationChannelText(alert)
+	switch normalizeNotificationChannelType(stringField(fields, "type")) {
+	case "telegram":
+		chatID := strings.TrimSpace(firstStringField(fields, "telegram_chat_id", "chat_id", "recipient", "to"))
+		if chatID == "" {
+			return nil, nil, fmt.Errorf("telegram_chat_id is required")
+		}
+		body := map[string]any{
+			"chat_id":                  chatID,
+			"text":                     text,
+			"disable_web_page_preview": true,
+		}
+		if threadID := strings.TrimSpace(firstStringField(fields, "telegram_thread_id", "message_thread_id", "thread_id")); threadID != "" {
+			body["message_thread_id"] = threadID
+		}
+		return body, nil, nil
+	case "whatsapp":
+		recipient := strings.TrimSpace(firstStringField(fields, "whatsapp_to", "recipient", "to"))
+		if recipient == "" {
+			return nil, nil, fmt.Errorf("whatsapp_to is required")
+		}
+		accessToken := strings.TrimSpace(firstStringField(fields, "access_token", "whatsapp_access_token", "token", "secret"))
+		if accessToken == "" {
+			return nil, nil, fmt.Errorf("access_token is required")
+		}
+		return map[string]any{
+				"messaging_product": "whatsapp",
+				"to":                recipient,
+				"type":              "text",
+				"text": map[string]any{
+					"preview_url": false,
+					"body":        text,
+				},
+			}, map[string]string{
+				"authorization": "Bearer " + accessToken,
+			}, nil
+	default:
+		return notificationChannelPayload(stringField(fields, "type"), payload, alert), nil, nil
+	}
+}
+
+func notificationChannelText(alert AlertEvent) string {
+	return fmt.Sprintf("[TokenHub] %s\n%s\n对象：%s/%s", alert.Code, alert.Message, alert.ScopeType, alert.ScopeID)
 }
 
 func notificationChannelTarget(channel AdminResource) string {
@@ -4486,7 +4593,47 @@ func notificationChannelTarget(channel AdminResource) string {
 	if channelType == "email" {
 		return firstStringField(channel.Fields, "email_to", "recipients", "to")
 	}
+	if channelType == "telegram" {
+		if chatID := strings.TrimSpace(firstStringField(channel.Fields, "telegram_chat_id", "chat_id", "recipient", "to")); chatID != "" {
+			return "telegram:" + chatID
+		}
+		return "telegram"
+	}
+	if channelType == "whatsapp" {
+		if recipient := strings.TrimSpace(firstStringField(channel.Fields, "whatsapp_to", "recipient", "to")); recipient != "" {
+			return "whatsapp:" + recipient
+		}
+		return "whatsapp"
+	}
 	return firstStringField(channel.Fields, "webhook_url", "url")
+}
+
+func notificationChannelRequestTarget(channel AdminResource) (string, error) {
+	fields := channel.Fields
+	channelType := normalizeNotificationChannelType(stringField(fields, "type"))
+	if target := strings.TrimSpace(firstStringField(fields, "webhook_url", "url")); target != "" {
+		return target, nil
+	}
+	switch channelType {
+	case "telegram":
+		botToken := strings.TrimSpace(firstStringField(fields, "telegram_bot_token", "bot_token", "token", "secret"))
+		if botToken == "" {
+			return "", fmt.Errorf("telegram_bot_token is required")
+		}
+		return "https://api.telegram.org/bot" + botToken + "/sendMessage", nil
+	case "whatsapp":
+		phoneNumberID := strings.TrimSpace(firstStringField(fields, "whatsapp_phone_number_id", "phone_number_id"))
+		if phoneNumberID == "" {
+			return "", fmt.Errorf("whatsapp_phone_number_id is required")
+		}
+		apiVersion := strings.Trim(strings.TrimSpace(firstStringField(fields, "whatsapp_api_version", "api_version")), "/")
+		if apiVersion == "" {
+			apiVersion = "v20.0"
+		}
+		return "https://graph.facebook.com/" + apiVersion + "/" + phoneNumberID + "/messages", nil
+	default:
+		return "", fmt.Errorf("webhook_url is required")
+	}
 }
 
 func sendEmailAlert(ctx context.Context, channel AdminResource, alert AlertEvent) error {

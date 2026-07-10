@@ -126,6 +126,7 @@ type Store interface {
 	AccessibleModels(key APIKey) []Model
 	CheckProviderResourceCapacity(resourceID string) error
 	FinishProviderResourceAttempt(resourceID string, success bool, usage Usage)
+	RefreshProviderResourceCredentials(ctx context.Context, resourceID string, force bool) (ProviderResourceCredentials, error)
 	TestProvider(id string) (Provider, error)
 	TestProviderResource(id string) (ProviderResource, error)
 }

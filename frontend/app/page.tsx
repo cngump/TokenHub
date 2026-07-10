@@ -527,7 +527,7 @@ const routeViews = Object.fromEntries(
   Object.entries(viewRoutes).map(([view, route]) => [route.replace(/^\//, ""), view]),
 ) as Record<string, ViewKey>;
 
-const notificationChannelTypes = ["webhook", "feishu", "dingtalk", "wecom", "slack", "email"];
+const notificationChannelTypes = ["webhook", "slack", "discord", "telegram", "whatsapp", "feishu", "dingtalk", "wecom", "email"];
 
 type NavLeafItem = {
   view: ViewKey;
@@ -866,13 +866,17 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "账号资源名称": "Account Resource Name",
     "账号授权": "Account Authorization",
     "输入账号地址并打开授权页；授权完成后 TokenHub 会从回调 URL 自动回填 Token。": "Enter the account address and open the authorization page. After authorization, TokenHub fills tokens from the callback URL.",
+    "使用 OpenAI/Codex OAuth 授权账号；TokenHub 会在后端换取并保存账号 Token。": "Authorize an OpenAI/Codex account with OAuth. TokenHub exchanges and stores the account token on the backend.",
+    "OpenAI/Codex 授权": "OpenAI/Codex Authorization",
     "账号地址/邮箱": "Account Address / Email",
     "用于区分账号资源，可填写邮箱或账号系统里的唯一地址。": "Used to identify this account resource. Enter an email or the unique address from the account system.",
     "账号授权地址": "Authorization URL",
     "粘贴上游账号系统的授权地址；TokenHub 会带上本页回调地址。": "Paste the upstream account authorization URL. TokenHub will attach this page as the callback URL.",
     "打开授权": "Open Authorization",
+    "授权中": "Authorizing",
     "本页回调地址": "Callback URL",
     "授权应用跳回这个地址后，TokenHub 会自动读取 access_token / refresh_token / id_token。": "When the authorization app redirects to this URL, TokenHub reads access_token / refresh_token / id_token automatically.",
+    "点击后由后端生成授权地址；授权完成会带 code 回到本页并自动换取 Token。": "TokenHub generates the authorization URL on the backend. After authorization, the code returns here and is exchanged automatically.",
     "复制回调地址": "Copy Callback URL",
     "回调结果": "Callback Result",
     "如果授权页没有自动跳回本页，把完整 callback URL 或 URL fragment 粘贴到这里。": "If the authorization page does not redirect back here, paste the full callback URL or URL fragment here.",
@@ -883,9 +887,17 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "已回填刷新 Token": "Refresh token filled",
     "已回填 ID Token": "ID token filled",
     "打开授权页后，请在上游账号系统完成授权。": "After opening the authorization page, complete authorization in the upstream account system.",
+    "已打开 OpenAI/Codex 授权页，授权完成后会自动回填账号 Token。": "Opened the OpenAI/Codex authorization page. TokenHub will fill the account token after authorization.",
     "请先填写账号授权地址。": "Enter the authorization URL first.",
     "账号授权地址格式不正确。": "The authorization URL format is invalid.",
     "未在回调结果中识别到 Token。": "No token was found in the callback result.",
+    "账号授权失败": "Account authorization failed",
+    "授权回调缺少会话信息，请重新打开授权。": "The authorization callback is missing session information. Open authorization again.",
+    "正在换取账号 Token...": "Exchanging account token...",
+    "账号授权换取 Token": "Account authorization token exchange",
+    "账号授权换取 Token 失败": "Account authorization token exchange failed",
+    "生成账号授权地址": "Generate account authorization URL",
+    "生成账号授权地址失败": "Failed to generate account authorization URL",
     "回调里只有授权 code，当前版本还需要返回 Token 的授权地址，或在高级选项中手动粘贴 Token。": "The callback only contains an authorization code. This version needs a callback URL that returns tokens, or manual token paste in Advanced.",
     "已从回调 URL 自动回填账号 Token。": "Account token was filled from the callback URL.",
     "已从粘贴的回调结果回填账号 Token。": "Account token was filled from the pasted callback result.",
@@ -908,6 +920,8 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "OpenAI 账号资源": "OpenAI Account Resource",
     "添加账号资源": "Add Account Resource",
     "账号资源": "Account Resources",
+    "使用保存的 refresh token 更新账号访问 Token": "Refresh the account access token with the saved refresh token.",
+    "Token 已刷新": "Token refreshed",
     "账号类型": "Account Type",
     "认证方式": "Authentication",
     "访问 Token": "Access Token",
@@ -1621,6 +1635,9 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "钉钉机器人告警通知": "DingTalk bot alert notification",
     "企业微信机器人告警通知": "WeCom bot alert notification",
     "Slack Incoming Webhook 告警通知": "Slack Incoming Webhook alert notification",
+    "Discord Webhook 告警通知": "Discord Webhook alert notification",
+    "Telegram Bot 告警通知": "Telegram Bot alert notification",
+    "WhatsApp Cloud API 告警通知": "WhatsApp Cloud API alert notification",
     "SMTP 邮件告警通知": "SMTP email alert notification",
     "告警通知渠道": "Alert notification channel",
     "SMTP 已配置": "SMTP configured",
@@ -1634,7 +1651,13 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "SMTP 用户名": "SMTP Username",
     "SMTP 密码": "SMTP Password",
     "收件人": "Recipients",
+    "WhatsApp 收件人": "WhatsApp Recipient",
     "多个邮箱用逗号分隔。": "Separate multiple emails with commas.",
+    "Bot Token 已配置": "Bot token configured",
+    "Bot Token 未配置": "Bot token not configured",
+    "Access Token 已配置": "Access token configured",
+    "Access Token 未配置": "Access token not configured",
+    "按 Webhook、Slack、Discord、Telegram、WhatsApp、飞书、钉钉、企业微信和邮件快速配置告警通知目标。": "Quickly configure alert notification targets across Webhook, Slack, Discord, Telegram, WhatsApp, Feishu, DingTalk, WeCom, and email.",
     "地址/目标": "Address / Target",
     "凭证": "Credential",
     "告警类型": "Alert Type",
@@ -1970,13 +1993,17 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "账号资源名称": "アカウントリソース名",
     "账号授权": "アカウント認可",
     "输入账号地址并打开授权页；授权完成后 TokenHub 会从回调 URL 自动回填 Token。": "アカウントアドレスを入力して認可ページを開きます。認可後、TokenHub は callback URL から Token を自動入力します。",
+    "使用 OpenAI/Codex OAuth 授权账号；TokenHub 会在后端换取并保存账号 Token。": "OpenAI/Codex OAuth でアカウントを認可します。TokenHub がバックエンドでアカウント Token を交換して保存します。",
+    "OpenAI/Codex 授权": "OpenAI/Codex 認可",
     "账号地址/邮箱": "アカウントアドレス / メール",
     "用于区分账号资源，可填写邮箱或账号系统里的唯一地址。": "アカウントリソースを識別するため、メールまたはアカウントシステム内の一意なアドレスを入力します。",
     "账号授权地址": "認可 URL",
     "粘贴上游账号系统的授权地址；TokenHub 会带上本页回调地址。": "上流アカウントシステムの認可 URL を貼り付けます。TokenHub はこのページの callback URL を付与します。",
     "打开授权": "認可を開く",
+    "授权中": "認可中",
     "本页回调地址": "Callback URL",
     "授权应用跳回这个地址后，TokenHub 会自动读取 access_token / refresh_token / id_token。": "認可アプリがこの URL に戻ると、TokenHub は access_token / refresh_token / id_token を自動で読み取ります。",
+    "点击后由后端生成授权地址；授权完成会带 code 回到本页并自动换取 Token。": "クリックするとバックエンドが認可 URL を生成します。認可後、code がこのページに戻り、自動で Token に交換されます。",
     "复制回调地址": "Callback URL をコピー",
     "回调结果": "Callback 結果",
     "如果授权页没有自动跳回本页，把完整 callback URL 或 URL fragment 粘贴到这里。": "認可ページが自動で戻らない場合は、完全な callback URL または URL fragment をここに貼り付けます。",
@@ -1987,9 +2014,17 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "已回填刷新 Token": "Refresh Token 入力済み",
     "已回填 ID Token": "ID Token 入力済み",
     "打开授权页后，请在上游账号系统完成授权。": "認可ページを開いた後、上流アカウントシステムで認可を完了してください。",
+    "已打开 OpenAI/Codex 授权页，授权完成后会自动回填账号 Token。": "OpenAI/Codex 認可ページを開きました。認可後、アカウント Token が自動入力されます。",
     "请先填写账号授权地址。": "先に認可 URL を入力してください。",
     "账号授权地址格式不正确。": "認可 URL の形式が正しくありません。",
     "未在回调结果中识别到 Token。": "Callback 結果から Token を識別できませんでした。",
+    "账号授权失败": "アカウント認可に失敗しました",
+    "授权回调缺少会话信息，请重新打开授权。": "認可 callback にセッション情報がありません。認可を開き直してください。",
+    "正在换取账号 Token...": "アカウント Token を交換しています...",
+    "账号授权换取 Token": "アカウント認可 Token 交換",
+    "账号授权换取 Token 失败": "アカウント認可 Token 交換に失敗しました",
+    "生成账号授权地址": "アカウント認可 URL を生成",
+    "生成账号授权地址失败": "アカウント認可 URL の生成に失敗しました",
     "回调里只有授权 code，当前版本还需要返回 Token 的授权地址，或在高级选项中手动粘贴 Token。": "Callback には認可 code のみがあります。現バージョンでは Token を返す認可 URL、または詳細設定での手動 Token 入力が必要です。",
     "已从回调 URL 自动回填账号 Token。": "Callback URL からアカウント Token を自動入力しました。",
     "已从粘贴的回调结果回填账号 Token。": "貼り付けた callback 結果からアカウント Token を入力しました。",
@@ -2012,6 +2047,8 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "OpenAI 账号资源": "OpenAI アカウントリソース",
     "添加账号资源": "アカウントリソースを追加",
     "账号资源": "アカウントリソース",
+    "使用保存的 refresh token 更新账号访问 Token": "保存済み refresh token でアカウント Access Token を更新します。",
+    "Token 已刷新": "Token を更新しました",
     "账号类型": "アカウント種別",
     "认证方式": "認証方式",
     "访问 Token": "アクセストークン",
@@ -2712,6 +2749,9 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "钉钉机器人告警通知": "DingTalk ボットアラート通知",
     "企业微信机器人告警通知": "WeCom ボットアラート通知",
     "Slack Incoming Webhook 告警通知": "Slack Incoming Webhook アラート通知",
+    "Discord Webhook 告警通知": "Discord Webhook アラート通知",
+    "Telegram Bot 告警通知": "Telegram Bot アラート通知",
+    "WhatsApp Cloud API 告警通知": "WhatsApp Cloud API アラート通知",
     "SMTP 邮件告警通知": "SMTP メールアラート通知",
     "告警通知渠道": "アラート通知チャネル",
     "SMTP 已配置": "SMTP 設定済み",
@@ -2725,7 +2765,13 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "SMTP 用户名": "SMTP ユーザー名",
     "SMTP 密码": "SMTP パスワード",
     "收件人": "受信者",
+    "WhatsApp 收件人": "WhatsApp 受信者",
     "多个邮箱用逗号分隔。": "複数メールはカンマで区切ってください。",
+    "Bot Token 已配置": "Bot Token 設定済み",
+    "Bot Token 未配置": "Bot Token 未設定",
+    "Access Token 已配置": "Access Token 設定済み",
+    "Access Token 未配置": "Access Token 未設定",
+    "按 Webhook、Slack、Discord、Telegram、WhatsApp、飞书、钉钉、企业微信和邮件快速配置告警通知目标。": "Webhook、Slack、Discord、Telegram、WhatsApp、Feishu、DingTalk、WeCom、メールのアラート通知先をすばやく設定します。",
     "地址/目标": "アドレス / 対象",
     "凭证": "認証情報",
     "告警类型": "アラートタイプ",
@@ -13359,6 +13405,7 @@ function ProviderUpsertModal({
   );
   const [accountOAuthCallback, setAccountOAuthCallback] = useState("");
   const [accountOAuthStatus, setAccountOAuthStatus] = useState("");
+  const [accountOAuthBusy, setAccountOAuthBusy] = useState(false);
   const [createStep, setCreateStep] = useState(0);
   const createSteps = useMemo(() => providerCreateWizardSteps(), []);
   const lastCreateStep = createSteps.length - 1;
@@ -13509,7 +13556,7 @@ function ProviderUpsertModal({
     if (mode !== "create" || credentialMode !== "account_integration") return;
     const pending = consumePendingProviderAccountOAuthResult();
     if (!pending) return;
-    applyProviderAccountOAuthResult(pending, tx("已从回调 URL 自动回填账号 Token。"));
+    void applyProviderAccountOAuthResult(pending, tx("已从回调 URL 自动回填账号 Token。"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, credentialMode]);
 
@@ -13545,10 +13592,16 @@ function ProviderUpsertModal({
     setAccountValues((current) => ({ ...current, [key]: value }));
   }
 
-  function applyProviderAccountOAuthResult(result: ProviderAccountOAuthResult, message: string) {
+  async function applyProviderAccountOAuthResult(result: ProviderAccountOAuthResult, message: string) {
+    if (result.error) {
+      const errorMessage = `${tx("账号授权失败")}：${result.error}`;
+      setAccountOAuthStatus(errorMessage);
+      setError(errorMessage);
+      clearPendingProviderAccountOAuthSession();
+      return;
+    }
     if (result.authorization_code && !result.access_token && !result.refresh_token && !result.id_token) {
-      setAccountOAuthStatus(tx("回调里只有授权 code，当前版本还需要返回 Token 的授权地址，或在高级选项中手动粘贴 Token。"));
-      setError(tx("回调里只有授权 code，当前版本还需要返回 Token 的授权地址，或在高级选项中手动粘贴 Token。"));
+      await exchangeProviderAccountAuthorizationCode(result, message);
       return;
     }
     if (!result.access_token && !result.refresh_token && !result.id_token) {
@@ -13579,7 +13632,7 @@ function ProviderUpsertModal({
     setAccountOAuthCallback(raw);
     const result = parseProviderAccountOAuthResult(raw, true);
     if (!result) return;
-    applyProviderAccountOAuthResult(result, tx("已从粘贴的回调结果回填账号 Token。"));
+    void applyProviderAccountOAuthResult(result, tx("已从粘贴的回调结果回填账号 Token。"));
   }
 
   function parseAccountOAuthCallbackNow() {
@@ -13589,24 +13642,63 @@ function ProviderUpsertModal({
       setError(tx("未在回调结果中识别到 Token。"));
       return;
     }
-    applyProviderAccountOAuthResult(result, tx("已从粘贴的回调结果回填账号 Token。"));
+    void applyProviderAccountOAuthResult(result, tx("已从粘贴的回调结果回填账号 Token。"));
   }
 
-  function openProviderAccountAuthorization() {
-    const rawURL = accountValues.authorization_url?.trim() ?? "";
-    if (!rawURL) {
-      setAccountOAuthStatus(tx("请先填写账号授权地址。"));
-      setError(tx("请先填写账号授权地址。"));
+  async function exchangeProviderAccountAuthorizationCode(result: ProviderAccountOAuthResult, message: string) {
+    const pendingSession = readPendingProviderAccountOAuthSession();
+    const sessionID = result.session_id || pendingSession?.session_id || "";
+    const state = result.state || pendingSession?.state || "";
+    if (!sessionID || !state || !result.authorization_code) {
+      setAccountOAuthStatus(tx("授权回调缺少会话信息，请重新打开授权。"));
+      setError(tx("授权回调缺少会话信息，请重新打开授权。"));
       return;
     }
+    setAccountOAuthBusy(true);
+    setAccountOAuthStatus(tx("正在换取账号 Token..."));
     try {
-      const url = providerAccountAuthorizeURL(rawURL, accountCallbackURL);
-      window.open(url, "_blank", "noopener,noreferrer");
-      setAccountOAuthStatus(tx("打开授权页后，请在上游账号系统完成授权。"));
+      const resp = await adminFetch(api, "/api/admin/provider-account-oauth/openai/exchange-code", {
+        method: "POST",
+        body: JSON.stringify({
+          session_id: sessionID,
+          state,
+          code: result.authorization_code,
+        }),
+      });
+      if (!resp.ok) throw new Error(await readAdminError(resp, tx("账号授权换取 Token")));
+      const tokenInfo = (await resp.json()) as ProviderAccountOAuthResult;
+      clearPendingProviderAccountOAuthSession();
+      await applyProviderAccountOAuthResult(tokenInfo, message);
+    } catch (err) {
+      if (isAuthExpiredError(err)) return;
+      const errorMessage = err instanceof Error ? err.message : tx("账号授权换取 Token 失败");
+      setAccountOAuthStatus(errorMessage);
+      setError(errorMessage);
+    } finally {
+      setAccountOAuthBusy(false);
+    }
+  }
+
+  async function openProviderAccountAuthorization() {
+    try {
+      setAccountOAuthBusy(true);
+      const resp = await adminFetch(api, "/api/admin/provider-account-oauth/openai/generate-auth-url", {
+        method: "POST",
+        body: JSON.stringify({ return_url: accountCallbackURL }),
+      });
+      if (!resp.ok) throw new Error(await readAdminError(resp, tx("生成账号授权地址")));
+      const generated = (await resp.json()) as ProviderAccountOAuthGenerateResponse;
+      savePendingProviderAccountOAuthSession({ session_id: generated.session_id, state: generated.state });
+      window.open(generated.auth_url, "_blank", "noopener,noreferrer");
+      setAccountOAuthStatus(tx("已打开 OpenAI/Codex 授权页，授权完成后会自动回填账号 Token。"));
       setError("");
-    } catch {
-      setAccountOAuthStatus(tx("账号授权地址格式不正确。"));
-      setError(tx("账号授权地址格式不正确。"));
+    } catch (err) {
+      if (isAuthExpiredError(err)) return;
+      const errorMessage = err instanceof Error ? err.message : tx("生成账号授权地址失败");
+      setAccountOAuthStatus(errorMessage);
+      setError(errorMessage);
+    } finally {
+      setAccountOAuthBusy(false);
     }
   }
 
@@ -14001,7 +14093,7 @@ function ProviderUpsertModal({
                   <div className="provider-account-inline">
                     <div className="provider-account-inline-head">
                       <strong>{tx("账号授权")}</strong>
-                      <span>{tx("输入账号地址并打开授权页；授权完成后 TokenHub 会从回调 URL 自动回填 Token。")}</span>
+                      <span>{tx("使用 OpenAI/Codex OAuth 授权账号；TokenHub 会在后端换取并保存账号 Token。")}</span>
                     </div>
                     <div className="provider-account-auth-grid">
                       <label className="field">
@@ -14014,33 +14106,22 @@ function ProviderUpsertModal({
                         <small>{tx("用于区分账号资源，可填写邮箱或账号系统里的唯一地址。")}</small>
                       </label>
                       <label className="field provider-account-auth-wide">
-                        <span>{tx("账号授权地址")}</span>
-                        <div className="field-action-row">
-                          <input value={accountValues.authorization_url ?? ""} onChange={(event) => updateAccountValue("authorization_url", event.target.value)} placeholder="https://accounts.example.com/oauth/authorize" />
-                          <button className="secondary-button" onClick={openProviderAccountAuthorization} type="button">
-                            <Send size={14} />
-                            {tx("打开授权")}
-                          </button>
-                        </div>
-                        <small>{tx("粘贴上游账号系统的授权地址；TokenHub 会带上本页回调地址。")}</small>
-                      </label>
-                      <label className="field provider-account-auth-wide">
-                        <span>{tx("本页回调地址")}</span>
+                        <span>{tx("OpenAI/Codex 授权")}</span>
                         <div className="field-action-row">
                           <input readOnly value={accountCallbackURL} />
-                          <button className="secondary-button" onClick={copyProviderAccountCallbackURL} type="button">
-                            <Copy size={14} />
-                            {tx("复制回调地址")}
+                          <button className="secondary-button" onClick={openProviderAccountAuthorization} type="button" disabled={accountOAuthBusy}>
+                            <Send size={14} />
+                            {tx(accountOAuthBusy ? "授权中" : "打开授权")}
                           </button>
                         </div>
-                        <small>{tx("授权应用跳回这个地址后，TokenHub 会自动读取 access_token / refresh_token / id_token。")}</small>
+                        <small>{tx("点击后由后端生成授权地址；授权完成会带 code 回到本页并自动换取 Token。")}</small>
                       </label>
                       <label className="field provider-account-auth-wide">
                         <span>{tx("回调结果")}</span>
                         <textarea
                           value={accountOAuthCallback}
                           onChange={(event) => parseAccountOAuthCallback(event.target.value)}
-                          placeholder="http://localhost:3000/providers?provider_account_oauth=1#access_token=..."
+                          placeholder="http://localhost:3000/providers?provider_account_oauth=1&code=..."
                         />
                         <small>{tx("如果授权页没有自动跳回本页，把完整 callback URL 或 URL fragment 粘贴到这里。")}</small>
                       </label>
@@ -14048,6 +14129,10 @@ function ProviderUpsertModal({
                         <button className="secondary-button" onClick={parseAccountOAuthCallbackNow} type="button">
                           <Check size={14} />
                           {tx("解析回填")}
+                        </button>
+                        <button className="secondary-button" onClick={copyProviderAccountCallbackURL} type="button">
+                          <Copy size={14} />
+                          {tx("复制回调地址")}
                         </button>
                         <div className={accountTokenSummary.ready ? "provider-account-token-status ready" : "provider-account-token-status"}>
                           {accountTokenSummary.ready ? <Check size={15} /> : <AlertCircle size={15} />}
@@ -15046,8 +15131,15 @@ function sqliteBackupConfig(): ResourceConfig<SQLiteBackup> {
 function notificationChannelConfig(): ResourceConfig<AdminResource> {
   const fields: FieldConfig[] = [
     { key: "type", label: "渠道类型", type: "select", options: notificationChannelTypes, required: true },
-    { key: "webhook_url", label: "Webhook URL", required: true, visible: notificationChannelUsesWebhook },
-    { key: "secret", label: "签名密钥", type: "password", help: "可选预留。当前按普通机器人 Webhook 发送，留空不影响通知。", visible: notificationChannelUsesWebhook },
+    { key: "webhook_url", label: "Webhook URL", required: true, visible: notificationChannelUsesIncomingWebhook },
+    { key: "secret", label: "签名密钥", type: "password", help: "可选预留。当前按普通机器人 Webhook 发送，留空不影响通知。", visible: notificationChannelUsesIncomingWebhook },
+    { key: "telegram_bot_token", label: "Telegram Bot Token", type: "password", required: true, help: "编辑时留空表示不修改。", visible: notificationChannelUsesTelegram },
+    { key: "telegram_chat_id", label: "Telegram Chat ID", required: true, visible: notificationChannelUsesTelegram },
+    { key: "telegram_thread_id", label: "Telegram Topic ID", visible: notificationChannelUsesTelegram },
+    { key: "whatsapp_phone_number_id", label: "WhatsApp Phone Number ID", required: true, visible: notificationChannelUsesWhatsApp },
+    { key: "whatsapp_to", label: "WhatsApp 收件人", required: true, visible: notificationChannelUsesWhatsApp },
+    { key: "access_token", label: "Access Token", type: "password", required: true, help: "编辑时留空表示不修改。", visible: notificationChannelUsesWhatsApp },
+    { key: "whatsapp_api_version", label: "WhatsApp API Version", visible: notificationChannelUsesWhatsApp },
     { key: "smtp_host", label: "SMTP Host", required: true, visible: notificationChannelUsesEmail },
     { key: "smtp_port", label: "SMTP 端口", type: "number", required: true, visible: notificationChannelUsesEmail },
     { key: "smtp_username", label: "SMTP 用户名", visible: notificationChannelUsesEmail },
@@ -15058,7 +15150,7 @@ function notificationChannelConfig(): ResourceConfig<AdminResource> {
   const config = genericResourceConfig(
     "notification-channels",
     "通知渠道",
-    "按 Webhook、飞书、钉钉、企业微信、Slack 和邮件快速配置告警通知目标。",
+    "按 Webhook、Slack、Discord、Telegram、WhatsApp、飞书、钉钉、企业微信和邮件快速配置告警通知目标。",
     fields,
   );
   return {
@@ -15082,6 +15174,13 @@ function notificationChannelConfig(): ResourceConfig<AdminResource> {
       type: notificationChannelType(item),
       webhook_url: stringifyValue(item.fields?.webhook_url),
       secret: "",
+      telegram_bot_token: "",
+      telegram_chat_id: stringifyValue(item.fields?.telegram_chat_id || item.fields?.chat_id),
+      telegram_thread_id: stringifyValue(item.fields?.telegram_thread_id || item.fields?.message_thread_id),
+      whatsapp_phone_number_id: stringifyValue(item.fields?.whatsapp_phone_number_id || item.fields?.phone_number_id),
+      whatsapp_to: stringifyValue(item.fields?.whatsapp_to || item.fields?.recipient || item.fields?.to),
+      access_token: "",
+      whatsapp_api_version: stringifyValue(item.fields?.whatsapp_api_version || item.fields?.api_version || "v20.0"),
       smtp_host: stringifyValue(item.fields?.smtp_host),
       smtp_port: stringifyValue(item.fields?.smtp_port),
       smtp_username: stringifyValue(item.fields?.smtp_username),
@@ -15245,6 +15344,15 @@ function providerResourceConfig(provider?: Provider): ResourceConfig<ProviderRes
     create: (ctx, values) => adminMutate(ctx, "/api/admin/provider-resources", "POST", providerResourcePayload(values)),
     update: (ctx, item, values) => adminMutate(ctx, `/api/admin/provider-resources/${item.id}`, "PATCH", providerResourceUpdatePayload(values)),
     remove: (ctx, item) => adminDelete(ctx, `/api/admin/provider-resources/${item.id}`),
+    actions: [
+      {
+        label: "刷新 Token",
+        title: "使用保存的 refresh token 更新账号访问 Token",
+        visible: (item) => item.resource_type === "openai_subscription" && item.credential_summary?.has_refresh_token === "true",
+        run: (ctx, item) => adminMutate(ctx, `/api/admin/provider-resources/${item.id}/refresh-token`, "POST", {}),
+        doneMessage: (item) => `${item.name} ${tx("Token 已刷新")}`,
+      },
+    ],
     toForm: providerResourceToForm,
   };
 }
@@ -16664,21 +16772,41 @@ function notificationChannelPayload(values: Record<string, string>, existing?: A
   const type = normalizeNotificationChannelType(values.type);
   const secret = values.secret || stringifyValue(existing?.fields?.secret);
   const smtpPassword = values.smtp_password || stringifyValue(existing?.fields?.smtp_password);
-  const fields = type === "email"
-    ? {
-        type,
-        smtp_host: values.smtp_host,
-        smtp_port: numberOr(values.smtp_port, 587),
-        smtp_username: values.smtp_username,
-        smtp_password: smtpPassword,
-        smtp_from: values.smtp_from,
-        email_to: values.email_to,
-      }
-    : {
-        type,
-        webhook_url: values.webhook_url,
-        secret,
-      };
+  const telegramBotToken = values.telegram_bot_token || stringifyValue(existing?.fields?.telegram_bot_token || existing?.fields?.bot_token || existing?.fields?.secret);
+  const whatsappAccessToken = values.access_token || stringifyValue(existing?.fields?.access_token || existing?.fields?.whatsapp_access_token || existing?.fields?.secret);
+  let fields: Record<string, unknown>;
+  if (type === "email") {
+    fields = {
+      type,
+      smtp_host: values.smtp_host,
+      smtp_port: numberOr(values.smtp_port, 587),
+      smtp_username: values.smtp_username,
+      smtp_password: smtpPassword,
+      smtp_from: values.smtp_from,
+      email_to: values.email_to,
+    };
+  } else if (type === "telegram") {
+    fields = {
+      type,
+      telegram_bot_token: telegramBotToken,
+      telegram_chat_id: values.telegram_chat_id,
+      telegram_thread_id: values.telegram_thread_id,
+    };
+  } else if (type === "whatsapp") {
+    fields = {
+      type,
+      whatsapp_phone_number_id: values.whatsapp_phone_number_id,
+      whatsapp_to: values.whatsapp_to,
+      access_token: whatsappAccessToken,
+      whatsapp_api_version: values.whatsapp_api_version || "v20.0",
+    };
+  } else {
+    fields = {
+      type,
+      webhook_url: values.webhook_url,
+      secret,
+    };
+  }
   return {
     name: values.name || `${notificationChannelLabel(type)} 通知渠道`,
     description: values.description || notificationChannelDescription(type),
@@ -16696,6 +16824,13 @@ function notificationChannelDefaults(type: string) {
     type: normalized,
     webhook_url: notificationChannelURLPlaceholder(normalized),
     secret: "",
+    telegram_bot_token: "",
+    telegram_chat_id: "",
+    telegram_thread_id: "",
+    whatsapp_phone_number_id: "",
+    whatsapp_to: "",
+    access_token: "",
+    whatsapp_api_version: "v20.0",
     smtp_host: "smtp.example.com",
     smtp_port: "587",
     smtp_username: "tokenhub@example.com",
@@ -17150,18 +17285,28 @@ function notificationChannelFormType(values: Record<string, string>) {
   return normalizeNotificationChannelType(values.type);
 }
 
-function notificationChannelUsesWebhook(values: Record<string, string>) {
-  return notificationChannelFormType(values) !== "email";
+function notificationChannelUsesIncomingWebhook(values: Record<string, string>) {
+  return !["email", "telegram", "whatsapp"].includes(notificationChannelFormType(values));
 }
 
 function notificationChannelUsesEmail(values: Record<string, string>) {
   return notificationChannelFormType(values) === "email";
 }
 
+function notificationChannelUsesTelegram(values: Record<string, string>) {
+  return notificationChannelFormType(values) === "telegram";
+}
+
+function notificationChannelUsesWhatsApp(values: Record<string, string>) {
+  return notificationChannelFormType(values) === "whatsapp";
+}
+
 function normalizeNotificationChannelType(type: string) {
   const normalized = type.trim().toLowerCase();
   if (normalized === "dingding" || normalized === "ding_talk") return "dingtalk";
   if (normalized === "wechat_work" || normalized === "weixin_work" || normalized === "enterprise_wechat") return "wecom";
+  if (normalized === "tg") return "telegram";
+  if (["whatsapp_cloud", "whatsapp_business", "wa"].includes(normalized)) return "whatsapp";
   if (notificationChannelTypes.includes(normalized)) return normalized;
   return "webhook";
 }
@@ -17173,6 +17318,9 @@ function notificationChannelLabel(type: string) {
     dingtalk: "钉钉",
     wecom: "企业微信",
     slack: "Slack",
+    discord: "Discord",
+    telegram: "Telegram",
+    whatsapp: "WhatsApp",
     email: "邮件",
   };
   return tx(labels[normalizeNotificationChannelType(type)] ?? type);
@@ -17185,6 +17333,9 @@ function notificationChannelDescription(type: string) {
     dingtalk: "钉钉机器人告警通知",
     wecom: "企业微信机器人告警通知",
     slack: "Slack Incoming Webhook 告警通知",
+    discord: "Discord Webhook 告警通知",
+    telegram: "Telegram Bot 告警通知",
+    whatsapp: "WhatsApp Cloud API 告警通知",
     email: "SMTP 邮件告警通知",
   };
   return descriptions[normalizeNotificationChannelType(type)] ?? "告警通知渠道";
@@ -17197,20 +17348,37 @@ function notificationChannelURLPlaceholder(type: string) {
     dingtalk: "https://oapi.dingtalk.com/robot/send?access_token=xxxxxxxx",
     wecom: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
     slack: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
+    discord: "https://discord.com/api/webhooks/000000000000000000/XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    telegram: "Telegram Bot Token + Chat ID",
+    whatsapp: "WhatsApp Phone Number ID + Access Token",
   };
   return urls[normalizeNotificationChannelType(type)] ?? urls.webhook;
 }
 
 function notificationChannelTargetSummary(item: AdminResource) {
-  if (notificationChannelType(item) === "email") {
+  const type = notificationChannelType(item);
+  if (type === "email") {
     return compactList(item.fields?.email_to);
+  }
+  if (type === "telegram") {
+    return stringifyValue(item.fields?.telegram_chat_id || item.fields?.chat_id || item.fields?.recipient || item.fields?.to) || "-";
+  }
+  if (type === "whatsapp") {
+    return stringifyValue(item.fields?.whatsapp_to || item.fields?.recipient || item.fields?.to) || "-";
   }
   return maskWebhookURL(stringifyValue(item.fields?.webhook_url));
 }
 
 function notificationCredentialSummary(item: AdminResource) {
-  if (notificationChannelType(item) === "email") {
+  const type = notificationChannelType(item);
+  if (type === "email") {
     return stringifyValue(item.fields?.smtp_password) ? "SMTP 已配置" : "SMTP 未配置";
+  }
+  if (type === "telegram") {
+    return stringifyValue(item.fields?.telegram_bot_token || item.fields?.bot_token || item.fields?.secret) ? "Bot Token 已配置" : "Bot Token 未配置";
+  }
+  if (type === "whatsapp") {
+    return stringifyValue(item.fields?.access_token || item.fields?.whatsapp_access_token || item.fields?.secret) ? "Access Token 已配置" : "Access Token 未配置";
   }
   return stringifyValue(item.fields?.secret) ? "已配置" : "未配置";
 }
@@ -18128,6 +18296,9 @@ function enumValueLabel(value: string | undefined) {
     dingtalk: "钉钉",
     wecom: "企业微信",
     slack: "Slack",
+    discord: "Discord",
+    telegram: "Telegram",
+    whatsapp: "WhatsApp",
     email: "邮件",
     requests: "请求日志",
     usage: "用量归因",
@@ -18211,6 +18382,13 @@ function fieldKeyLabel(key: string) {
     smtp_password: "SMTP 密码",
     smtp_from: "发件人",
     email_to: "收件人",
+    telegram_bot_token: "Telegram Bot Token",
+    telegram_chat_id: "Telegram Chat ID",
+    telegram_thread_id: "Telegram Topic ID",
+    whatsapp_phone_number_id: "WhatsApp Phone Number ID",
+    whatsapp_to: "WhatsApp 收件人",
+    access_token: "Access Token",
+    whatsapp_api_version: "WhatsApp API Version",
   };
   return tx(labels[key] ?? key);
 }
@@ -18829,6 +19007,8 @@ type ProviderAccountOAuthResult = {
   access_token?: string;
   refresh_token?: string;
   id_token?: string;
+  session_id?: string;
+  state?: string;
   account_email?: string;
   account_id?: string;
   organization_id?: string;
@@ -18837,6 +19017,15 @@ type ProviderAccountOAuthResult = {
   expires_at?: string;
   scopes?: string;
   authorization_code?: string;
+  error?: string;
+};
+
+type ProviderAccountOAuthGenerateResponse = {
+  auth_url: string;
+  session_id: string;
+  state: string;
+  redirect_uri: string;
+  expires_at: string;
 };
 
 function readOAuthLoginResult(): OAuthLoginResult | null {
@@ -18859,6 +19048,7 @@ function readOAuthLoginResult(): OAuthLoginResult | null {
 }
 
 const providerAccountOAuthStorageKey = "tokenhub_provider_account_oauth_result";
+const providerAccountOAuthSessionStorageKey = "tokenhub_provider_account_oauth_session";
 
 function providerAccountOAuthCallbackURL() {
   if (typeof window === "undefined") return "";
@@ -18866,17 +19056,6 @@ function providerAccountOAuthCallbackURL() {
   url.hash = "";
   url.search = "";
   url.searchParams.set("provider_account_oauth", "1");
-  return url.toString();
-}
-
-function providerAccountAuthorizeURL(rawURL: string, callbackURL: string) {
-  const url = new URL(rawURL.trim());
-  if (callbackURL && !url.searchParams.has("redirect_uri")) {
-    url.searchParams.set("redirect_uri", callbackURL);
-  }
-  if (!url.searchParams.has("state")) {
-    url.searchParams.set("state", "tokenhub_provider_account");
-  }
   return url.toString();
 }
 
@@ -18902,6 +19081,9 @@ function parseProviderAccountOAuthResult(source: string, allowGenericTokenNames 
     result.access_token = firstParam(params, marked ? ["account_access_token", "provider_access_token", "access_token", "token"] : ["account_access_token", "provider_access_token"]);
     result.refresh_token = firstParam(params, marked ? ["account_refresh_token", "refresh_token"] : ["account_refresh_token"]);
     result.id_token = firstParam(params, marked ? ["account_id_token", "id_token"] : ["account_id_token"]);
+    result.session_id = firstParam(params, ["provider_account_oauth_session_id", "account_oauth_session_id", "session_id"]);
+    result.state = firstParam(params, ["provider_account_oauth_state", "account_oauth_state", "state"]);
+    result.error = firstParam(params, ["provider_account_oauth_error", "oauth_error", "error"]);
     result.account_email = firstParam(params, ["account_email", "email", "login", "username"]);
     result.account_id = firstParam(params, ["account_id", "sub", "user_id"]);
     result.organization_id = firstParam(params, ["organization_id", "org_id"]);
@@ -18910,6 +19092,7 @@ function parseProviderAccountOAuthResult(source: string, allowGenericTokenNames 
     result.expires_at = firstParam(params, ["expires_at", "token_expires_at"]);
     result.scopes = firstParam(params, ["scope", "scopes"]);
     result.authorization_code = firstParam(params, ["code", "authorization_code"]);
+    if (result.error) return result;
     if (result.access_token || result.refresh_token || result.id_token) return result;
     if (result.authorization_code) return result;
   }
@@ -18943,6 +19126,14 @@ function clearProviderAccountOAuthResultFromLocation() {
   for (const key of [
     "provider_account_oauth",
     "tokenhub_provider_account",
+    "provider_account_oauth_session_id",
+    "account_oauth_session_id",
+    "session_id",
+    "provider_account_oauth_state",
+    "account_oauth_state",
+    "provider_account_oauth_error",
+    "oauth_error",
+    "error",
     "account_access_token",
     "provider_access_token",
     "account_refresh_token",
@@ -18972,6 +19163,14 @@ function clearProviderAccountOAuthResultFromLocation() {
     for (const key of [
       "provider_account_oauth",
       "tokenhub_provider_account",
+      "provider_account_oauth_session_id",
+      "account_oauth_session_id",
+      "session_id",
+      "provider_account_oauth_state",
+      "account_oauth_state",
+      "provider_account_oauth_error",
+      "oauth_error",
+      "error",
       "access_token",
       "refresh_token",
       "id_token",
@@ -19011,6 +19210,27 @@ function clearProviderAccountOAuthResultFromLocation() {
 function savePendingProviderAccountOAuthResult(result: ProviderAccountOAuthResult) {
   if (typeof window === "undefined") return;
   window.sessionStorage.setItem(providerAccountOAuthStorageKey, JSON.stringify(result));
+}
+
+function savePendingProviderAccountOAuthSession(result: Pick<ProviderAccountOAuthResult, "session_id" | "state">) {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(providerAccountOAuthSessionStorageKey, JSON.stringify(result));
+}
+
+function readPendingProviderAccountOAuthSession() {
+  if (typeof window === "undefined") return null;
+  const raw = window.sessionStorage.getItem(providerAccountOAuthSessionStorageKey);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as Pick<ProviderAccountOAuthResult, "session_id" | "state">;
+  } catch {
+    return null;
+  }
+}
+
+function clearPendingProviderAccountOAuthSession() {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem(providerAccountOAuthSessionStorageKey);
 }
 
 function hasPendingProviderAccountOAuthResult() {
@@ -19066,7 +19286,14 @@ function isOAuthAuthorizationResponse() {
   return Boolean(params.get("state") && (params.get("code") || params.get("error")));
 }
 
+function isProviderAccountOAuthAuthorizationResponse() {
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search.replace(/^\?/, ""));
+  return params.get("provider_account_oauth") === "1" || params.has("provider_account_oauth_session_id");
+}
+
 function forwardOAuthAuthorizationResponse(baseURL: string) {
+  if (isProviderAccountOAuthAuthorizationResponse()) return false;
   if (typeof window === "undefined" || !isOAuthAuthorizationResponse()) return false;
   const target = new URL(`${baseURL.replace(/\/$/, "")}/api/admin/auth/oauth/callback`);
   target.search = window.location.search;

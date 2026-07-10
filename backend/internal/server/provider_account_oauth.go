@@ -1,0 +1,496 @@
+package server
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	openAIAccountOAuthClientID     = "app_EMoamEEZ73f0CkXaXp7hrann"
+	openAIAccountOAuthAuthorize    = "https://auth.openai.com/oauth/authorize"
+	openAIAccountOAuthTokenURL     = "https://auth.openai.com/oauth/token"
+	openAIAccountOAuthScopes       = "openid profile email offline_access"
+	openAIAccountOAuthRefreshScope = "openid profile email"
+	openAIAccountOAuthSessionTTL   = 30 * time.Minute
+	openAIAccountOAuthRefreshLead  = 5 * time.Minute
+)
+
+var openAIAccountOAuthTokenEndpoint = openAIAccountOAuthTokenURL
+
+type providerAccountOAuthSession struct {
+	ID           string
+	State        string
+	CodeVerifier string
+	ClientID     string
+	RedirectURI  string
+	ReturnURL    string
+	CreatedAt    time.Time
+}
+
+type providerAccountOAuthSessionStore struct {
+	mu       sync.RWMutex
+	sessions map[string]providerAccountOAuthSession
+}
+
+func newProviderAccountOAuthSessionStore() *providerAccountOAuthSessionStore {
+	return &providerAccountOAuthSessionStore{sessions: map[string]providerAccountOAuthSession{}}
+}
+
+func (s *providerAccountOAuthSessionStore) Set(session providerAccountOAuthSession) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessions[session.ID] = session
+}
+
+func (s *providerAccountOAuthSessionStore) Get(id string) (providerAccountOAuthSession, bool) {
+	s.mu.RLock()
+	session, ok := s.sessions[strings.TrimSpace(id)]
+	s.mu.RUnlock()
+	if !ok || providerAccountOAuthSessionExpired(session) {
+		if ok {
+			s.Delete(id)
+		}
+		return providerAccountOAuthSession{}, false
+	}
+	return session, true
+}
+
+func (s *providerAccountOAuthSessionStore) GetByState(state string) (providerAccountOAuthSession, bool) {
+	state = strings.TrimSpace(state)
+	if state == "" {
+		return providerAccountOAuthSession{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, session := range s.sessions {
+		if subtle.ConstantTimeCompare([]byte(session.State), []byte(state)) == 1 && !providerAccountOAuthSessionExpired(session) {
+			return session, true
+		}
+	}
+	return providerAccountOAuthSession{}, false
+}
+
+func (s *providerAccountOAuthSessionStore) Delete(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.sessions, strings.TrimSpace(id))
+}
+
+func providerAccountOAuthSessionExpired(session providerAccountOAuthSession) bool {
+	return session.CreatedAt.IsZero() || time.Since(session.CreatedAt) > openAIAccountOAuthSessionTTL
+}
+
+type providerAccountOAuthGenerateRequest struct {
+	RedirectURI string `json:"redirect_uri"`
+	ReturnURL   string `json:"return_url"`
+}
+
+type providerAccountOAuthGenerateResponse struct {
+	AuthURL     string `json:"auth_url"`
+	SessionID   string `json:"session_id"`
+	State       string `json:"state"`
+	RedirectURI string `json:"redirect_uri"`
+	ExpiresAt   string `json:"expires_at"`
+}
+
+type providerAccountOAuthExchangeRequest struct {
+	SessionID   string `json:"session_id"`
+	Code        string `json:"code"`
+	State       string `json:"state"`
+	RedirectURI string `json:"redirect_uri"`
+}
+
+type providerAccountOAuthTokenInfo struct {
+	AccessToken    string `json:"access_token,omitempty"`
+	RefreshToken   string `json:"refresh_token,omitempty"`
+	IDToken        string `json:"id_token,omitempty"`
+	ClientID       string `json:"client_id,omitempty"`
+	Scopes         string `json:"scopes,omitempty"`
+	TokenType      string `json:"token_type,omitempty"`
+	ExpiresIn      int64  `json:"expires_in,omitempty"`
+	ExpiresAt      string `json:"expires_at,omitempty"`
+	AccountEmail   string `json:"account_email,omitempty"`
+	AccountID      string `json:"account_id,omitempty"`
+	UserID         string `json:"user_id,omitempty"`
+	OrganizationID string `json:"organization_id,omitempty"`
+	PlanType       string `json:"plan_type,omitempty"`
+}
+
+func (s *Server) handleAdminOpenAIAccountOAuthGenerateAuthURL(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requireAdmin(w, r, "provider", r.Method)
+	if !ok {
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
+		return
+	}
+	var req providerAccountOAuthGenerateRequest
+	if err := decodeJSON(r, &req); err != nil && err != io.EOF {
+		writeError(w, r, NewHTTPError(400, "invalid_request", err.Error()))
+		return
+	}
+	redirectURI := strings.TrimSpace(req.RedirectURI)
+	if redirectURI == "" {
+		redirectURI = providerAccountOAuthCallbackURL(r)
+	}
+	if err := validateAbsoluteHTTPURL(redirectURI, "invalid_redirect_uri", "OAuth callback URL must be an absolute http or https URL"); err != nil {
+		writeError(w, r, err)
+		return
+	}
+	returnURL := safeOAuthReturnURL(req.ReturnURL, r)
+	state, err := randomHex(32)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	codeVerifier, err := openAICodeVerifier()
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	sessionID, err := randomHex(16)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	expiresAt := time.Now().UTC().Add(openAIAccountOAuthSessionTTL)
+	session := providerAccountOAuthSession{
+		ID:           sessionID,
+		State:        state,
+		CodeVerifier: codeVerifier,
+		ClientID:     openAIAccountOAuthClientID,
+		RedirectURI:  redirectURI,
+		ReturnURL:    returnURL,
+		CreatedAt:    time.Now().UTC(),
+	}
+	s.providerAccountOAuthFlow.Set(session)
+	authURL, err := buildOpenAIAccountOAuthAuthorizeURL(state, openAICodeChallenge(codeVerifier), redirectURI)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	s.recordAdminAudit(r, user, "generate_oauth_url", "provider_account", "openai", "", map[string]any{"redirect_uri": redirectURI})
+	writeJSON(w, http.StatusOK, providerAccountOAuthGenerateResponse{
+		AuthURL:     authURL,
+		SessionID:   sessionID,
+		State:       state,
+		RedirectURI: redirectURI,
+		ExpiresAt:   expiresAt.Format(time.RFC3339),
+	})
+}
+
+func (s *Server) handleOpenAIAccountOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
+		return
+	}
+	state := strings.TrimSpace(r.URL.Query().Get("state"))
+	session, ok := s.providerAccountOAuthFlow.GetByState(state)
+	if !ok {
+		writeError(w, r, NewHTTPError(400, "invalid_oauth_state", "OAuth state is invalid or expired"))
+		return
+	}
+	if providerError := strings.TrimSpace(r.URL.Query().Get("error")); providerError != "" {
+		http.Redirect(w, r, providerAccountOAuthRedirectWithError(session.ReturnURL, "provider_error"), http.StatusFound)
+		return
+	}
+	code := strings.TrimSpace(r.URL.Query().Get("code"))
+	if code == "" {
+		http.Redirect(w, r, providerAccountOAuthRedirectWithError(session.ReturnURL, "missing_code"), http.StatusFound)
+		return
+	}
+	target, err := url.Parse(session.ReturnURL)
+	if err != nil {
+		writeError(w, r, NewHTTPError(400, "invalid_return_url", "OAuth return URL is invalid"))
+		return
+	}
+	values := target.Query()
+	values.Set("provider_account_oauth", "1")
+	values.Set("provider_account_oauth_session_id", session.ID)
+	values.Set("provider_account_oauth_state", session.State)
+	values.Set("code", code)
+	target.RawQuery = values.Encode()
+	http.Redirect(w, r, target.String(), http.StatusFound)
+}
+
+func (s *Server) handleAdminOpenAIAccountOAuthExchangeCode(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requireAdmin(w, r, "provider", r.Method)
+	if !ok {
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
+		return
+	}
+	var req providerAccountOAuthExchangeRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, r, NewHTTPError(400, "invalid_request", err.Error()))
+		return
+	}
+	session, ok := s.providerAccountOAuthFlow.Get(req.SessionID)
+	if !ok {
+		writeError(w, r, NewHTTPError(400, "oauth_session_not_found", "OAuth session was not found or has expired"))
+		return
+	}
+	if strings.TrimSpace(req.State) == "" || subtle.ConstantTimeCompare([]byte(req.State), []byte(session.State)) != 1 {
+		writeError(w, r, NewHTTPError(400, "invalid_oauth_state", "OAuth state is invalid or expired"))
+		return
+	}
+	code := strings.TrimSpace(req.Code)
+	if code == "" {
+		writeError(w, r, NewHTTPError(400, "missing_oauth_code", "OAuth authorization code is required"))
+		return
+	}
+	redirectURI := session.RedirectURI
+	if strings.TrimSpace(req.RedirectURI) != "" {
+		redirectURI = strings.TrimSpace(req.RedirectURI)
+	}
+	token, err := exchangeOpenAIAccountOAuthCode(r.Context(), code, session.CodeVerifier, redirectURI, session.ClientID)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	s.providerAccountOAuthFlow.Delete(session.ID)
+	info := openAIAccountOAuthTokenInfoFromResponse(token, session.ClientID, ProviderResourceCredentials{})
+	s.recordAdminAudit(r, user, "exchange_oauth_code", "provider_account", "openai", "", providerAccountCredentialSummary(info.ToCredentials()))
+	writeJSON(w, http.StatusOK, info)
+}
+
+func (s *Server) prepareRouteForUpstream(ctx context.Context, route RouteSelection) (RouteSelection, error) {
+	if route.Resource == nil || !isOpenAIAccountResource(route.Resource.ResourceType) {
+		return route, nil
+	}
+	creds, err := s.store.RefreshProviderResourceCredentials(ctx, routeResourceID(route), false)
+	if err != nil {
+		return route, err
+	}
+	if strings.TrimSpace(creds.AccessToken) != "" {
+		route.Provider.APIKey = creds.AccessToken
+	}
+	if route.Provider.Options == nil {
+		route.Provider.Options = map[string]string{}
+	}
+	applyOpenAIAccountOptions(route.Provider.Options, creds)
+	return route, nil
+}
+
+func buildOpenAIAccountOAuthAuthorizeURL(state, codeChallenge, redirectURI string) (string, error) {
+	if err := validateAbsoluteHTTPURL(redirectURI, "invalid_redirect_uri", "OAuth callback URL must be an absolute http or https URL"); err != nil {
+		return "", err
+	}
+	target, err := url.Parse(openAIAccountOAuthAuthorize)
+	if err != nil {
+		return "", err
+	}
+	query := target.Query()
+	query.Set("response_type", "code")
+	query.Set("client_id", openAIAccountOAuthClientID)
+	query.Set("redirect_uri", redirectURI)
+	query.Set("scope", openAIAccountOAuthScopes)
+	query.Set("state", state)
+	query.Set("code_challenge", codeChallenge)
+	query.Set("code_challenge_method", "S256")
+	query.Set("id_token_add_organizations", "true")
+	query.Set("codex_cli_simplified_flow", "true")
+	target.RawQuery = query.Encode()
+	return target.String(), nil
+}
+
+func exchangeOpenAIAccountOAuthCode(ctx context.Context, code, codeVerifier, redirectURI, clientID string) (oauthTokenResponse, error) {
+	clientID = firstNonEmpty(clientID, openAIAccountOAuthClientID)
+	form := url.Values{}
+	form.Set("grant_type", "authorization_code")
+	form.Set("client_id", clientID)
+	form.Set("code", strings.TrimSpace(code))
+	form.Set("redirect_uri", strings.TrimSpace(redirectURI))
+	form.Set("code_verifier", strings.TrimSpace(codeVerifier))
+	token, err := requestOpenAIAccountOAuthToken(ctx, form)
+	if err != nil {
+		return oauthTokenResponse{}, err
+	}
+	if strings.TrimSpace(token.AccessToken) == "" {
+		return oauthTokenResponse{}, NewHTTPError(502, "oauth_token_missing", "OAuth token endpoint did not return an access token")
+	}
+	return token, nil
+}
+
+func refreshOpenAIAccountOAuthCredentials(ctx context.Context, current ProviderResourceCredentials) (ProviderResourceCredentials, error) {
+	refreshToken := strings.TrimSpace(current.RefreshToken)
+	if refreshToken == "" {
+		return current, NewHTTPError(400, "provider_resource_refresh_token_missing", "Provider resource does not have a refresh token")
+	}
+	clientID := firstNonEmpty(current.ClientID, openAIAccountOAuthClientID)
+	form := url.Values{}
+	form.Set("grant_type", "refresh_token")
+	form.Set("refresh_token", refreshToken)
+	form.Set("client_id", clientID)
+	form.Set("scope", openAIAccountOAuthRefreshScope)
+	token, err := requestOpenAIAccountOAuthToken(ctx, form)
+	if err != nil {
+		return current, err
+	}
+	if strings.TrimSpace(token.AccessToken) == "" {
+		return current, NewHTTPError(502, "oauth_token_missing", "OAuth token endpoint did not return an access token")
+	}
+	info := openAIAccountOAuthTokenInfoFromResponse(token, clientID, current)
+	creds := info.ToCredentials()
+	if strings.TrimSpace(creds.RefreshToken) == "" {
+		creds.RefreshToken = current.RefreshToken
+	}
+	return creds, nil
+}
+
+func requestOpenAIAccountOAuthToken(ctx context.Context, form url.Values) (oauthTokenResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, openAIAccountOAuthTokenEndpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return oauthTokenResponse{}, err
+	}
+	req.Header.Set("accept", "application/json")
+	req.Header.Set("content-type", "application/x-www-form-urlencoded")
+	req.Header.Set("user-agent", "codex-cli/0.91.0")
+	resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
+	if err != nil {
+		return oauthTokenResponse{}, NewHTTPError(502, "oauth_token_failed", fmt.Sprintf("OAuth token request failed: %v", err))
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		detail := sanitizeOAuthErrorDetail(body)
+		if detail != "" {
+			return oauthTokenResponse{}, NewHTTPError(502, "oauth_token_failed", fmt.Sprintf("OAuth token endpoint returned %d: %s", resp.StatusCode, detail))
+		}
+		return oauthTokenResponse{}, NewHTTPError(502, "oauth_token_failed", fmt.Sprintf("OAuth token endpoint returned %d", resp.StatusCode))
+	}
+	var token oauthTokenResponse
+	if err := json.Unmarshal(body, &token); err != nil {
+		return oauthTokenResponse{}, err
+	}
+	return token, nil
+}
+
+func openAIAccountOAuthTokenInfoFromResponse(token oauthTokenResponse, clientID string, current ProviderResourceCredentials) providerAccountOAuthTokenInfo {
+	expiresAt := current.ExpiresAt
+	if token.ExpiresIn > 0 {
+		expiresAt = time.Now().UTC().Add(time.Duration(token.ExpiresIn) * time.Second).Format(time.RFC3339)
+	}
+	info := providerAccountOAuthTokenInfo{
+		AccessToken:    firstNonEmpty(token.AccessToken, current.AccessToken),
+		RefreshToken:   firstNonEmpty(token.RefreshToken, current.RefreshToken),
+		IDToken:        firstNonEmpty(token.IDToken, current.IDToken),
+		ClientID:       firstNonEmpty(clientID, current.ClientID, openAIAccountOAuthClientID),
+		Scopes:         firstNonEmpty(token.Scope, current.Scopes, openAIAccountOAuthScopes),
+		TokenType:      firstNonEmpty(token.TokenType, current.TokenType, "Bearer"),
+		ExpiresIn:      token.ExpiresIn,
+		ExpiresAt:      expiresAt,
+		AccountEmail:   current.Email,
+		AccountID:      current.AccountID,
+		UserID:         current.UserID,
+		OrganizationID: current.OrganizationID,
+		PlanType:       current.PlanType,
+	}
+	if claims := decodeOpenAIIDTokenClaims(info.IDToken); claims != nil {
+		info.AccountEmail = firstNonEmpty(claims.Email, info.AccountEmail)
+		if claims.OpenAIAuth != nil {
+			info.AccountID = firstNonEmpty(claims.OpenAIAuth.ChatGPTAccountID, info.AccountID)
+			info.UserID = firstNonEmpty(claims.OpenAIAuth.UserID, claims.OpenAIAuth.ChatGPTUserID, info.UserID)
+			info.OrganizationID = firstNonEmpty(defaultOpenAIOrganizationID(claims.OpenAIAuth.Organizations), info.OrganizationID)
+			info.PlanType = firstNonEmpty(claims.OpenAIAuth.ChatGPTPlanType, info.PlanType)
+		}
+	}
+	return info
+}
+
+func (info providerAccountOAuthTokenInfo) ToCredentials() ProviderResourceCredentials {
+	return ProviderResourceCredentials{
+		AuthType:       "oauth",
+		AccessToken:    info.AccessToken,
+		RefreshToken:   info.RefreshToken,
+		IDToken:        info.IDToken,
+		ClientID:       info.ClientID,
+		Scopes:         info.Scopes,
+		TokenType:      info.TokenType,
+		ExpiresAt:      info.ExpiresAt,
+		AccountID:      info.AccountID,
+		UserID:         info.UserID,
+		Email:          info.AccountEmail,
+		OrganizationID: info.OrganizationID,
+		PlanType:       info.PlanType,
+	}
+}
+
+func providerAccountCredentialSummary(creds ProviderResourceCredentials) map[string]string {
+	options := map[string]string{}
+	applyOpenAIAccountOptions(options, creds)
+	for _, key := range []string{"access_token", "refresh_token", "id_token", "api_key", "credential_blob"} {
+		delete(options, key)
+	}
+	return options
+}
+
+func providerAccountOAuthCallbackURL(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if forwarded := firstForwardedValue(r.Header.Get("x-forwarded-proto")); forwarded != "" {
+		scheme = forwarded
+	}
+	host := r.Host
+	if forwarded := firstForwardedValue(r.Header.Get("x-forwarded-host")); forwarded != "" {
+		host = forwarded
+	}
+	return fmt.Sprintf("%s://%s/api/admin/provider-account-oauth/openai/oauth/callback", scheme, host)
+}
+
+func providerAccountOAuthRedirectWithError(returnURL string, code string) string {
+	target, err := url.Parse(returnURL)
+	if err != nil {
+		return returnURL
+	}
+	values := target.Query()
+	values.Set("provider_account_oauth", "1")
+	values.Set("provider_account_oauth_error", code)
+	target.RawQuery = values.Encode()
+	return target.String()
+}
+
+func openAICodeVerifier() (string, error) {
+	return randomHex(64)
+}
+
+func openAICodeChallenge(verifier string) string {
+	hash := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(hash[:])
+}
+
+func randomHex(n int) (string, error) {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+func validateAbsoluteHTTPURL(value, code, message string) error {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return NewHTTPError(400, code, message)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return NewHTTPError(400, code, message)
+	}
+	return nil
+}
