@@ -8102,7 +8102,7 @@ textarea:focus-visible {
 .login-flow-scene {
   position: relative;
   z-index: 2;
-  width: min(420px, 92%);
+  width: min(440px, 94%);
   height: 320px;
   contain: layout style paint;
 }
@@ -8172,33 +8172,19 @@ textarea:focus-visible {
 }
 
 .login-key-icon {
-  position: relative;
-  width: 17px;
-  height: 17px;
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(62, 123, 246, 0.2);
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
-}
-
-.login-key-icon::before {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 1px;
-  width: 8px;
-  height: 8px;
-  border: 2px solid #3e7bf6;
-  border-radius: 999px;
-}
-
-.login-key-icon::after {
-  content: "";
-  position: absolute;
-  left: 8px;
-  top: 9px;
-  width: 9px;
-  height: 2px;
-  border-radius: 999px;
-  background: #3e7bf6;
-  box-shadow: 4px 4px 0 -1px #3e7bf6;
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.96), transparent 42%),
+    rgba(62, 123, 246, 0.1);
+  color: #2f6df3;
+  box-shadow: 0 8px 16px rgba(62, 123, 246, 0.14);
 }
 
 .login-hub-node {
@@ -8261,25 +8247,25 @@ textarea:focus-visible {
 .login-provider-stack {
   position: absolute;
   z-index: 3;
-  right: 10px;
+  right: 8px;
   top: 46px;
   display: grid;
   gap: 14px;
 }
 
 .login-provider-node {
-  width: 92px;
+  width: 112px;
   min-height: 60px;
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 15px;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
+  grid-template-columns: 24px minmax(0, 1fr);
   justify-items: center;
   align-items: center;
   align-content: center;
-  column-gap: 7px;
+  column-gap: 8px;
   row-gap: 4px;
-  padding: 8px 9px;
+  padding: 8px 14px 8px 10px;
   background: rgba(255, 255, 255, 0.66);
   box-shadow: 0 16px 32px rgba(33, 53, 84, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.8);
   backdrop-filter: blur(12px);
@@ -8295,20 +8281,29 @@ textarea:focus-visible {
   animation-delay: 0.56s;
 }
 
-.login-provider-orb {
-  width: 21px;
-  height: 21px;
+.login-provider-icon {
+  width: 24px;
+  height: 24px;
   border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background:
     linear-gradient(135deg, rgba(62, 123, 246, 0.95), rgba(15, 164, 120, 0.92)),
     #3e7bf6;
+  color: #ffffff;
   box-shadow: 0 10px 22px rgba(62, 123, 246, 0.26);
   animation: login-provider-ready 3.1s ease-in-out infinite;
+}
+
+.login-provider-icon svg {
+  filter: drop-shadow(0 1px 2px rgba(17, 24, 39, 0.18));
 }
 
 .login-provider-node strong {
   justify-self: start;
   min-width: 0;
+  padding-right: 4px;
   font-size: 10px;
   line-height: 1;
   font-weight: 800;
@@ -8317,7 +8312,7 @@ textarea:focus-visible {
 
 .login-provider-bars {
   grid-column: 1 / -1;
-  width: 64px;
+  width: 72px;
   display: grid;
   gap: 3px;
   justify-self: end;
@@ -8930,6 +8925,15 @@ textarea:focus-visible {
   color: #a9b4c6;
 }
 
+[data-theme="dark"] .login-key-icon {
+  border-color: rgba(91, 146, 255, 0.28);
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.18), transparent 42%),
+    rgba(91, 146, 255, 0.16);
+  color: #8ab2ff;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+}
+
 [data-theme="dark"] .login-hub-copy strong,
 [data-theme="dark"] .login-provider-node,
 [data-theme="dark"] .login-card-head h1 {
@@ -8969,7 +8973,7 @@ textarea:focus-visible {
   .login-flow-token,
   .login-key-chip,
   .login-hub-node,
-  .login-provider-orb,
+  .login-provider-icon,
   .login-provider-bars span,
   .login-signal-strip span {
     animation: none;
@@ -11045,9 +11049,9 @@ tr.selected-row td:first-child {
   }
 
   .login-flow-scene {
-    width: 360px;
+    width: 440px;
     height: 260px;
-    transform: scale(0.74);
+    transform: translateX(-32px) scale(0.74);
     transform-origin: center;
   }
 

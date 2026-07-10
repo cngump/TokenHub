@@ -5115,15 +5115,21 @@ function LoginView({
 
             <div className="login-key-stack" aria-hidden="true">
               <span className="login-key-chip key-one">
-                <span className="login-key-icon" />
+                <span className="login-key-icon">
+                  <KeyRound size={13} strokeWidth={2.6} />
+                </span>
                 Key 01
               </span>
               <span className="login-key-chip key-two">
-                <span className="login-key-icon" />
+                <span className="login-key-icon">
+                  <KeyRound size={13} strokeWidth={2.6} />
+                </span>
                 Key 02
               </span>
               <span className="login-key-chip key-three">
-                <span className="login-key-icon" />
+                <span className="login-key-icon">
+                  <KeyRound size={13} strokeWidth={2.6} />
+                </span>
                 Key 03
               </span>
             </div>
@@ -5140,7 +5146,9 @@ function LoginView({
 
             <div className="login-provider-stack" aria-hidden="true">
               <span className="login-provider-node provider-one">
-                <span className="login-provider-orb" />
+                <span className="login-provider-icon">
+                  <Server size={14} strokeWidth={2.35} />
+                </span>
                 <strong>Provider A</strong>
                 <span className="login-provider-bars">
                   <span />
@@ -5149,7 +5157,9 @@ function LoginView({
                 </span>
               </span>
               <span className="login-provider-node provider-two">
-                <span className="login-provider-orb" />
+                <span className="login-provider-icon">
+                  <Server size={14} strokeWidth={2.35} />
+                </span>
                 <strong>Provider B</strong>
                 <span className="login-provider-bars">
                   <span />
@@ -5158,7 +5168,9 @@ function LoginView({
                 </span>
               </span>
               <span className="login-provider-node provider-three">
-                <span className="login-provider-orb" />
+                <span className="login-provider-icon">
+                  <Server size={14} strokeWidth={2.35} />
+                </span>
                 <strong>Provider C</strong>
                 <span className="login-provider-bars">
                   <span />
