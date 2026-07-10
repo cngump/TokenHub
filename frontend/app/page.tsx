@@ -44,7 +44,7 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import { type Dispatch, type FormEvent, type SetStateAction, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type Dispatch, type FormEvent, type SetStateAction, useEffect, useMemo, useRef, useState } from "react";
 
 type Summary = {
   request_count: number;
@@ -175,6 +175,7 @@ type Model = {
   output_modalities?: string[];
   capabilities?: string[];
   supported_parameters?: string[];
+  metadata?: Record<string, string>;
 };
 
 type ModelRoute = {
@@ -526,7 +527,7 @@ const routeViews = Object.fromEntries(
   Object.entries(viewRoutes).map(([view, route]) => [route.replace(/^\//, ""), view]),
 ) as Record<string, ViewKey>;
 
-const notificationChannelTypes = ["webhook", "feishu", "dingtalk", "wecom", "slack", "email"];
+const notificationChannelTypes = ["webhook", "slack", "discord", "telegram", "whatsapp", "feishu", "dingtalk", "wecom", "email"];
 
 type NavLeafItem = {
   view: ViewKey;
@@ -757,6 +758,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "界面语言": "Interface Language",
     "选择控制台显示语言，偏好会保存在当前浏览器。": "Choose the console display language. The preference is saved in this browser.",
     "当前语言": "Current language",
+    "点击排序": "Sort",
     "平台管理员": "Platform Admin",
     "默认项目空间": "Default Project Space",
     "平台工程团队": "Platform Engineering Team",
@@ -864,13 +866,17 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "账号资源名称": "Account Resource Name",
     "账号授权": "Account Authorization",
     "输入账号地址并打开授权页；授权完成后 TokenHub 会从回调 URL 自动回填 Token。": "Enter the account address and open the authorization page. After authorization, TokenHub fills tokens from the callback URL.",
+    "使用 OpenAI/Codex OAuth 授权账号；TokenHub 会在后端换取并保存账号 Token。": "Authorize an OpenAI/Codex account with OAuth. TokenHub exchanges and stores the account token on the backend.",
+    "OpenAI/Codex 授权": "OpenAI/Codex Authorization",
     "账号地址/邮箱": "Account Address / Email",
     "用于区分账号资源，可填写邮箱或账号系统里的唯一地址。": "Used to identify this account resource. Enter an email or the unique address from the account system.",
     "账号授权地址": "Authorization URL",
     "粘贴上游账号系统的授权地址；TokenHub 会带上本页回调地址。": "Paste the upstream account authorization URL. TokenHub will attach this page as the callback URL.",
     "打开授权": "Open Authorization",
+    "授权中": "Authorizing",
     "本页回调地址": "Callback URL",
     "授权应用跳回这个地址后，TokenHub 会自动读取 access_token / refresh_token / id_token。": "When the authorization app redirects to this URL, TokenHub reads access_token / refresh_token / id_token automatically.",
+    "点击后由后端生成授权地址；授权完成会带 code 回到本页并自动换取 Token。": "TokenHub generates the authorization URL on the backend. After authorization, the code returns here and is exchanged automatically.",
     "复制回调地址": "Copy Callback URL",
     "回调结果": "Callback Result",
     "如果授权页没有自动跳回本页，把完整 callback URL 或 URL fragment 粘贴到这里。": "If the authorization page does not redirect back here, paste the full callback URL or URL fragment here.",
@@ -881,9 +887,17 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "已回填刷新 Token": "Refresh token filled",
     "已回填 ID Token": "ID token filled",
     "打开授权页后，请在上游账号系统完成授权。": "After opening the authorization page, complete authorization in the upstream account system.",
+    "已打开 OpenAI/Codex 授权页，授权完成后会自动回填账号 Token。": "Opened the OpenAI/Codex authorization page. TokenHub will fill the account token after authorization.",
     "请先填写账号授权地址。": "Enter the authorization URL first.",
     "账号授权地址格式不正确。": "The authorization URL format is invalid.",
     "未在回调结果中识别到 Token。": "No token was found in the callback result.",
+    "账号授权失败": "Account authorization failed",
+    "授权回调缺少会话信息，请重新打开授权。": "The authorization callback is missing session information. Open authorization again.",
+    "正在换取账号 Token...": "Exchanging account token...",
+    "账号授权换取 Token": "Account authorization token exchange",
+    "账号授权换取 Token 失败": "Account authorization token exchange failed",
+    "生成账号授权地址": "Generate account authorization URL",
+    "生成账号授权地址失败": "Failed to generate account authorization URL",
     "回调里只有授权 code，当前版本还需要返回 Token 的授权地址，或在高级选项中手动粘贴 Token。": "The callback only contains an authorization code. This version needs a callback URL that returns tokens, or manual token paste in Advanced.",
     "已从回调 URL 自动回填账号 Token。": "Account token was filled from the callback URL.",
     "已从粘贴的回调结果回填账号 Token。": "Account token was filled from the pasted callback result.",
@@ -906,6 +920,8 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "OpenAI 账号资源": "OpenAI Account Resource",
     "添加账号资源": "Add Account Resource",
     "账号资源": "Account Resources",
+    "使用保存的 refresh token 更新账号访问 Token": "Refresh the account access token with the saved refresh token.",
+    "Token 已刷新": "Token refreshed",
     "账号类型": "Account Type",
     "认证方式": "Authentication",
     "访问 Token": "Access Token",
@@ -1619,6 +1635,9 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "钉钉机器人告警通知": "DingTalk bot alert notification",
     "企业微信机器人告警通知": "WeCom bot alert notification",
     "Slack Incoming Webhook 告警通知": "Slack Incoming Webhook alert notification",
+    "Discord Webhook 告警通知": "Discord Webhook alert notification",
+    "Telegram Bot 告警通知": "Telegram Bot alert notification",
+    "WhatsApp Cloud API 告警通知": "WhatsApp Cloud API alert notification",
     "SMTP 邮件告警通知": "SMTP email alert notification",
     "告警通知渠道": "Alert notification channel",
     "SMTP 已配置": "SMTP configured",
@@ -1632,7 +1651,13 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "SMTP 用户名": "SMTP Username",
     "SMTP 密码": "SMTP Password",
     "收件人": "Recipients",
+    "WhatsApp 收件人": "WhatsApp Recipient",
     "多个邮箱用逗号分隔。": "Separate multiple emails with commas.",
+    "Bot Token 已配置": "Bot token configured",
+    "Bot Token 未配置": "Bot token not configured",
+    "Access Token 已配置": "Access token configured",
+    "Access Token 未配置": "Access token not configured",
+    "按 Webhook、Slack、Discord、Telegram、WhatsApp、飞书、钉钉、企业微信和邮件快速配置告警通知目标。": "Quickly configure alert notification targets across Webhook, Slack, Discord, Telegram, WhatsApp, Feishu, DingTalk, WeCom, and email.",
     "地址/目标": "Address / Target",
     "凭证": "Credential",
     "告警类型": "Alert Type",
@@ -1968,13 +1993,17 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "账号资源名称": "アカウントリソース名",
     "账号授权": "アカウント認可",
     "输入账号地址并打开授权页；授权完成后 TokenHub 会从回调 URL 自动回填 Token。": "アカウントアドレスを入力して認可ページを開きます。認可後、TokenHub は callback URL から Token を自動入力します。",
+    "使用 OpenAI/Codex OAuth 授权账号；TokenHub 会在后端换取并保存账号 Token。": "OpenAI/Codex OAuth でアカウントを認可します。TokenHub がバックエンドでアカウント Token を交換して保存します。",
+    "OpenAI/Codex 授权": "OpenAI/Codex 認可",
     "账号地址/邮箱": "アカウントアドレス / メール",
     "用于区分账号资源，可填写邮箱或账号系统里的唯一地址。": "アカウントリソースを識別するため、メールまたはアカウントシステム内の一意なアドレスを入力します。",
     "账号授权地址": "認可 URL",
     "粘贴上游账号系统的授权地址；TokenHub 会带上本页回调地址。": "上流アカウントシステムの認可 URL を貼り付けます。TokenHub はこのページの callback URL を付与します。",
     "打开授权": "認可を開く",
+    "授权中": "認可中",
     "本页回调地址": "Callback URL",
     "授权应用跳回这个地址后，TokenHub 会自动读取 access_token / refresh_token / id_token。": "認可アプリがこの URL に戻ると、TokenHub は access_token / refresh_token / id_token を自動で読み取ります。",
+    "点击后由后端生成授权地址；授权完成会带 code 回到本页并自动换取 Token。": "クリックするとバックエンドが認可 URL を生成します。認可後、code がこのページに戻り、自動で Token に交換されます。",
     "复制回调地址": "Callback URL をコピー",
     "回调结果": "Callback 結果",
     "如果授权页没有自动跳回本页，把完整 callback URL 或 URL fragment 粘贴到这里。": "認可ページが自動で戻らない場合は、完全な callback URL または URL fragment をここに貼り付けます。",
@@ -1985,9 +2014,17 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "已回填刷新 Token": "Refresh Token 入力済み",
     "已回填 ID Token": "ID Token 入力済み",
     "打开授权页后，请在上游账号系统完成授权。": "認可ページを開いた後、上流アカウントシステムで認可を完了してください。",
+    "已打开 OpenAI/Codex 授权页，授权完成后会自动回填账号 Token。": "OpenAI/Codex 認可ページを開きました。認可後、アカウント Token が自動入力されます。",
     "请先填写账号授权地址。": "先に認可 URL を入力してください。",
     "账号授权地址格式不正确。": "認可 URL の形式が正しくありません。",
     "未在回调结果中识别到 Token。": "Callback 結果から Token を識別できませんでした。",
+    "账号授权失败": "アカウント認可に失敗しました",
+    "授权回调缺少会话信息，请重新打开授权。": "認可 callback にセッション情報がありません。認可を開き直してください。",
+    "正在换取账号 Token...": "アカウント Token を交換しています...",
+    "账号授权换取 Token": "アカウント認可 Token 交換",
+    "账号授权换取 Token 失败": "アカウント認可 Token 交換に失敗しました",
+    "生成账号授权地址": "アカウント認可 URL を生成",
+    "生成账号授权地址失败": "アカウント認可 URL の生成に失敗しました",
     "回调里只有授权 code，当前版本还需要返回 Token 的授权地址，或在高级选项中手动粘贴 Token。": "Callback には認可 code のみがあります。現バージョンでは Token を返す認可 URL、または詳細設定での手動 Token 入力が必要です。",
     "已从回调 URL 自动回填账号 Token。": "Callback URL からアカウント Token を自動入力しました。",
     "已从粘贴的回调结果回填账号 Token。": "貼り付けた callback 結果からアカウント Token を入力しました。",
@@ -2010,6 +2047,8 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "OpenAI 账号资源": "OpenAI アカウントリソース",
     "添加账号资源": "アカウントリソースを追加",
     "账号资源": "アカウントリソース",
+    "使用保存的 refresh token 更新账号访问 Token": "保存済み refresh token でアカウント Access Token を更新します。",
+    "Token 已刷新": "Token を更新しました",
     "账号类型": "アカウント種別",
     "认证方式": "認証方式",
     "访问 Token": "アクセストークン",
@@ -2064,6 +2103,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "请先创建项目，再在项目下发放 API Key。": "先にプロジェクトを作成してから API Key を発行してください。",
     "请先新增 Provider 渠道，再配置路由策略。": "先に Provider チャネルを作成してからルートを設定してください。",
     "请先维护模型目录，再新增路由策略。": "先にモデルカタログを整備してからルートを作成してください。",
+    "点击排序": "並べ替え",
     "新 Key 仅展示一次：": "新しい Key は一度だけ表示されます: ",
     "新 Key 已生成": "新しい Key を生成しました",
     "请现在复制并保存这个 Key。关闭弹窗后将无法再次查看完整 Key，只能通过轮换生成新的 Key。": "この Key を今すぐコピーして保存してください。ダイアログを閉じると完全な Key は再表示できず、ローテーションで新しい Key を生成する必要があります。",
@@ -2709,6 +2749,9 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "钉钉机器人告警通知": "DingTalk ボットアラート通知",
     "企业微信机器人告警通知": "WeCom ボットアラート通知",
     "Slack Incoming Webhook 告警通知": "Slack Incoming Webhook アラート通知",
+    "Discord Webhook 告警通知": "Discord Webhook アラート通知",
+    "Telegram Bot 告警通知": "Telegram Bot アラート通知",
+    "WhatsApp Cloud API 告警通知": "WhatsApp Cloud API アラート通知",
     "SMTP 邮件告警通知": "SMTP メールアラート通知",
     "告警通知渠道": "アラート通知チャネル",
     "SMTP 已配置": "SMTP 設定済み",
@@ -2722,7 +2765,13 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "SMTP 用户名": "SMTP ユーザー名",
     "SMTP 密码": "SMTP パスワード",
     "收件人": "受信者",
+    "WhatsApp 收件人": "WhatsApp 受信者",
     "多个邮箱用逗号分隔。": "複数メールはカンマで区切ってください。",
+    "Bot Token 已配置": "Bot Token 設定済み",
+    "Bot Token 未配置": "Bot Token 未設定",
+    "Access Token 已配置": "Access Token 設定済み",
+    "Access Token 未配置": "Access Token 未設定",
+    "按 Webhook、Slack、Discord、Telegram、WhatsApp、飞书、钉钉、企业微信和邮件快速配置告警通知目标。": "Webhook、Slack、Discord、Telegram、WhatsApp、Feishu、DingTalk、WeCom、メールのアラート通知先をすばやく設定します。",
     "地址/目标": "アドレス / 対象",
     "凭证": "認証情報",
     "告警类型": "アラートタイプ",
@@ -3565,8 +3614,11 @@ function loadPlanForView(user: AdminUser, view: ViewKey): LoadPlan {
       break;
     case "providers":
       plan.providers = true;
+      plan.providerResources = true;
       plan.overview = true;
       plan.routes = true;
+      plan.logs = can("audit");
+      plan.breakdown = can("usage") || can("billing");
       plan.providerCatalog = true;
       break;
     case "models":
@@ -4401,6 +4453,7 @@ export default function AdminHome() {
               config={activeConfig}
               data={data}
               items={pagedItems}
+              monitorItems={filteredItems}
               totalItems={filteredItems.length}
               loading={loading}
               query={query}
@@ -5309,7 +5362,7 @@ function Sidebar({
       <div className="brand">
         <img src="/brand/tokenhub-logo.png" alt="TokenHub" className="brand-logo" />
         <span className="brand-name">TokenHub</span>
-        <span className="version">v0.2.0</span>
+        <span className="version">v0.3.0</span>
         <button
           className="sidebar-toggle"
           aria-label={collapsed ? tx("展开菜单") : tx("折叠菜单")}
@@ -5436,18 +5489,20 @@ function PageHeader({
 }) {
   const path = navPathForView(user, activeView);
   const chips = pageHeaderChips(activeView, data, user);
+  const pathGroup = path.group || pageHeaderFallbackGroup(activeView, user);
+  const pathSegments = ["TokenHub", pathGroup, path.parent, path.label || meta.title].filter(Boolean);
   return (
     <header className="page-header page-context-header">
       <div className="page-context-main">
         <div className="page-breadcrumb" aria-label={tx("当前位置")}>
-          <span>TokenHub</span>
-          {path.group ? <span>{tx(path.group)}</span> : null}
-          {path.parent ? <span>{tx(path.parent)}</span> : null}
-        </div>
-        <div>
-          <p className="eyebrow">{tx(meta.eyebrow || "Enterprise AI Gateway")}</p>
-          <h1>{tx(meta.title)}</h1>
-          {meta.description ? <p className="page-description">{tx(meta.description)}</p> : null}
+          {pathSegments.map((segment, index) => (
+            <Fragment key={`${segment}-${index}`}>
+              {index > 0 ? <ChevronRight aria-hidden="true" className="page-breadcrumb-separator" size={13} /> : null}
+              <span className={index === pathSegments.length - 1 ? "current" : undefined}>
+                {tx(segment)}
+              </span>
+            </Fragment>
+          ))}
         </div>
       </div>
       <div className="page-context-side">
@@ -5513,6 +5568,16 @@ function navPathForView(user: AdminUser, view: ViewKey) {
     }
   }
   return { group: "", parent: "", label: standaloneViewMeta[view]?.title ?? view };
+}
+
+function pageHeaderFallbackGroup(view: ViewKey, user: AdminUser) {
+  if (view === "gateway") {
+    const role = appRole(user.role);
+    if (role === "team_leader") return "团队管理";
+    if (role === "user") return "开始使用";
+    return "接入参考";
+  }
+  return "";
 }
 
 function pageHeaderChips(view: ViewKey, data: AppData, user: AdminUser) {
@@ -7317,6 +7382,13 @@ function gatewayListModelsCurl(stats: GatewayDocStats) {
   --header "Content-Type: application/json"`;
 }
 
+function gatewayRetrieveModelCurl(stats: GatewayDocStats) {
+  return `curl --request GET \\
+  --url "${stats.baseURL}/models/${encodeURIComponent(stats.sampleModel)}" \\
+  --header "${stats.authHeader}" \\
+  --header "Content-Type: application/json"`;
+}
+
 function gatewayStreamingCurl(stats: GatewayDocStats) {
   return `curl -N --request POST \\
   --url "${stats.baseURL}/chat/completions" \\
@@ -7482,7 +7554,10 @@ function gatewayEnglishLLMUsageDocs(stats: GatewayDocStats, role: AppRole): Gate
             params: {
               title: "Request headers",
               columns: ["Field", "Type", "Required", "Description"],
-              rows: [["Authorization", "header", "Yes", "Bearer YOUR_TOKENHUB_API_KEY"]],
+              rows: [
+                ["Authorization", "header", "Yes", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["Content-Type", "header", "Yes", "application/json"],
+              ],
             },
             table: {
               title: "Model fields",
@@ -7490,14 +7565,49 @@ function gatewayEnglishLLMUsageDocs(stats: GatewayDocStats, role: AppRole): Gate
               rows: [
                 ["id", "Model identifier used in later API calls."],
                 ["object", "Object type, usually model."],
-                ["created", "Unix timestamp when available."],
-                ["input_token_price_per_m", "Estimated input price per million tokens when configured."],
-                ["output_token_price_per_m", "Estimated output price per million tokens when configured."],
-                ["context_size", "Maximum context size when configured."],
+                ["created", "Model creation Unix timestamp."],
+                ["input_token_price_per_m", "JieKou-compatible integer input price per million tokens."],
+                ["output_token_price_per_m", "JieKou-compatible integer output price per million tokens."],
+                ["title", "Model title."],
+                ["description", "Model description."],
+                ["context_size", "Maximum context size."],
               ],
             },
             examplesTitle: "Example",
             examples: [{ title: "cURL", code: gatewayListModelsCurl(stats) }],
+          },
+          {
+            id: "retrieve-model",
+            group: "LLM API Reference",
+            method: "GET",
+            path: "/v1/models/{model}",
+            title: "Retrieve Model",
+            description: "Return one model visible to the API key. The response fields match the JieKou-compatible model object.",
+            params: {
+              title: "Path and headers",
+              columns: ["Field", "Type", "Required", "Description"],
+              rows: [
+                ["model", "path", "Yes", `Model ID from /v1/models, for example ${stats.sampleModel}.`],
+                ["Authorization", "header", "Yes", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["Content-Type", "header", "Yes", "application/json"],
+              ],
+            },
+            table: {
+              title: "Response fields",
+              columns: ["Field", "Description"],
+              rows: [
+                ["id", "Model identifier used in API calls."],
+                ["created", "Model creation Unix timestamp."],
+                ["object", "Object type, always model."],
+                ["input_token_price_per_m", "JieKou-compatible integer input price per million tokens."],
+                ["output_token_price_per_m", "JieKou-compatible integer output price per million tokens."],
+                ["title", "Model title."],
+                ["description", "Model description."],
+                ["context_size", "Maximum context size."],
+              ],
+            },
+            examplesTitle: "Example",
+            examples: [{ title: "cURL", code: gatewayRetrieveModelCurl(stats) }],
           },
           {
             id: "chat-completions",
@@ -7730,7 +7840,10 @@ function gatewayChineseLLMUsageDocs(stats: GatewayDocStats, role: AppRole): Gate
             params: {
               title: "请求头",
               columns: ["字段", "类型", "必填", "说明"],
-              rows: [["Authorization", "header", "是", "Bearer YOUR_TOKENHUB_API_KEY"]],
+              rows: [
+                ["Authorization", "header", "是", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["Content-Type", "header", "是", "application/json"],
+              ],
             },
             table: {
               title: "模型字段",
@@ -7738,14 +7851,49 @@ function gatewayChineseLLMUsageDocs(stats: GatewayDocStats, role: AppRole): Gate
               rows: [
                 ["id", "模型标识符，后续调用时填写到 model 字段。"],
                 ["object", "对象类型，通常为 model。"],
-                ["created", "创建时间戳，配置可用时返回。"],
-                ["input_token_price_per_m", "每百万输入 tokens 估算价格，配置可用时返回。"],
-                ["output_token_price_per_m", "每百万输出 tokens 估算价格，配置可用时返回。"],
-                ["context_size", "模型最大上下文长度，配置可用时返回。"],
+                ["created", "模型创建 Unix 时间戳。"],
+                ["input_token_price_per_m", "兼容 jiekou 的每百万输入 tokens 整数价格。"],
+                ["output_token_price_per_m", "兼容 jiekou 的每百万输出 tokens 整数价格。"],
+                ["title", "模型标题。"],
+                ["description", "模型描述。"],
+                ["context_size", "模型最大上下文长度。"],
               ],
             },
             examplesTitle: "示例",
             examples: [{ title: "cURL", code: gatewayListModelsCurl(stats) }],
+          },
+          {
+            id: "retrieve-model",
+            group: "大模型 API",
+            method: "GET",
+            path: "/v1/models/{model}",
+            title: "获取指定模型信息",
+            description: "返回当前 API Key 可见的单个模型信息。响应字段与 jiekou 兼容模型对象一致。",
+            params: {
+              title: "路径参数和请求头",
+              columns: ["字段", "类型", "必填", "说明"],
+              rows: [
+                ["model", "path", "是", `来自 /v1/models 的模型 ID，例如 ${stats.sampleModel}。`],
+                ["Authorization", "header", "是", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["Content-Type", "header", "是", "application/json"],
+              ],
+            },
+            table: {
+              title: "响应字段",
+              columns: ["字段", "说明"],
+              rows: [
+                ["id", "模型 ID，在 API Endpoints 中引用。"],
+                ["created", "模型创建 Unix 时间戳。"],
+                ["object", "对象类型，始终为 model。"],
+                ["input_token_price_per_m", "兼容 jiekou 的每百万输入 tokens 整数价格。"],
+                ["output_token_price_per_m", "兼容 jiekou 的每百万输出 tokens 整数价格。"],
+                ["title", "模型标题。"],
+                ["description", "模型描述。"],
+                ["context_size", "模型最大上下文长度。"],
+              ],
+            },
+            examplesTitle: "示例",
+            examples: [{ title: "cURL", code: gatewayRetrieveModelCurl(stats) }],
           },
           {
             id: "chat-completions",
@@ -7978,7 +8126,10 @@ function gatewayJapaneseLLMUsageDocs(stats: GatewayDocStats, role: AppRole): Gat
             params: {
               title: "リクエスト Header",
               columns: ["フィールド", "型", "必須", "説明"],
-              rows: [["Authorization", "header", "はい", "Bearer YOUR_TOKENHUB_API_KEY"]],
+              rows: [
+                ["Authorization", "header", "はい", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["Content-Type", "header", "はい", "application/json"],
+              ],
             },
             table: {
               title: "モデルフィールド",
@@ -7986,14 +8137,49 @@ function gatewayJapaneseLLMUsageDocs(stats: GatewayDocStats, role: AppRole): Gat
               rows: [
                 ["id", "以降の API 呼び出しで model に指定するモデル ID。"],
                 ["object", "オブジェクト種別。通常は model。"],
-                ["created", "利用可能な場合の Unix タイムスタンプ。"],
-                ["input_token_price_per_m", "設定済みの場合の 100 万 input tokens あたりの見積価格。"],
-                ["output_token_price_per_m", "設定済みの場合の 100 万 output tokens あたりの見積価格。"],
-                ["context_size", "設定済みの場合の最大コンテキスト長。"],
+                ["created", "モデル作成 Unix timestamp。"],
+                ["input_token_price_per_m", "JieKou 互換の 100 万 input tokens あたり整数価格。"],
+                ["output_token_price_per_m", "JieKou 互換の 100 万 output tokens あたり整数価格。"],
+                ["title", "モデルタイトル。"],
+                ["description", "モデル説明。"],
+                ["context_size", "最大コンテキスト長。"],
               ],
             },
             examplesTitle: "例",
             examples: [{ title: "cURL", code: gatewayListModelsCurl(stats) }],
+          },
+          {
+            id: "retrieve-model",
+            group: "LLM API",
+            method: "GET",
+            path: "/v1/models/{model}",
+            title: "指定モデル情報を取得",
+            description: "現在の API Key で利用できる単一モデル情報を返します。レスポンスは JieKou 互換のモデルオブジェクトです。",
+            params: {
+              title: "Path と Header",
+              columns: ["フィールド", "型", "必須", "説明"],
+              rows: [
+                ["model", "path", "はい", `/v1/models のモデル ID。例: ${stats.sampleModel}`],
+                ["Authorization", "header", "はい", "Bearer YOUR_TOKENHUB_API_KEY"],
+                ["Content-Type", "header", "はい", "application/json"],
+              ],
+            },
+            table: {
+              title: "レスポンスフィールド",
+              columns: ["フィールド", "説明"],
+              rows: [
+                ["id", "API 呼び出しで使うモデル ID。"],
+                ["created", "モデル作成 Unix timestamp。"],
+                ["object", "オブジェクト種別。常に model。"],
+                ["input_token_price_per_m", "JieKou 互換の 100 万 input tokens あたり整数価格。"],
+                ["output_token_price_per_m", "JieKou 互換の 100 万 output tokens あたり整数価格。"],
+                ["title", "モデルタイトル。"],
+                ["description", "モデル説明。"],
+                ["context_size", "最大コンテキスト長。"],
+              ],
+            },
+            examplesTitle: "例",
+            examples: [{ title: "cURL", code: gatewayRetrieveModelCurl(stats) }],
           },
           {
             id: "chat-completions",
@@ -8839,14 +9025,50 @@ function gatewayDocGroups({
           path: "/v1/models",
           description: "按当前 API Key 的权限返回可用统一模型。",
           status: "active",
-          params: [["Authorization", "header", "是", "Bearer API Key"]],
-          examples: [{ title: "请求示例", code: `curl "${baseURL}/models" -H "${authHeader}"` }],
+          params: [
+            ["Authorization", "header", "是", "Bearer API Key"],
+            ["Content-Type", "header", "是", "application/json"],
+          ],
+          examples: [{ title: "请求示例", code: `curl "${baseURL}/models" -H "${authHeader}" -H "Content-Type: application/json"` }],
           table: {
             columns: ["字段", "说明"],
             rows: [
               ["id", "统一模型名称，用于后续调用的 model 字段"],
               ["object", "OpenAI 兼容对象类型，通常为 model"],
-              ["owned_by", "模型归属或 Provider 标识"],
+              ["created", "模型创建 Unix 时间戳"],
+              ["input_token_price_per_m", "兼容 jiekou 的每百万输入 tokens 整数价格"],
+              ["output_token_price_per_m", "兼容 jiekou 的每百万输出 tokens 整数价格"],
+              ["title", "模型标题"],
+              ["description", "模型描述"],
+              ["context_size", "模型最大上下文长度"],
+            ],
+          },
+        },
+        {
+          id: "model-detail",
+          group: "模型 API",
+          title: "指定模型信息",
+          method: "GET",
+          path: "/v1/models/{model}",
+          description: "按当前 API Key 的权限返回单个可用统一模型。",
+          status: "active",
+          params: [
+            ["model", "path", "是", "来自 /v1/models 的统一模型名"],
+            ["Authorization", "header", "是", "Bearer API Key"],
+            ["Content-Type", "header", "是", "application/json"],
+          ],
+          examples: [{ title: "请求示例", code: `curl "${baseURL}/models/${encodeURIComponent(sampleModel)}" -H "${authHeader}" -H "Content-Type: application/json"` }],
+          table: {
+            columns: ["字段", "说明"],
+            rows: [
+              ["id", "统一模型名称，用于后续调用的 model 字段"],
+              ["created", "模型创建 Unix 时间戳"],
+              ["object", "OpenAI 兼容对象类型，始终为 model"],
+              ["input_token_price_per_m", "兼容 jiekou 的每百万输入 tokens 整数价格"],
+              ["output_token_price_per_m", "兼容 jiekou 的每百万输出 tokens 整数价格"],
+              ["title", "模型标题"],
+              ["description", "模型描述"],
+              ["context_size", "模型最大上下文长度"],
             ],
           },
         },
@@ -10016,6 +10238,7 @@ function CrudView<T>({
   config,
   data,
   items,
+  monitorItems = items,
   totalItems,
   loading = false,
   query,
@@ -10035,6 +10258,7 @@ function CrudView<T>({
   config: ResourceConfig<T>;
   data: AppData;
   items: T[];
+  monitorItems?: T[];
   totalItems: number;
   loading?: boolean;
   query: string;
@@ -10092,6 +10316,7 @@ function CrudView<T>({
           onChange={onCategoryFilter}
         />
       ) : null}
+      {config.view === "providers" ? <ProviderAvailabilityMonitor data={data} providers={monitorItems as Provider[]} /> : null}
       {config.view === "notification-channels" ? (
         <NotificationChannelTabs
           data={data}
@@ -10159,6 +10384,317 @@ function CrudView<T>({
       </div>
     </DataSection>
   );
+}
+
+type ProviderMonitorTone = "healthy" | "degraded" | "down";
+type ProviderProbeTone = "ok" | "warn" | "down" | "na";
+type ProviderTrendTone = "success" | "warning" | "failure" | "none";
+
+type ProviderMonitorRow = {
+  provider: Provider;
+  resources: ProviderResource[];
+  routeCount: number;
+  activeRouteCount: number;
+  statusTone: ProviderMonitorTone;
+  statusLabel: string;
+  statusDetail: string;
+  basicPrimaryTone: ProviderProbeTone;
+  basicPrimaryDetail: string;
+  basicSecondaryTone: ProviderProbeTone;
+  basicSecondaryDetail: string;
+  realTone: ProviderProbeTone;
+  realDetail: string;
+  latencyMS: number;
+  availability24h: number;
+  observed24h: boolean;
+  qualityScore: number;
+  trend: ProviderTrendTone[];
+};
+
+function ProviderAvailabilityMonitor({ data, providers }: { data: AppData; providers: Provider[] }) {
+  if (providers.length === 0) return null;
+  const rows = providerMonitorRows(data, providers);
+  const summary = providerMonitorSummary(rows);
+  return (
+    <section className="provider-monitor-card" aria-label={tx("Provider 可用性监控")}>
+      <div className="provider-monitor-head">
+        <div>
+          <p className="eyebrow">Provider Availability</p>
+          <h2>{tx("Provider 可用性监控")}</h2>
+          <span>{tx("按健康检测、账号资源和真实请求日志汇总上游渠道可用性。")}</span>
+        </div>
+        <div className="provider-monitor-summary" aria-label={tx("Provider 健康摘要")}>
+          <span><strong>{summary.healthy}</strong>{tx("正常")}</span>
+          <span><strong>{summary.degraded}</strong>{tx("降级")}</span>
+          <span><strong>{summary.down}</strong>{tx("故障")}</span>
+        </div>
+      </div>
+      <div className="provider-monitor-table-wrap">
+        <table className="provider-monitor-table">
+          <thead>
+            <tr>
+              <th>{tx("服务商 / 通道")}</th>
+              <th>{tx("综合状态")}</th>
+              <th>{tx("基础监控 · L1/L2")}</th>
+              <th>{tx("真实监控 · L3")}</th>
+              <th>{tx("真实延迟")}</th>
+              <th>{tx("24H 可用率")}</th>
+              <th>{tx("质量评分")}</th>
+              <th>{tx("近30天趋势")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.provider.id}>
+                <td>
+                  <div className="provider-monitor-name">
+                    <span className={`provider-monitor-avatar ${row.statusTone}`}>{providerInitial(row.provider)}</span>
+                    <div>
+                      <strong>{row.provider.name || row.provider.id}</strong>
+                      <span>{providerTypeLabel(row.provider.type)} · {row.activeRouteCount}/{row.routeCount || 0} {tx("启用路由")} · {row.resources.length || 0} {tx("账号资源")}</span>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div className="provider-monitor-status-cell">
+                    <span className={`provider-monitor-status ${row.statusTone}`}>
+                      <i />
+                      {tx(row.statusLabel)}
+                    </span>
+                    <small>{row.statusDetail}</small>
+                  </div>
+                </td>
+                <td>
+                  <ProviderProbeLine tone={row.basicPrimaryTone} detail={row.basicPrimaryDetail} />
+                  <ProviderProbeLine tone={row.basicSecondaryTone} detail={row.basicSecondaryDetail} />
+                </td>
+                <td>
+                  <ProviderProbeLine tone={row.realTone} detail={row.realDetail} />
+                  <small className="provider-monitor-subtle">{row.observed24h ? tx("真实请求样本") : tx("无请求样本")}</small>
+                </td>
+                <td><strong className="provider-monitor-metric">{latencyDisplay(row.latencyMS)}</strong></td>
+                <td><strong className="provider-monitor-metric">{providerPercent(row.availability24h)}</strong></td>
+                <td>
+                  <div className="provider-quality-score">
+                    <strong>{row.qualityScore}</strong>
+                    <span><i style={{ width: `${row.qualityScore}%` }} /></span>
+                  </div>
+                </td>
+                <td>
+                  <div className="provider-trend-bars" aria-label={tx("近30天趋势")}>
+                    {row.trend.map((tone, index) => <span className={tone} key={`${row.provider.id}-trend-${index}`} />)}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="provider-monitor-legend">
+        <span><i className="success" />{tx("正常")}</span>
+        <span><i className="warning" />{tx("降级/慢响应")}</span>
+        <span><i className="failure" />{tx("故障")}</span>
+        <em>{tx("真实监控来自最近请求日志；基础监控来自 Provider 和账号资源健康状态。")}</em>
+      </div>
+    </section>
+  );
+}
+
+function ProviderProbeLine({ tone, detail }: { tone: ProviderProbeTone; detail: string }) {
+  return (
+    <span className={`provider-probe-line ${tone}`}>
+      <i />
+      {tx(providerProbeLabel(tone))}
+      <small>{detail}</small>
+    </span>
+  );
+}
+
+function providerMonitorRows(data: AppData, providers: Provider[]): ProviderMonitorRow[] {
+  return providers
+    .slice()
+    .sort((left, right) => (left.priority - right.priority) || left.name.localeCompare(right.name))
+    .map((provider) => providerMonitorRow(data, provider));
+}
+
+function providerMonitorRow(data: AppData, provider: Provider): ProviderMonitorRow {
+  const resources = data.providerResources.filter((resource) => resource.provider_id === provider.id);
+  const routes = providerRoutesFor(provider, data);
+  const logs = providerLogsFor(data, provider, resources);
+  const now = Date.now();
+  const recent24h = logs.filter((log) => now - safeTime(log.created_at) <= 24 * 60 * 60 * 1000);
+  const success24h = recent24h.filter((log) => !requestLogFailed(log));
+  const warning24h = recent24h.filter((log) => !requestLogFailed(log) && (log.status_code >= 300 || log.latency_ms >= 5000));
+  const failed24h = recent24h.length - success24h.length;
+  const observed24h = recent24h.length > 0;
+  const activeResources = resources.filter((resource) => resource.status === "active");
+  const healthyResources = activeResources.filter((resource) => resource.healthy);
+  const healthyProvider = provider.status === "active" && provider.healthy;
+  const resourceScore = activeResources.length > 0 ? (healthyResources.length / activeResources.length) * 100 : (healthyProvider ? 100 : 0);
+  const availability24h = observed24h ? (success24h.length / recent24h.length) * 100 : (healthyProvider ? 100 : 0);
+  const latencyLogs = (success24h.length ? success24h : logs.filter((log) => !requestLogFailed(log))).filter((log) => log.latency_ms > 0);
+  const latencyMS = percentileLatency(latencyLogs, 0.5);
+  const statusTone = providerMonitorTone(provider, observed24h, availability24h, warning24h.length, failed24h, activeResources.length, healthyResources.length);
+  const activeRouteCount = routes.filter((route) => route.status === "active").length;
+  return {
+    provider,
+    resources,
+    routeCount: routes.length,
+    activeRouteCount,
+    statusTone,
+    statusLabel: providerStatusLabel(statusTone),
+    statusDetail: providerStatusDetail(provider, logs, resources),
+    basicPrimaryTone: healthyProvider ? "ok" : "down",
+    basicPrimaryDetail: provider.status === "active" ? tx("Provider 在线") : enumValueLabel(provider.status),
+    basicSecondaryTone: providerResourceProbeTone(activeResources.length, healthyResources.length),
+    basicSecondaryDetail: activeResources.length > 0
+      ? `${formatNumber(healthyResources.length)}/${formatNumber(activeResources.length)} ${tx("资源健康")}`
+      : tx("未配置账号资源"),
+    realTone: providerRealProbeTone(observed24h, availability24h, warning24h.length, failed24h),
+    realDetail: observed24h
+      ? `${providerPercent(availability24h)} · ${formatNumber(recent24h.length)} ${tx("次请求")}`
+      : tx("无真实请求"),
+    latencyMS,
+    availability24h,
+    observed24h,
+    qualityScore: providerQualityScore(availability24h, latencyMS, resourceScore, observed24h, healthyProvider),
+    trend: providerTrend(data, provider, resources),
+  };
+}
+
+function providerMonitorSummary(rows: ProviderMonitorRow[]) {
+  return rows.reduce(
+    (summary, row) => {
+      summary[row.statusTone] += 1;
+      return summary;
+    },
+    { healthy: 0, degraded: 0, down: 0 } as Record<ProviderMonitorTone, number>,
+  );
+}
+
+function providerLogsFor(data: AppData, provider: Provider, resources: ProviderResource[]) {
+  const resourceIDs = new Set(resources.map((resource) => resource.id));
+  return data.logs
+    .filter((log) => log.provider_id === provider.id || (log.provider_resource_id ? resourceIDs.has(log.provider_resource_id) : false))
+    .sort((left, right) => safeTime(left.created_at) - safeTime(right.created_at));
+}
+
+function providerMonitorTone(provider: Provider, observed: boolean, availability: number, warnings: number, failures: number, activeResources: number, healthyResources: number): ProviderMonitorTone {
+  if (provider.status !== "active" || !provider.healthy) return "down";
+  if (observed && (availability < 90 || failures > 0 && availability < 95)) return "down";
+  if (activeResources > 0 && healthyResources === 0) return "down";
+  if ((observed && availability < 99) || warnings > 0 || (activeResources > 0 && healthyResources < activeResources)) return "degraded";
+  return "healthy";
+}
+
+function providerStatusLabel(tone: ProviderMonitorTone) {
+  if (tone === "healthy") return "Healthy";
+  if (tone === "degraded") return "Degraded";
+  return "Functional Down";
+}
+
+function providerStatusDetail(provider: Provider, logs: RequestLog[], resources: ProviderResource[]) {
+  const latestLog = logs.slice().sort((left, right) => safeTime(right.created_at) - safeTime(left.created_at))[0];
+  if (latestLog?.error_code) return `${timeLabel(latestLog.created_at)} · ${latestLog.error_code}`;
+  if (latestLog) return timeLabel(latestLog.created_at);
+  const latestResourceCheck = resources
+    .map((resource) => resource.last_checked_at || resource.updated_at || "")
+    .filter(Boolean)
+    .sort((left, right) => safeTime(right) - safeTime(left))[0];
+  if (latestResourceCheck) return timeLabel(latestResourceCheck);
+  return enumValueLabel(provider.status);
+}
+
+function providerResourceProbeTone(total: number, healthy: number): ProviderProbeTone {
+  if (total === 0) return "na";
+  if (healthy === total) return "ok";
+  if (healthy > 0) return "warn";
+  return "down";
+}
+
+function providerRealProbeTone(observed: boolean, availability: number, warnings: number, failures: number): ProviderProbeTone {
+  if (!observed) return "na";
+  if (availability < 90 || failures > 0 && availability < 95) return "down";
+  if (availability < 99 || warnings > 0 || failures > 0) return "warn";
+  return "ok";
+}
+
+function providerProbeLabel(tone: ProviderProbeTone) {
+  if (tone === "ok") return "ok";
+  if (tone === "warn") return "warn";
+  if (tone === "down") return "down";
+  return "na";
+}
+
+function percentileLatency(logs: RequestLog[], percentile: number) {
+  const values = logs.map((log) => log.latency_ms || 0).filter((value) => value > 0).sort((left, right) => left - right);
+  if (values.length === 0) return 0;
+  const index = Math.min(values.length - 1, Math.max(0, Math.floor((values.length - 1) * percentile)));
+  return values[index];
+}
+
+function providerQualityScore(availability: number, latencyMS: number, resourceScore: number, observed: boolean, healthyProvider: boolean) {
+  const availabilityScore = observed ? availability : (healthyProvider ? 95 : 20);
+  const latencyScore = latencyMS === 0
+    ? (healthyProvider ? 86 : 25)
+    : latencyMS <= 250
+      ? 100
+      : latencyMS <= 800
+        ? 94
+        : latencyMS <= 1800
+          ? 84
+          : latencyMS <= 3500
+            ? 68
+            : latencyMS <= 6000
+              ? 48
+              : 30;
+  return Math.round(clampNumber(availabilityScore * 0.62 + latencyScore * 0.24 + resourceScore * 0.14, 0, 100));
+}
+
+function providerTrend(data: AppData, provider: Provider, resources: ProviderResource[]) {
+  const logs = providerLogsFor(data, provider, resources);
+  const days = 30;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return Array.from({ length: days }, (_, index) => {
+    const dayStart = today - (days - 1 - index) * 24 * 60 * 60 * 1000;
+    const dayEnd = dayStart + 24 * 60 * 60 * 1000;
+    const dayLogs = logs.filter((log) => {
+      const time = safeTime(log.created_at);
+      return time >= dayStart && time < dayEnd;
+    });
+    if (dayLogs.length === 0) return "none" as ProviderTrendTone;
+    const failures = dayLogs.filter((log) => requestLogFailed(log)).length;
+    const slow = dayLogs.filter((log) => !requestLogFailed(log) && log.latency_ms >= 5000).length;
+    const availability = ((dayLogs.length - failures) / dayLogs.length) * 100;
+    if (availability < 90) return "failure" as ProviderTrendTone;
+    if (failures > 0 || slow > 0 || availability < 99) return "warning" as ProviderTrendTone;
+    return "success" as ProviderTrendTone;
+  });
+}
+
+function providerInitial(provider: Provider) {
+  return (provider.name || provider.type || provider.id || "P").trim().slice(0, 1).toUpperCase();
+}
+
+function providerPercent(value: number) {
+  return `${clampNumber(value, 0, 100).toFixed(1)}%`;
+}
+
+function safeTime(value: string | undefined) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function timeLabel(value: string | undefined) {
+  const time = safeTime(value);
+  if (!time) return "-";
+  return new Intl.DateTimeFormat(languageLocale(), { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(time));
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, Number.isFinite(value) ? value : min));
 }
 
 function TeamMembersPanel({ data, team, onClose }: { data: AppData; team: AdminResource; onClose: () => void }) {
@@ -10579,29 +11115,31 @@ function ModelCatalogView({
 
   return (
     <DataSection title={config.eyebrow}>
-      <div className="model-catalog">
-        <aside className="model-catalog-sidebar">
-          <div className="model-catalog-sidebar-head">
-            <strong>{tx("模型大类")}</strong>
-            <span>{data.models.length} {tx("个模型")}</span>
-          </div>
-          <div className="model-provider-list">
-            {categories.map((item) => (
-              <button
-                className={category === item.key ? "model-provider-filter active" : "model-provider-filter"}
-                key={item.key}
-                onClick={() => setCategory(item.key)}
-                type="button"
-              >
-                <span className="model-provider-icon">{modelCategoryInitial(item.key, item.label)}</span>
-                <strong>{tx(item.label)}</strong>
-                <em>{item.count}</em>
-              </button>
-            ))}
-          </div>
-        </aside>
-
+      <div className="model-catalog model-catalog-table-mode">
         <section className="model-catalog-main">
+          <div className="model-category-strip">
+            <div className="model-category-strip-head">
+              <strong>{tx("模型大类")}</strong>
+              <span>{data.models.length} {tx("个模型")}</span>
+            </div>
+            <div className="model-category-tabs" role="tablist" aria-label={tx("模型大类")}>
+              {categories.map((item) => (
+                <button
+                  aria-selected={category === item.key}
+                  className={category === item.key ? "model-category-tab active" : "model-category-tab"}
+                  key={item.key}
+                  onClick={() => setCategory(item.key)}
+                  role="tab"
+                  type="button"
+                >
+                  <ModelBrandIcon compact category={item.key} label={tx(item.label)} />
+                  <strong>{tx(item.label)}</strong>
+                  <em>{item.count}</em>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="model-filterbar">
             <div className="model-capability-tabs" role="tablist" aria-label={tx("模型能力筛选")}>
               {capabilities.map((item) => (
@@ -10652,24 +11190,147 @@ function ModelCatalogView({
               {modelCatalogEmptyText(data, readOnly, query)}
             </div>
           ) : (
-            <div className="model-card-grid">
-              {filtered.map((model) => (
-                <ModelCatalogCard
-                  key={model.name}
-                  model={model}
-                  data={data}
-                  readOnly={readOnly}
-                  actions={readOnly ? [] : config.actions ?? []}
-                  onAction={onAction}
-                  onEdit={readOnly ? undefined : onEdit}
-                  onDelete={readOnly ? undefined : onDelete}
-                />
-              ))}
-            </div>
+            <ModelCatalogPriceTable
+              models={filtered}
+              data={data}
+              readOnly={readOnly}
+              actions={readOnly ? [] : config.actions ?? []}
+              onAction={onAction}
+              onEdit={readOnly ? undefined : onEdit}
+              onDelete={readOnly ? undefined : onDelete}
+            />
           )}
         </section>
       </div>
     </DataSection>
+  );
+}
+
+type ModelCatalogPriceSortKey = "default" | "name" | "input" | "output" | "cache" | "context" | "monthly" | "index";
+type ModelCatalogPriceSortDirection = "asc" | "desc";
+type ModelCatalogPriceSort = {
+  key: ModelCatalogPriceSortKey;
+  direction: ModelCatalogPriceSortDirection;
+};
+type ModelCatalogPriceRowData = ReturnType<typeof modelCatalogPriceRow>;
+
+function ModelCatalogPriceTable({
+  models,
+  data,
+  readOnly,
+  actions,
+  onAction,
+  onEdit,
+  onDelete,
+}: {
+  models: Model[];
+  data: AppData;
+  readOnly: boolean;
+  actions: ResourceAction<Model>[];
+  onAction: (action: ResourceAction<Model>, item: Model) => void;
+  onEdit?: (item: Model) => void;
+  onDelete?: (item: Model) => void;
+}) {
+  const [sort, setSort] = useState<ModelCatalogPriceSort>({ key: "default", direction: "asc" });
+  const defaultSorted = modelCatalogPriceSortedModels(models);
+  const baseline = modelCatalogPriceBaseline(defaultSorted);
+  const rows = modelCatalogSortRows(defaultSorted.map((model) => modelCatalogPriceRow(model, data, readOnly, baseline)), sort);
+  const maxIndex = Math.max(1, ...rows.map((row) => row.priceIndex || 0));
+  return (
+    <div className="model-price-table-wrap">
+      <table className={readOnly ? "model-price-table" : "model-price-table admin"}>
+        <thead>
+          <tr>
+            <th aria-sort={modelCatalogSortAria(sort, "name")}>
+              <ModelCatalogSortHeader label="模型" sortKey="name" sort={sort} onSort={setSort} />
+            </th>
+            <th>{tx("类型")}</th>
+            <th aria-sort={modelCatalogSortAria(sort, "input")}>
+              <ModelCatalogSortHeader label="输入价" sortKey="input" sort={sort} onSort={setSort} />
+            </th>
+            <th aria-sort={modelCatalogSortAria(sort, "output")}>
+              <ModelCatalogSortHeader label="输出价" sortKey="output" sort={sort} onSort={setSort} />
+            </th>
+            <th aria-sort={modelCatalogSortAria(sort, "cache")}>
+              <ModelCatalogSortHeader label="缓存读" sortKey="cache" sort={sort} onSort={setSort} />
+            </th>
+            <th aria-sort={modelCatalogSortAria(sort, "context")}>
+              <ModelCatalogSortHeader label="上下文" sortKey="context" sort={sort} onSort={setSort} />
+            </th>
+            <th aria-sort={modelCatalogSortAria(sort, "monthly")}>
+              <ModelCatalogSortHeader label="估算月成本" sortKey="monthly" sort={sort} onSort={setSort} />
+            </th>
+            <th aria-sort={modelCatalogSortAria(sort, "index")}>
+              <ModelCatalogSortHeader label="价格指数" sortKey="index" sort={sort} onSort={setSort} />
+            </th>
+            <th>{tx("来源")}</th>
+            {!readOnly ? <th>{tx("操作")}</th> : null}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const visibleActions = actions.filter((action) => !action.visible || action.visible(row.model));
+            return (
+              <tr className={row.availability.tone === "blocked" && !readOnly ? "unrouted" : undefined} key={row.model.name}>
+                <td>
+                  <div className="model-price-name">
+                    <ModelBrandIcon category={row.category} label={row.categoryLabel} />
+                    <div>
+                      <strong>{modelDisplayTitle(row.model)}</strong>
+                      <span>{row.categoryLabel} · {row.model.name}</span>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <span className={`model-type-badge ${row.typeTone}`}>{tx(row.typeLabel)}</span>
+                </td>
+                <td><strong className="model-price-number">{modelCatalogPriceValue(row.inputPrice)}</strong></td>
+                <td><strong className="model-price-number output">{modelCatalogPriceValue(row.outputPrice)}</strong></td>
+                <td><strong className={row.cacheReadPrice ? "model-price-number" : "model-price-number muted"}>{modelCatalogPriceValue(row.cacheReadPrice)}</strong></td>
+                <td>
+                  <div className="model-context-cell">
+                    <strong>{row.contextLabel}</strong>
+                    <span>{row.contextDetail}</span>
+                  </div>
+                </td>
+                <td><strong className="model-monthly-cost">{row.monthlyCost > 0 ? `$${modelCatalogMoney(row.monthlyCost)}` : "-"}</strong></td>
+                <td>
+                  <div className="model-price-index">
+                    <span>
+                      <i style={{ width: row.priceIndex > 0 ? `${clampNumber((row.priceIndex / maxIndex) * 100, 8, 100)}%` : "0%" }} />
+                    </span>
+                    <strong>{row.priceIndex > 0 ? `${row.priceIndex.toFixed(2)}x` : "-"}</strong>
+                  </div>
+                </td>
+                <td>
+                  <div className="model-source-cell">
+                    <span className={`model-source-pill ${row.sourceTone}`}>{tx(row.sourceLabel)}</span>
+                    <small>{row.availability.activeRoutes}/{row.availability.totalRoutes} {tx("启用路由")}</small>
+                  </div>
+                </td>
+                {!readOnly ? (
+                  <td>
+                    <div className="model-row-actions">
+                      {visibleActions.map((action) => (
+                        <button className="text-button" key={action.label} onClick={() => onAction(action, row.model)} type="button">
+                          {tx(action.label)}
+                        </button>
+                      ))}
+                      {onEdit ? <button className="text-button" onClick={() => onEdit(row.model)} type="button">{tx("编辑")}</button> : null}
+                      {onDelete ? (
+                        <button className="danger-button" onClick={() => onDelete(row.model)} title={tx("删除")} type="button">
+                          <Trash2 size={15} />
+                        </button>
+                      ) : null}
+                    </div>
+                  </td>
+                ) : null}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -11027,6 +11688,275 @@ function ModelMetric({ label, value, muted }: { label: string; value: string; mu
       <span>{tx(label)}</span>
     </div>
   );
+}
+
+function ModelBrandIcon({ category, label, compact = false }: { category: string; label: string; compact?: boolean }) {
+  const source = modelBrandIconSource(category);
+  const className = `model-brand-icon${compact ? " compact" : ""}${source ? "" : " fallback"}`;
+  if (source) {
+    return (
+      <span aria-label={label} className={className} title={label}>
+        <img alt="" src={source} />
+      </span>
+    );
+  }
+  return (
+    <span aria-label={label} className={className} title={label}>
+      <Boxes size={18} />
+    </span>
+  );
+}
+
+function ModelCatalogSortHeader({
+  label,
+  sortKey,
+  sort,
+  onSort,
+}: {
+  label: string;
+  sortKey: Exclude<ModelCatalogPriceSortKey, "default">;
+  sort: ModelCatalogPriceSort;
+  onSort: (sort: ModelCatalogPriceSort) => void;
+}) {
+  const active = sort.key === sortKey;
+  return (
+    <button
+      className={active ? `model-sort-button active ${sort.direction}` : "model-sort-button"}
+      onClick={() => onSort(modelCatalogNextSort(sort, sortKey))}
+      title={tx("点击排序")}
+      type="button"
+    >
+      <span>{tx(label)}</span>
+      <ChevronDown aria-hidden="true" className="model-sort-icon" size={13} />
+    </button>
+  );
+}
+
+function modelCatalogNextSort(current: ModelCatalogPriceSort, key: Exclude<ModelCatalogPriceSortKey, "default">): ModelCatalogPriceSort {
+  if (current.key === key) {
+    return { key, direction: current.direction === "asc" ? "desc" : "asc" };
+  }
+  return { key, direction: modelCatalogDefaultSortDirection(key) };
+}
+
+function modelCatalogDefaultSortDirection(key: ModelCatalogPriceSortKey): ModelCatalogPriceSortDirection {
+  if (key === "name" || key === "input" || key === "output" || key === "cache" || key === "monthly" || key === "index") return "asc";
+  return "desc";
+}
+
+function modelCatalogSortAria(sort: ModelCatalogPriceSort, key: ModelCatalogPriceSortKey) {
+  if (sort.key !== key) return "none";
+  return sort.direction === "asc" ? "ascending" : "descending";
+}
+
+function modelCatalogPriceSortedModels(models: Model[]) {
+  return models.slice().sort((left, right) => {
+    const leftCost = modelEstimatedMonthlyCost(left);
+    const rightCost = modelEstimatedMonthlyCost(right);
+    const leftMissingPrice = leftCost <= 0 ? 1 : 0;
+    const rightMissingPrice = rightCost <= 0 ? 1 : 0;
+    return leftMissingPrice - rightMissingPrice
+      || leftCost - rightCost
+      || modelCategoryRank(left) - modelCategoryRank(right)
+      || left.name.localeCompare(right.name);
+  });
+}
+
+function modelCatalogSortRows(rows: ModelCatalogPriceRowData[], sort: ModelCatalogPriceSort) {
+  if (sort.key === "default") return rows;
+  const direction = sort.direction === "asc" ? 1 : -1;
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((left, right) => {
+      const compared = modelCatalogCompareSortValues(
+        modelCatalogSortValue(left.row, sort.key),
+        modelCatalogSortValue(right.row, sort.key),
+        direction,
+      );
+      return compared || left.index - right.index;
+    })
+    .map((item) => item.row);
+}
+
+function modelCatalogSortValue(row: ModelCatalogPriceRowData, key: ModelCatalogPriceSortKey) {
+  switch (key) {
+    case "name":
+      return modelDisplayTitle(row.model).toLowerCase();
+    case "input":
+      return row.inputPrice || undefined;
+    case "output":
+      return row.outputPrice || undefined;
+    case "cache":
+      return row.cacheReadPrice || undefined;
+    case "context":
+      return row.model.context_window || undefined;
+    case "monthly":
+      return row.monthlyCost || undefined;
+    case "index":
+      return row.priceIndex || undefined;
+    default:
+      return undefined;
+  }
+}
+
+function modelCatalogCompareSortValues(left: string | number | undefined, right: string | number | undefined, direction: number) {
+  const leftMissing = left === undefined || left === "";
+  const rightMissing = right === undefined || right === "";
+  if (leftMissing && rightMissing) return 0;
+  if (leftMissing) return 1;
+  if (rightMissing) return -1;
+  if (typeof left === "string" || typeof right === "string") {
+    return String(left).localeCompare(String(right)) * direction;
+  }
+  return (left - right) * direction;
+}
+
+function modelCatalogPriceBaseline(models: Model[]) {
+  const preferred = models.find((model) => /gpt-4\.1-mini|gpt-4o-mini|deepseek-chat/i.test(model.name));
+  const preferredCost = preferred ? modelEstimatedMonthlyCost(preferred) : 0;
+  if (preferredCost > 0) return preferredCost;
+  const costs = models.map(modelEstimatedMonthlyCost).filter((cost) => cost > 0).sort((left, right) => left - right);
+  return costs[Math.floor(costs.length / 2)] || costs[0] || 1;
+}
+
+function modelCatalogPriceRow(model: Model, data: AppData, readOnly: boolean, baseline: number) {
+  const category = modelCategory(model);
+  const inputPrice = modelCatalogInputPrice(model);
+  const outputPrice = model.output_price_usd_per_1m || undefined;
+  const cacheReadPrice = modelCachedReadPrice(model);
+  const monthlyCost = modelEstimatedMonthlyCost(model);
+  const priceIndex = monthlyCost > 0 && baseline > 0 ? monthlyCost / baseline : 0;
+  const availability = modelAvailabilitySummary(model, data, readOnly);
+  const source = modelCatalogSource(model, data);
+  const type = modelCatalogTypeBadge(model, monthlyCost, baseline);
+  return {
+    model,
+    availability,
+    category,
+    categoryLabel: modelCategoryLabel(category),
+    inputPrice,
+    outputPrice,
+    cacheReadPrice,
+    monthlyCost,
+    priceIndex,
+    contextLabel: model.context_window ? modelCatalogCompactNumber(model.context_window) : "-",
+    contextDetail: model.context_window ? tx("上下文窗口") : tx("未配置"),
+    sourceLabel: source.label,
+    sourceTone: source.tone,
+    typeLabel: type.label,
+    typeTone: type.tone,
+  };
+}
+
+function modelCatalogInputPrice(model: Model) {
+  if (model.input_price_usd_per_1m) return model.input_price_usd_per_1m;
+  if (model.modality === "embedding" && model.embedding_price_usd_per_1m) return model.embedding_price_usd_per_1m;
+  return undefined;
+}
+
+function modelCachedReadPrice(model: Model) {
+  const configured = readModelMetadataNumber(model, [
+    "cached_input_price_usd_per_1m",
+    "cache_read_price_usd_per_1m",
+    "cached_read_price_usd_per_1m",
+  ]);
+  if (configured > 0) return configured;
+  const input = model.input_price_usd_per_1m || 0;
+  if (!input || model.modality === "embedding") return undefined;
+  const category = modelCategory(model);
+  const cacheHint = [model.name, model.family, ...(model.capabilities ?? []), ...(model.supported_parameters ?? [])]
+    .join(" ")
+    .toLowerCase();
+  const commonlyCached = ["openai", "claude", "gemini", "deepseek"].includes(category)
+    || cacheHint.includes("cache")
+    || cacheHint.includes("prompt");
+  return commonlyCached ? input * 0.25 : undefined;
+}
+
+function readModelMetadataNumber(model: Model, keys: string[]) {
+  for (const key of keys) {
+    const value = Number(model.metadata?.[key] ?? "");
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return 0;
+}
+
+function modelEstimatedMonthlyCost(model: Model) {
+  const embeddingPrice = model.embedding_price_usd_per_1m || 0;
+  if (model.modality === "embedding" && embeddingPrice > 0) return embeddingPrice * 100;
+  const input = model.input_price_usd_per_1m || 0;
+  const output = model.output_price_usd_per_1m || 0;
+  return input * 100 + output * 50;
+}
+
+function modelCatalogTypeBadge(model: Model, monthlyCost: number, baseline: number) {
+  const text = [model.name, model.family, model.modality, ...(model.capabilities ?? [])].join(" ").toLowerCase();
+  if (/code|coder|codestral|devstral|codex|build/.test(text)) return { label: "代码", tone: "code" };
+  if (/reason|thinking|r1|o1|o3/.test(text)) return { label: "推理", tone: "reasoning" };
+  if (/image|vision|video|audio|ocr|multimodal/.test(text)) return { label: "多模态", tone: "media" };
+  const index = monthlyCost > 0 && baseline > 0 ? monthlyCost / baseline : 0;
+  if (index > 0 && index <= 0.8) return { label: "低价", tone: "low" };
+  if (index >= 2.4 || /pro|opus|large|gpt-5|grok-4/.test(text)) return { label: "旗舰", tone: "flagship" };
+  return { label: "均衡", tone: "balanced" };
+}
+
+function modelCatalogSource(model: Model, data: AppData) {
+  const hasPrice = modelEstimatedMonthlyCost(model) > 0;
+  if (!hasPrice) return { label: "未配置", tone: "missing" };
+  if (hasThirdPartyRoute(model, data)) return { label: "三方价", tone: "third" };
+  return { label: "官方价", tone: "official" };
+}
+
+function modelBrandIconSource(category: string) {
+  const sources: Record<string, string> = {
+    openai: "/model-icons/openai.svg",
+    claude: "/model-icons/claude.svg",
+    deepseek: "/model-icons/deepseek.svg",
+    gemini: "/model-icons/gemini.svg",
+    qwen: "/model-icons/qwen.svg",
+    glm: "/model-icons/glm.svg",
+    kimi: "/model-icons/kimi.svg",
+    doubao: "/model-icons/doubao.svg",
+    ernie: "/model-icons/ernie.svg",
+    baichuan: "/model-icons/baichuan.svg",
+    minimax: "/model-icons/minimax.svg",
+    stepfun: "/model-icons/stepfun.svg",
+    wanx: "/model-icons/wanx.svg",
+    paddlepaddle: "/model-icons/paddlepaddle.svg",
+    microsoft: "/model-icons/microsoft.svg",
+    llama: "/model-icons/llama.svg",
+    mistral: "/model-icons/mistral.svg",
+    grok: "/model-icons/grok.svg",
+  };
+  return sources[category] ?? "";
+}
+
+function modelDisplayTitle(model: Model) {
+  return model.metadata?.title || model.name;
+}
+
+function modelCatalogPriceValue(value: number | undefined) {
+  return value && value > 0 ? `$${modelCatalogMoney(value)}` : "-";
+}
+
+function modelCatalogMoney(value: number) {
+  const amount = Math.max(0, value || 0);
+  if (amount >= 100) return amount.toFixed(0);
+  if (amount >= 10) return amount.toFixed(1);
+  if (amount >= 1) return amount.toFixed(2);
+  return amount.toFixed(3);
+}
+
+function modelCatalogCompactNumber(value: number) {
+  if (value >= 1_000_000) {
+    const scaled = value / 1_000_000;
+    return `${Number.isInteger(scaled) ? scaled.toFixed(0) : scaled.toFixed(1)}M`;
+  }
+  if (value >= 1_000) {
+    const scaled = value / 1_000;
+    return `${Number.isInteger(scaled) ? scaled.toFixed(0) : scaled.toFixed(1)}K`;
+  }
+  return formatNumber(value || 0);
 }
 
 function SettingsView({
@@ -12475,6 +13405,7 @@ function ProviderUpsertModal({
   );
   const [accountOAuthCallback, setAccountOAuthCallback] = useState("");
   const [accountOAuthStatus, setAccountOAuthStatus] = useState("");
+  const [accountOAuthBusy, setAccountOAuthBusy] = useState(false);
   const [createStep, setCreateStep] = useState(0);
   const createSteps = useMemo(() => providerCreateWizardSteps(), []);
   const lastCreateStep = createSteps.length - 1;
@@ -12625,7 +13556,7 @@ function ProviderUpsertModal({
     if (mode !== "create" || credentialMode !== "account_integration") return;
     const pending = consumePendingProviderAccountOAuthResult();
     if (!pending) return;
-    applyProviderAccountOAuthResult(pending, tx("已从回调 URL 自动回填账号 Token。"));
+    void applyProviderAccountOAuthResult(pending, tx("已从回调 URL 自动回填账号 Token。"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, credentialMode]);
 
@@ -12661,10 +13592,16 @@ function ProviderUpsertModal({
     setAccountValues((current) => ({ ...current, [key]: value }));
   }
 
-  function applyProviderAccountOAuthResult(result: ProviderAccountOAuthResult, message: string) {
+  async function applyProviderAccountOAuthResult(result: ProviderAccountOAuthResult, message: string) {
+    if (result.error) {
+      const errorMessage = `${tx("账号授权失败")}：${result.error}`;
+      setAccountOAuthStatus(errorMessage);
+      setError(errorMessage);
+      clearPendingProviderAccountOAuthSession();
+      return;
+    }
     if (result.authorization_code && !result.access_token && !result.refresh_token && !result.id_token) {
-      setAccountOAuthStatus(tx("回调里只有授权 code，当前版本还需要返回 Token 的授权地址，或在高级选项中手动粘贴 Token。"));
-      setError(tx("回调里只有授权 code，当前版本还需要返回 Token 的授权地址，或在高级选项中手动粘贴 Token。"));
+      await exchangeProviderAccountAuthorizationCode(result, message);
       return;
     }
     if (!result.access_token && !result.refresh_token && !result.id_token) {
@@ -12695,7 +13632,7 @@ function ProviderUpsertModal({
     setAccountOAuthCallback(raw);
     const result = parseProviderAccountOAuthResult(raw, true);
     if (!result) return;
-    applyProviderAccountOAuthResult(result, tx("已从粘贴的回调结果回填账号 Token。"));
+    void applyProviderAccountOAuthResult(result, tx("已从粘贴的回调结果回填账号 Token。"));
   }
 
   function parseAccountOAuthCallbackNow() {
@@ -12705,24 +13642,63 @@ function ProviderUpsertModal({
       setError(tx("未在回调结果中识别到 Token。"));
       return;
     }
-    applyProviderAccountOAuthResult(result, tx("已从粘贴的回调结果回填账号 Token。"));
+    void applyProviderAccountOAuthResult(result, tx("已从粘贴的回调结果回填账号 Token。"));
   }
 
-  function openProviderAccountAuthorization() {
-    const rawURL = accountValues.authorization_url?.trim() ?? "";
-    if (!rawURL) {
-      setAccountOAuthStatus(tx("请先填写账号授权地址。"));
-      setError(tx("请先填写账号授权地址。"));
+  async function exchangeProviderAccountAuthorizationCode(result: ProviderAccountOAuthResult, message: string) {
+    const pendingSession = readPendingProviderAccountOAuthSession();
+    const sessionID = result.session_id || pendingSession?.session_id || "";
+    const state = result.state || pendingSession?.state || "";
+    if (!sessionID || !state || !result.authorization_code) {
+      setAccountOAuthStatus(tx("授权回调缺少会话信息，请重新打开授权。"));
+      setError(tx("授权回调缺少会话信息，请重新打开授权。"));
       return;
     }
+    setAccountOAuthBusy(true);
+    setAccountOAuthStatus(tx("正在换取账号 Token..."));
     try {
-      const url = providerAccountAuthorizeURL(rawURL, accountCallbackURL);
-      window.open(url, "_blank", "noopener,noreferrer");
-      setAccountOAuthStatus(tx("打开授权页后，请在上游账号系统完成授权。"));
+      const resp = await adminFetch(api, "/api/admin/provider-account-oauth/openai/exchange-code", {
+        method: "POST",
+        body: JSON.stringify({
+          session_id: sessionID,
+          state,
+          code: result.authorization_code,
+        }),
+      });
+      if (!resp.ok) throw new Error(await readAdminError(resp, tx("账号授权换取 Token")));
+      const tokenInfo = (await resp.json()) as ProviderAccountOAuthResult;
+      clearPendingProviderAccountOAuthSession();
+      await applyProviderAccountOAuthResult(tokenInfo, message);
+    } catch (err) {
+      if (isAuthExpiredError(err)) return;
+      const errorMessage = err instanceof Error ? err.message : tx("账号授权换取 Token 失败");
+      setAccountOAuthStatus(errorMessage);
+      setError(errorMessage);
+    } finally {
+      setAccountOAuthBusy(false);
+    }
+  }
+
+  async function openProviderAccountAuthorization() {
+    try {
+      setAccountOAuthBusy(true);
+      const resp = await adminFetch(api, "/api/admin/provider-account-oauth/openai/generate-auth-url", {
+        method: "POST",
+        body: JSON.stringify({ return_url: accountCallbackURL }),
+      });
+      if (!resp.ok) throw new Error(await readAdminError(resp, tx("生成账号授权地址")));
+      const generated = (await resp.json()) as ProviderAccountOAuthGenerateResponse;
+      savePendingProviderAccountOAuthSession({ session_id: generated.session_id, state: generated.state });
+      window.open(generated.auth_url, "_blank", "noopener,noreferrer");
+      setAccountOAuthStatus(tx("已打开 OpenAI/Codex 授权页，授权完成后会自动回填账号 Token。"));
       setError("");
-    } catch {
-      setAccountOAuthStatus(tx("账号授权地址格式不正确。"));
-      setError(tx("账号授权地址格式不正确。"));
+    } catch (err) {
+      if (isAuthExpiredError(err)) return;
+      const errorMessage = err instanceof Error ? err.message : tx("生成账号授权地址失败");
+      setAccountOAuthStatus(errorMessage);
+      setError(errorMessage);
+    } finally {
+      setAccountOAuthBusy(false);
     }
   }
 
@@ -13117,7 +14093,7 @@ function ProviderUpsertModal({
                   <div className="provider-account-inline">
                     <div className="provider-account-inline-head">
                       <strong>{tx("账号授权")}</strong>
-                      <span>{tx("输入账号地址并打开授权页；授权完成后 TokenHub 会从回调 URL 自动回填 Token。")}</span>
+                      <span>{tx("使用 OpenAI/Codex OAuth 授权账号；TokenHub 会在后端换取并保存账号 Token。")}</span>
                     </div>
                     <div className="provider-account-auth-grid">
                       <label className="field">
@@ -13130,33 +14106,22 @@ function ProviderUpsertModal({
                         <small>{tx("用于区分账号资源，可填写邮箱或账号系统里的唯一地址。")}</small>
                       </label>
                       <label className="field provider-account-auth-wide">
-                        <span>{tx("账号授权地址")}</span>
-                        <div className="field-action-row">
-                          <input value={accountValues.authorization_url ?? ""} onChange={(event) => updateAccountValue("authorization_url", event.target.value)} placeholder="https://accounts.example.com/oauth/authorize" />
-                          <button className="secondary-button" onClick={openProviderAccountAuthorization} type="button">
-                            <Send size={14} />
-                            {tx("打开授权")}
-                          </button>
-                        </div>
-                        <small>{tx("粘贴上游账号系统的授权地址；TokenHub 会带上本页回调地址。")}</small>
-                      </label>
-                      <label className="field provider-account-auth-wide">
-                        <span>{tx("本页回调地址")}</span>
+                        <span>{tx("OpenAI/Codex 授权")}</span>
                         <div className="field-action-row">
                           <input readOnly value={accountCallbackURL} />
-                          <button className="secondary-button" onClick={copyProviderAccountCallbackURL} type="button">
-                            <Copy size={14} />
-                            {tx("复制回调地址")}
+                          <button className="secondary-button" onClick={openProviderAccountAuthorization} type="button" disabled={accountOAuthBusy}>
+                            <Send size={14} />
+                            {tx(accountOAuthBusy ? "授权中" : "打开授权")}
                           </button>
                         </div>
-                        <small>{tx("授权应用跳回这个地址后，TokenHub 会自动读取 access_token / refresh_token / id_token。")}</small>
+                        <small>{tx("点击后由后端生成授权地址；授权完成会带 code 回到本页并自动换取 Token。")}</small>
                       </label>
                       <label className="field provider-account-auth-wide">
                         <span>{tx("回调结果")}</span>
                         <textarea
                           value={accountOAuthCallback}
                           onChange={(event) => parseAccountOAuthCallback(event.target.value)}
-                          placeholder="http://localhost:3000/providers?provider_account_oauth=1#access_token=..."
+                          placeholder="http://localhost:3000/providers?provider_account_oauth=1&code=..."
                         />
                         <small>{tx("如果授权页没有自动跳回本页，把完整 callback URL 或 URL fragment 粘贴到这里。")}</small>
                       </label>
@@ -13164,6 +14129,10 @@ function ProviderUpsertModal({
                         <button className="secondary-button" onClick={parseAccountOAuthCallbackNow} type="button">
                           <Check size={14} />
                           {tx("解析回填")}
+                        </button>
+                        <button className="secondary-button" onClick={copyProviderAccountCallbackURL} type="button">
+                          <Copy size={14} />
+                          {tx("复制回调地址")}
                         </button>
                         <div className={accountTokenSummary.ready ? "provider-account-token-status ready" : "provider-account-token-status"}>
                           {accountTokenSummary.ready ? <Check size={15} /> : <AlertCircle size={15} />}
@@ -14162,8 +15131,15 @@ function sqliteBackupConfig(): ResourceConfig<SQLiteBackup> {
 function notificationChannelConfig(): ResourceConfig<AdminResource> {
   const fields: FieldConfig[] = [
     { key: "type", label: "渠道类型", type: "select", options: notificationChannelTypes, required: true },
-    { key: "webhook_url", label: "Webhook URL", required: true, visible: notificationChannelUsesWebhook },
-    { key: "secret", label: "签名密钥", type: "password", help: "可选预留。当前按普通机器人 Webhook 发送，留空不影响通知。", visible: notificationChannelUsesWebhook },
+    { key: "webhook_url", label: "Webhook URL", required: true, visible: notificationChannelUsesIncomingWebhook },
+    { key: "secret", label: "签名密钥", type: "password", help: "可选预留。当前按普通机器人 Webhook 发送，留空不影响通知。", visible: notificationChannelUsesIncomingWebhook },
+    { key: "telegram_bot_token", label: "Telegram Bot Token", type: "password", required: true, help: "编辑时留空表示不修改。", visible: notificationChannelUsesTelegram },
+    { key: "telegram_chat_id", label: "Telegram Chat ID", required: true, visible: notificationChannelUsesTelegram },
+    { key: "telegram_thread_id", label: "Telegram Topic ID", visible: notificationChannelUsesTelegram },
+    { key: "whatsapp_phone_number_id", label: "WhatsApp Phone Number ID", required: true, visible: notificationChannelUsesWhatsApp },
+    { key: "whatsapp_to", label: "WhatsApp 收件人", required: true, visible: notificationChannelUsesWhatsApp },
+    { key: "access_token", label: "Access Token", type: "password", required: true, help: "编辑时留空表示不修改。", visible: notificationChannelUsesWhatsApp },
+    { key: "whatsapp_api_version", label: "WhatsApp API Version", visible: notificationChannelUsesWhatsApp },
     { key: "smtp_host", label: "SMTP Host", required: true, visible: notificationChannelUsesEmail },
     { key: "smtp_port", label: "SMTP 端口", type: "number", required: true, visible: notificationChannelUsesEmail },
     { key: "smtp_username", label: "SMTP 用户名", visible: notificationChannelUsesEmail },
@@ -14174,7 +15150,7 @@ function notificationChannelConfig(): ResourceConfig<AdminResource> {
   const config = genericResourceConfig(
     "notification-channels",
     "通知渠道",
-    "按 Webhook、飞书、钉钉、企业微信、Slack 和邮件快速配置告警通知目标。",
+    "按 Webhook、Slack、Discord、Telegram、WhatsApp、飞书、钉钉、企业微信和邮件快速配置告警通知目标。",
     fields,
   );
   return {
@@ -14198,6 +15174,13 @@ function notificationChannelConfig(): ResourceConfig<AdminResource> {
       type: notificationChannelType(item),
       webhook_url: stringifyValue(item.fields?.webhook_url),
       secret: "",
+      telegram_bot_token: "",
+      telegram_chat_id: stringifyValue(item.fields?.telegram_chat_id || item.fields?.chat_id),
+      telegram_thread_id: stringifyValue(item.fields?.telegram_thread_id || item.fields?.message_thread_id),
+      whatsapp_phone_number_id: stringifyValue(item.fields?.whatsapp_phone_number_id || item.fields?.phone_number_id),
+      whatsapp_to: stringifyValue(item.fields?.whatsapp_to || item.fields?.recipient || item.fields?.to),
+      access_token: "",
+      whatsapp_api_version: stringifyValue(item.fields?.whatsapp_api_version || item.fields?.api_version || "v20.0"),
       smtp_host: stringifyValue(item.fields?.smtp_host),
       smtp_port: stringifyValue(item.fields?.smtp_port),
       smtp_username: stringifyValue(item.fields?.smtp_username),
@@ -14298,14 +15281,6 @@ function providerConfig(): ResourceConfig<Provider> {
         }),
       },
       {
-        label: "账号集成",
-        title: "为该 Provider 添加账号资源",
-        modal: (item) => ({
-          config: providerResourceConfig(item),
-          initialValues: providerResourceDefaults(item),
-        }),
-      },
-      {
         label: "测试",
         title: "检测 Provider 可用性",
         run: (ctx, item) => adminMutate(ctx, `/api/admin/providers/${item.id}/test`, "POST", {}),
@@ -14369,6 +15344,15 @@ function providerResourceConfig(provider?: Provider): ResourceConfig<ProviderRes
     create: (ctx, values) => adminMutate(ctx, "/api/admin/provider-resources", "POST", providerResourcePayload(values)),
     update: (ctx, item, values) => adminMutate(ctx, `/api/admin/provider-resources/${item.id}`, "PATCH", providerResourceUpdatePayload(values)),
     remove: (ctx, item) => adminDelete(ctx, `/api/admin/provider-resources/${item.id}`),
+    actions: [
+      {
+        label: "刷新 Token",
+        title: "使用保存的 refresh token 更新账号访问 Token",
+        visible: (item) => item.resource_type === "openai_subscription" && item.credential_summary?.has_refresh_token === "true",
+        run: (ctx, item) => adminMutate(ctx, `/api/admin/provider-resources/${item.id}/refresh-token`, "POST", {}),
+        doneMessage: (item) => `${item.name} ${tx("Token 已刷新")}`,
+      },
+    ],
     toForm: providerResourceToForm,
   };
 }
@@ -15788,21 +16772,41 @@ function notificationChannelPayload(values: Record<string, string>, existing?: A
   const type = normalizeNotificationChannelType(values.type);
   const secret = values.secret || stringifyValue(existing?.fields?.secret);
   const smtpPassword = values.smtp_password || stringifyValue(existing?.fields?.smtp_password);
-  const fields = type === "email"
-    ? {
-        type,
-        smtp_host: values.smtp_host,
-        smtp_port: numberOr(values.smtp_port, 587),
-        smtp_username: values.smtp_username,
-        smtp_password: smtpPassword,
-        smtp_from: values.smtp_from,
-        email_to: values.email_to,
-      }
-    : {
-        type,
-        webhook_url: values.webhook_url,
-        secret,
-      };
+  const telegramBotToken = values.telegram_bot_token || stringifyValue(existing?.fields?.telegram_bot_token || existing?.fields?.bot_token || existing?.fields?.secret);
+  const whatsappAccessToken = values.access_token || stringifyValue(existing?.fields?.access_token || existing?.fields?.whatsapp_access_token || existing?.fields?.secret);
+  let fields: Record<string, unknown>;
+  if (type === "email") {
+    fields = {
+      type,
+      smtp_host: values.smtp_host,
+      smtp_port: numberOr(values.smtp_port, 587),
+      smtp_username: values.smtp_username,
+      smtp_password: smtpPassword,
+      smtp_from: values.smtp_from,
+      email_to: values.email_to,
+    };
+  } else if (type === "telegram") {
+    fields = {
+      type,
+      telegram_bot_token: telegramBotToken,
+      telegram_chat_id: values.telegram_chat_id,
+      telegram_thread_id: values.telegram_thread_id,
+    };
+  } else if (type === "whatsapp") {
+    fields = {
+      type,
+      whatsapp_phone_number_id: values.whatsapp_phone_number_id,
+      whatsapp_to: values.whatsapp_to,
+      access_token: whatsappAccessToken,
+      whatsapp_api_version: values.whatsapp_api_version || "v20.0",
+    };
+  } else {
+    fields = {
+      type,
+      webhook_url: values.webhook_url,
+      secret,
+    };
+  }
   return {
     name: values.name || `${notificationChannelLabel(type)} 通知渠道`,
     description: values.description || notificationChannelDescription(type),
@@ -15820,6 +16824,13 @@ function notificationChannelDefaults(type: string) {
     type: normalized,
     webhook_url: notificationChannelURLPlaceholder(normalized),
     secret: "",
+    telegram_bot_token: "",
+    telegram_chat_id: "",
+    telegram_thread_id: "",
+    whatsapp_phone_number_id: "",
+    whatsapp_to: "",
+    access_token: "",
+    whatsapp_api_version: "v20.0",
     smtp_host: "smtp.example.com",
     smtp_port: "587",
     smtp_username: "tokenhub@example.com",
@@ -16274,18 +17285,28 @@ function notificationChannelFormType(values: Record<string, string>) {
   return normalizeNotificationChannelType(values.type);
 }
 
-function notificationChannelUsesWebhook(values: Record<string, string>) {
-  return notificationChannelFormType(values) !== "email";
+function notificationChannelUsesIncomingWebhook(values: Record<string, string>) {
+  return !["email", "telegram", "whatsapp"].includes(notificationChannelFormType(values));
 }
 
 function notificationChannelUsesEmail(values: Record<string, string>) {
   return notificationChannelFormType(values) === "email";
 }
 
+function notificationChannelUsesTelegram(values: Record<string, string>) {
+  return notificationChannelFormType(values) === "telegram";
+}
+
+function notificationChannelUsesWhatsApp(values: Record<string, string>) {
+  return notificationChannelFormType(values) === "whatsapp";
+}
+
 function normalizeNotificationChannelType(type: string) {
   const normalized = type.trim().toLowerCase();
   if (normalized === "dingding" || normalized === "ding_talk") return "dingtalk";
   if (normalized === "wechat_work" || normalized === "weixin_work" || normalized === "enterprise_wechat") return "wecom";
+  if (normalized === "tg") return "telegram";
+  if (["whatsapp_cloud", "whatsapp_business", "wa"].includes(normalized)) return "whatsapp";
   if (notificationChannelTypes.includes(normalized)) return normalized;
   return "webhook";
 }
@@ -16297,6 +17318,9 @@ function notificationChannelLabel(type: string) {
     dingtalk: "钉钉",
     wecom: "企业微信",
     slack: "Slack",
+    discord: "Discord",
+    telegram: "Telegram",
+    whatsapp: "WhatsApp",
     email: "邮件",
   };
   return tx(labels[normalizeNotificationChannelType(type)] ?? type);
@@ -16309,6 +17333,9 @@ function notificationChannelDescription(type: string) {
     dingtalk: "钉钉机器人告警通知",
     wecom: "企业微信机器人告警通知",
     slack: "Slack Incoming Webhook 告警通知",
+    discord: "Discord Webhook 告警通知",
+    telegram: "Telegram Bot 告警通知",
+    whatsapp: "WhatsApp Cloud API 告警通知",
     email: "SMTP 邮件告警通知",
   };
   return descriptions[normalizeNotificationChannelType(type)] ?? "告警通知渠道";
@@ -16321,20 +17348,37 @@ function notificationChannelURLPlaceholder(type: string) {
     dingtalk: "https://oapi.dingtalk.com/robot/send?access_token=xxxxxxxx",
     wecom: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
     slack: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
+    discord: "https://discord.com/api/webhooks/000000000000000000/XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    telegram: "Telegram Bot Token + Chat ID",
+    whatsapp: "WhatsApp Phone Number ID + Access Token",
   };
   return urls[normalizeNotificationChannelType(type)] ?? urls.webhook;
 }
 
 function notificationChannelTargetSummary(item: AdminResource) {
-  if (notificationChannelType(item) === "email") {
+  const type = notificationChannelType(item);
+  if (type === "email") {
     return compactList(item.fields?.email_to);
+  }
+  if (type === "telegram") {
+    return stringifyValue(item.fields?.telegram_chat_id || item.fields?.chat_id || item.fields?.recipient || item.fields?.to) || "-";
+  }
+  if (type === "whatsapp") {
+    return stringifyValue(item.fields?.whatsapp_to || item.fields?.recipient || item.fields?.to) || "-";
   }
   return maskWebhookURL(stringifyValue(item.fields?.webhook_url));
 }
 
 function notificationCredentialSummary(item: AdminResource) {
-  if (notificationChannelType(item) === "email") {
+  const type = notificationChannelType(item);
+  if (type === "email") {
     return stringifyValue(item.fields?.smtp_password) ? "SMTP 已配置" : "SMTP 未配置";
+  }
+  if (type === "telegram") {
+    return stringifyValue(item.fields?.telegram_bot_token || item.fields?.bot_token || item.fields?.secret) ? "Bot Token 已配置" : "Bot Token 未配置";
+  }
+  if (type === "whatsapp") {
+    return stringifyValue(item.fields?.access_token || item.fields?.whatsapp_access_token || item.fields?.secret) ? "Access Token 已配置" : "Access Token 未配置";
   }
   return stringifyValue(item.fields?.secret) ? "已配置" : "未配置";
 }
@@ -17252,6 +18296,9 @@ function enumValueLabel(value: string | undefined) {
     dingtalk: "钉钉",
     wecom: "企业微信",
     slack: "Slack",
+    discord: "Discord",
+    telegram: "Telegram",
+    whatsapp: "WhatsApp",
     email: "邮件",
     requests: "请求日志",
     usage: "用量归因",
@@ -17335,6 +18382,13 @@ function fieldKeyLabel(key: string) {
     smtp_password: "SMTP 密码",
     smtp_from: "发件人",
     email_to: "收件人",
+    telegram_bot_token: "Telegram Bot Token",
+    telegram_chat_id: "Telegram Chat ID",
+    telegram_thread_id: "Telegram Topic ID",
+    whatsapp_phone_number_id: "WhatsApp Phone Number ID",
+    whatsapp_to: "WhatsApp 收件人",
+    access_token: "Access Token",
+    whatsapp_api_version: "WhatsApp API Version",
   };
   return tx(labels[key] ?? key);
 }
@@ -17953,6 +19007,8 @@ type ProviderAccountOAuthResult = {
   access_token?: string;
   refresh_token?: string;
   id_token?: string;
+  session_id?: string;
+  state?: string;
   account_email?: string;
   account_id?: string;
   organization_id?: string;
@@ -17961,6 +19017,15 @@ type ProviderAccountOAuthResult = {
   expires_at?: string;
   scopes?: string;
   authorization_code?: string;
+  error?: string;
+};
+
+type ProviderAccountOAuthGenerateResponse = {
+  auth_url: string;
+  session_id: string;
+  state: string;
+  redirect_uri: string;
+  expires_at: string;
 };
 
 function readOAuthLoginResult(): OAuthLoginResult | null {
@@ -17983,6 +19048,7 @@ function readOAuthLoginResult(): OAuthLoginResult | null {
 }
 
 const providerAccountOAuthStorageKey = "tokenhub_provider_account_oauth_result";
+const providerAccountOAuthSessionStorageKey = "tokenhub_provider_account_oauth_session";
 
 function providerAccountOAuthCallbackURL() {
   if (typeof window === "undefined") return "";
@@ -17990,17 +19056,6 @@ function providerAccountOAuthCallbackURL() {
   url.hash = "";
   url.search = "";
   url.searchParams.set("provider_account_oauth", "1");
-  return url.toString();
-}
-
-function providerAccountAuthorizeURL(rawURL: string, callbackURL: string) {
-  const url = new URL(rawURL.trim());
-  if (callbackURL && !url.searchParams.has("redirect_uri")) {
-    url.searchParams.set("redirect_uri", callbackURL);
-  }
-  if (!url.searchParams.has("state")) {
-    url.searchParams.set("state", "tokenhub_provider_account");
-  }
   return url.toString();
 }
 
@@ -18026,6 +19081,9 @@ function parseProviderAccountOAuthResult(source: string, allowGenericTokenNames 
     result.access_token = firstParam(params, marked ? ["account_access_token", "provider_access_token", "access_token", "token"] : ["account_access_token", "provider_access_token"]);
     result.refresh_token = firstParam(params, marked ? ["account_refresh_token", "refresh_token"] : ["account_refresh_token"]);
     result.id_token = firstParam(params, marked ? ["account_id_token", "id_token"] : ["account_id_token"]);
+    result.session_id = firstParam(params, ["provider_account_oauth_session_id", "account_oauth_session_id", "session_id"]);
+    result.state = firstParam(params, ["provider_account_oauth_state", "account_oauth_state", "state"]);
+    result.error = firstParam(params, ["provider_account_oauth_error", "oauth_error", "error"]);
     result.account_email = firstParam(params, ["account_email", "email", "login", "username"]);
     result.account_id = firstParam(params, ["account_id", "sub", "user_id"]);
     result.organization_id = firstParam(params, ["organization_id", "org_id"]);
@@ -18034,6 +19092,7 @@ function parseProviderAccountOAuthResult(source: string, allowGenericTokenNames 
     result.expires_at = firstParam(params, ["expires_at", "token_expires_at"]);
     result.scopes = firstParam(params, ["scope", "scopes"]);
     result.authorization_code = firstParam(params, ["code", "authorization_code"]);
+    if (result.error) return result;
     if (result.access_token || result.refresh_token || result.id_token) return result;
     if (result.authorization_code) return result;
   }
@@ -18067,6 +19126,14 @@ function clearProviderAccountOAuthResultFromLocation() {
   for (const key of [
     "provider_account_oauth",
     "tokenhub_provider_account",
+    "provider_account_oauth_session_id",
+    "account_oauth_session_id",
+    "session_id",
+    "provider_account_oauth_state",
+    "account_oauth_state",
+    "provider_account_oauth_error",
+    "oauth_error",
+    "error",
     "account_access_token",
     "provider_access_token",
     "account_refresh_token",
@@ -18096,6 +19163,14 @@ function clearProviderAccountOAuthResultFromLocation() {
     for (const key of [
       "provider_account_oauth",
       "tokenhub_provider_account",
+      "provider_account_oauth_session_id",
+      "account_oauth_session_id",
+      "session_id",
+      "provider_account_oauth_state",
+      "account_oauth_state",
+      "provider_account_oauth_error",
+      "oauth_error",
+      "error",
       "access_token",
       "refresh_token",
       "id_token",
@@ -18135,6 +19210,27 @@ function clearProviderAccountOAuthResultFromLocation() {
 function savePendingProviderAccountOAuthResult(result: ProviderAccountOAuthResult) {
   if (typeof window === "undefined") return;
   window.sessionStorage.setItem(providerAccountOAuthStorageKey, JSON.stringify(result));
+}
+
+function savePendingProviderAccountOAuthSession(result: Pick<ProviderAccountOAuthResult, "session_id" | "state">) {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(providerAccountOAuthSessionStorageKey, JSON.stringify(result));
+}
+
+function readPendingProviderAccountOAuthSession() {
+  if (typeof window === "undefined") return null;
+  const raw = window.sessionStorage.getItem(providerAccountOAuthSessionStorageKey);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as Pick<ProviderAccountOAuthResult, "session_id" | "state">;
+  } catch {
+    return null;
+  }
+}
+
+function clearPendingProviderAccountOAuthSession() {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem(providerAccountOAuthSessionStorageKey);
 }
 
 function hasPendingProviderAccountOAuthResult() {
@@ -18190,7 +19286,14 @@ function isOAuthAuthorizationResponse() {
   return Boolean(params.get("state") && (params.get("code") || params.get("error")));
 }
 
+function isProviderAccountOAuthAuthorizationResponse() {
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search.replace(/^\?/, ""));
+  return params.get("provider_account_oauth") === "1" || params.has("provider_account_oauth_session_id");
+}
+
 function forwardOAuthAuthorizationResponse(baseURL: string) {
+  if (isProviderAccountOAuthAuthorizationResponse()) return false;
   if (typeof window === "undefined" || !isOAuthAuthorizationResponse()) return false;
   const target = new URL(`${baseURL.replace(/\/$/, "")}/api/admin/auth/oauth/callback`);
   target.search = window.location.search;

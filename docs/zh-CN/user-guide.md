@@ -38,9 +38,23 @@ curl --request GET \
 | --- | --- |
 | `id` | 后续 API 调用使用的模型标识符 |
 | `object` | 对象类型，通常为 `model` |
-| `context_size` | 配置可用时返回最大上下文长度 |
-| `input_token_price_per_m` | 配置可用时返回每百万输入 tokens 价格 |
-| `output_token_price_per_m` | 配置可用时返回每百万输出 tokens 价格 |
+| `created` | 模型创建 Unix 时间戳 |
+| `input_token_price_per_m` | 兼容 jiekou 的每百万输入 tokens 整数价格 |
+| `output_token_price_per_m` | 兼容 jiekou 的每百万输出 tokens 整数价格 |
+| `title` | 模型标题 |
+| `description` | 模型描述 |
+| `context_size` | 模型最大上下文长度 |
+
+## 获取指定模型信息
+
+```bash
+curl --request GET \
+  --url "http://localhost:8080/v1/models/gpt-4.1-mini" \
+  --header "Authorization: Bearer YOUR_TOKENHUB_API_KEY" \
+  --header "Content-Type: application/json"
+```
+
+该接口返回单个模型对象，字段与 `GET /v1/models` 中的模型项一致。
 
 ## 创建聊天对话
 

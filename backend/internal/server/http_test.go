@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +75,128 @@ func TestGatewayModelsAndChatCompletion(t *testing.T) {
 	}
 	if !strings.Contains(timeseries.Body, `"data"`) || !strings.Contains(timeseries.Body, `"total_tokens"`) {
 		t.Fatalf("expected timeseries data: %s", timeseries.Body)
+	}
+}
+
+func TestGatewayModelsExposeJieKouCompatibleFields(t *testing.T) {
+	app := newTestServer()
+
+	resp := doJSON(t, app, http.MethodGet, "/v1/models", nil, "thk_demo_local")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body)
+	}
+	var payload struct {
+		Object string `json:"object"`
+		Data   []struct {
+			ID                   string `json:"id"`
+			Created              int64  `json:"created"`
+			Object               string `json:"object"`
+			OwnedBy              string `json:"owned_by"`
+			InputTokenPricePerM  int64  `json:"input_token_price_per_m"`
+			OutputTokenPricePerM int64  `json:"output_token_price_per_m"`
+			Title                string `json:"title"`
+			Description          string `json:"description"`
+			ContextSize          int64  `json:"context_size"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(resp.Body), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Object != "list" {
+		t.Fatalf("expected list object, got %q", payload.Object)
+	}
+	var model struct {
+		ID                   string `json:"id"`
+		Created              int64  `json:"created"`
+		Object               string `json:"object"`
+		OwnedBy              string `json:"owned_by"`
+		InputTokenPricePerM  int64  `json:"input_token_price_per_m"`
+		OutputTokenPricePerM int64  `json:"output_token_price_per_m"`
+		Title                string `json:"title"`
+		Description          string `json:"description"`
+		ContextSize          int64  `json:"context_size"`
+	}
+	for _, item := range payload.Data {
+		if item.ID == "gpt-4.1-mini" {
+			model = item
+			break
+		}
+	}
+	if model.ID == "" {
+		t.Fatalf("expected gpt-4.1-mini in model list: %s", resp.Body)
+	}
+	if model.Created <= 0 || model.Object != "model" || model.OwnedBy != "tokenhub" {
+		t.Fatalf("unexpected model identity fields: %+v", model)
+	}
+	if model.InputTokenPricePerM != 4000 || model.OutputTokenPricePerM != 16000 {
+		t.Fatalf("unexpected jiekou-compatible price fields: %+v", model)
+	}
+	if model.Title != "gpt-4.1-mini" || model.Description == "" || model.ContextSize != 128000 {
+		t.Fatalf("unexpected model metadata fields: %+v", model)
+	}
+}
+
+func TestGatewayRetrieveModelExposeJieKouCompatibleFields(t *testing.T) {
+	app := newTestServer()
+
+	resp := doJSON(t, app, http.MethodGet, "/v1/models/gpt-4.1-mini", nil, "thk_demo_local")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body)
+	}
+	var model struct {
+		ID                   string `json:"id"`
+		Created              int64  `json:"created"`
+		Object               string `json:"object"`
+		OwnedBy              string `json:"owned_by"`
+		InputTokenPricePerM  int64  `json:"input_token_price_per_m"`
+		OutputTokenPricePerM int64  `json:"output_token_price_per_m"`
+		Title                string `json:"title"`
+		Description          string `json:"description"`
+		ContextSize          int64  `json:"context_size"`
+	}
+	if err := json.Unmarshal([]byte(resp.Body), &model); err != nil {
+		t.Fatal(err)
+	}
+	if model.ID != "gpt-4.1-mini" || model.Object != "model" || model.OwnedBy != "tokenhub" {
+		t.Fatalf("unexpected model identity fields: %+v", model)
+	}
+	if model.Created <= 0 || model.InputTokenPricePerM != 4000 || model.OutputTokenPricePerM != 16000 {
+		t.Fatalf("unexpected jiekou-compatible fields: %+v", model)
+	}
+	if model.Title != "gpt-4.1-mini" || model.Description == "" || model.ContextSize != 128000 {
+		t.Fatalf("unexpected model metadata fields: %+v", model)
+	}
+
+	missing := doJSON(t, app, http.MethodGet, "/v1/models/not-a-visible-model", nil, "thk_demo_local")
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for missing model, got %d: %s", missing.Code, missing.Body)
+	}
+	if !strings.Contains(missing.Body, "model_not_found") {
+		t.Fatalf("expected model_not_found error, got %s", missing.Body)
+	}
+}
+
+func TestGatewayRetrieveModelSupportsEscapedModelIDs(t *testing.T) {
+	store := NewMemoryStore()
+	project := store.CreateProject(Project{ID: "prj_path_model", Name: "Path Model Project", Status: StatusActive})
+	_, _, err := store.CreateAPIKey(project.ID, APIKey{
+		ID:      "key_path_model",
+		Name:    "Path Model Key",
+		Allowed: []string{"provider/model"},
+		Status:  StatusActive,
+	}, "thk_path_model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.AddModel(Model{Name: "provider/model", Modality: "chat", ContextWindow: 32000, Status: StatusActive})
+	app := New(store).Handler()
+
+	resp := doJSON(t, app, http.MethodGet, "/v1/models/provider%2Fmodel", nil, "thk_path_model")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body)
+	}
+	if !strings.Contains(resp.Body, `"id":"provider/model"`) || !strings.Contains(resp.Body, `"context_size":32000`) {
+		t.Fatalf("expected escaped path model lookup to resolve provider/model: %s", resp.Body)
 	}
 }
 
@@ -196,7 +319,7 @@ func TestBootstrapSeedsStandardModelCatalog(t *testing.T) {
 		t.Fatalf("default project should have enterprise ownership fields: %+v", project)
 	}
 	models := store.ListModels()
-	if len(models) < 220 {
+	if len(models) < 160 {
 		t.Fatalf("expected standard model catalog, got %d models", len(models))
 	}
 	byName := map[string]Model{}
@@ -204,13 +327,13 @@ func TestBootstrapSeedsStandardModelCatalog(t *testing.T) {
 		byName[strings.ToLower(model.Name)] = model
 	}
 	for name, category := range map[string]string{
-		"deepseek-v3.2-thinking": "deepseek",
-		"gemini-3-pro-preview":   "gemini",
-		"minimax-m2":             "minimax",
-		"step-tts-mini":          "stepfun",
-		"baichuan-m2-128k":       "baichuan",
-		"ernie-4.5-turbo-128k":   "ernie",
-		"wanx2.1-t2i-plus":       "wanx",
+		"gpt-5.5":                            "openai",
+		"zai-org/glm-5.2":                    "glm",
+		"moonshotai/kimi-k2.7-code":          "kimi",
+		"minimax/minimax-m3":                 "minimax",
+		"baidu/ernie-4.5-vl-424b-a47b":       "ernie",
+		"qwen/qwen3-235b-a22b-instruct-2507": "qwen",
+		"grok-4-fast-reasoning":              "grok",
 	} {
 		model, ok := byName[name]
 		if !ok {
@@ -220,14 +343,20 @@ func TestBootstrapSeedsStandardModelCatalog(t *testing.T) {
 			t.Fatalf("expected %s category %s, got %s", name, category, model.Category)
 		}
 	}
+	if byName["zai-org/glm-5.2"].Metadata["title"] != "GLM 5.2" {
+		t.Fatalf("expected GLM display title metadata, got %+v", byName["zai-org/glm-5.2"].Metadata)
+	}
+	if byName["gpt-5.5"].InputPriceUSDPer1M != 47.5 || byName["gpt-5.5"].OutputPriceUSDPer1M != 285 {
+		t.Fatalf("expected gpt-5.5 jiekou pricing, got input=%v output=%v", byName["gpt-5.5"].InputPriceUSDPer1M, byName["gpt-5.5"].OutputPriceUSDPer1M)
+	}
+	if !slices.Contains(byName["gpt-5.5"].InputModalities, "image") {
+		t.Fatalf("expected gpt-5.5 image input modality, got %+v", byName["gpt-5.5"].InputModalities)
+	}
 	if byName["gpt-image-2"].Modality != "image" {
 		t.Fatalf("expected gpt-image-2 image modality, got %s", byName["gpt-image-2"].Modality)
 	}
-	if byName["sora-2"].Modality != "video" {
-		t.Fatalf("expected sora-2 video modality, got %s", byName["sora-2"].Modality)
-	}
-	if byName["step-tts-mini"].Modality != "audio" {
-		t.Fatalf("expected step-tts-mini audio modality, got %s", byName["step-tts-mini"].Modality)
+	if byName["gemini-3-pro-image"].Modality != "image" {
+		t.Fatalf("expected gemini-3-pro-image image modality, got %s", byName["gemini-3-pro-image"].Modality)
 	}
 }
 
@@ -981,11 +1110,24 @@ func TestAlertBotDeliveryFormats(t *testing.T) {
 	tests := []struct {
 		channelType string
 		bodyMarker  string
+		fields      map[string]any
+		headerKey   string
+		headerValue string
 	}{
 		{channelType: "feishu", bodyMarker: `"msg_type":"text"`},
 		{channelType: "dingtalk", bodyMarker: `"msgtype":"text"`},
 		{channelType: "wecom", bodyMarker: `"msgtype":"text"`},
 		{channelType: "slack", bodyMarker: `"text":"[TokenHub] monitor_check_failed`},
+		{channelType: "discord", bodyMarker: `"content":"[TokenHub] monitor_check_failed`},
+		{channelType: "telegram", bodyMarker: `"chat_id":"chat_123"`, fields: map[string]any{
+			"telegram_bot_token": "telegram-token",
+			"telegram_chat_id":   "chat_123",
+		}},
+		{channelType: "whatsapp", bodyMarker: `"messaging_product":"whatsapp"`, fields: map[string]any{
+			"whatsapp_to":     "+15550001111",
+			"access_token":    "wa-token",
+			"phone_number_id": "phone-number-id",
+		}, headerKey: "Authorization", headerValue: "Bearer wa-token"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.channelType, func(t *testing.T) {
@@ -995,18 +1137,25 @@ func TestAlertBotDeliveryFormats(t *testing.T) {
 				if r.Method != http.MethodPost {
 					t.Fatalf("expected POST webhook, got %s", r.Method)
 				}
+				if tt.headerKey != "" && r.Header.Get(tt.headerKey) != tt.headerValue {
+					t.Fatalf("expected %s header %q, got %q", tt.headerKey, tt.headerValue, r.Header.Get(tt.headerKey))
+				}
 				_, _ = io.Copy(&received, r.Body)
 				w.WriteHeader(http.StatusOK)
 			}))
 			defer webhook.Close()
 
+			fields := map[string]any{
+				"type":        tt.channelType,
+				"webhook_url": webhook.URL,
+			}
+			for key, value := range tt.fields {
+				fields[key] = value
+			}
 			store.CreateResource("notification-channels", AdminResource{
 				Name:   tt.channelType,
 				Status: StatusActive,
-				Fields: map[string]any{
-					"type":        tt.channelType,
-					"webhook_url": webhook.URL,
-				},
+				Fields: fields,
 			})
 			alert := AlertEvent{
 				ID:        "alt_" + tt.channelType,
@@ -2499,7 +2648,7 @@ func TestAdminProviderCatalogAndTemplateRouteMapping(t *testing.T) {
 	if models.Code != http.StatusOK {
 		t.Fatalf("expected models list, got %d: %s", models.Code, models.Body)
 	}
-	if !strings.Contains(models.Body, `"gpt-5"`) || !strings.Contains(models.Body, `"claude-sonnet-4.5"`) {
+	if !strings.Contains(models.Body, `"gpt-5"`) || !strings.Contains(models.Body, `"claude-sonnet-5"`) {
 		t.Fatalf("expected default model catalog: %s", models.Body)
 	}
 
@@ -2904,6 +3053,225 @@ func TestOpenAISubscriptionResourceSuppliesRouteCredentials(t *testing.T) {
 		adapter.seenOptions["account_email"] != "owner@example.com" ||
 		adapter.seenOptions["organization_id"] != "org_capture" {
 		t.Fatalf("expected OpenAI account options, got %+v", adapter.seenOptions)
+	}
+}
+
+func TestOpenAISubscriptionResourceRefreshesBeforeGatewayCall(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		if r.FormValue("grant_type") != "refresh_token" ||
+			r.FormValue("refresh_token") != "refresh-old" ||
+			r.FormValue("client_id") != openAIAccountOAuthClientID ||
+			r.FormValue("scope") != openAIAccountOAuthRefreshScope {
+			t.Fatalf("unexpected refresh form: %s", r.Form.Encode())
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "access-refreshed",
+			"id_token": testJWT(map[string]any{
+				"email": "refreshed.owner@example.com",
+				"https://api.openai.com/auth": map[string]any{
+					"chatgpt_account_id": "acc_refreshed",
+					"chatgpt_plan_type":  "pro",
+					"organizations": []map[string]any{
+						{"id": "org_refreshed", "is_default": true},
+					},
+				},
+			}),
+			"token_type": "Bearer",
+			"expires_in": 3600,
+		})
+	}))
+	defer tokenServer.Close()
+	previousEndpoint := openAIAccountOAuthTokenEndpoint
+	openAIAccountOAuthTokenEndpoint = tokenServer.URL
+	defer func() { openAIAccountOAuthTokenEndpoint = previousEndpoint }()
+
+	store := NewMemoryStore()
+	project := store.CreateProject(Project{Name: "Refreshing Account App"})
+	_, secret, err := store.CreateAPIKey(project.ID, APIKey{
+		Name:    "refreshing-key",
+		Allowed: []string{"gpt-4.1-mini"},
+		Status:  StatusActive,
+	}, "thk_refreshing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := store.AddProvider(Provider{ID: "prv_refreshing", Name: "Refreshing Provider", Type: "capture", Status: StatusActive, Healthy: true})
+	resource, err := store.AddProviderResource(ProviderResource{
+		ID:           "rsrc_refreshing",
+		ProviderID:   provider.ID,
+		Name:         "Refreshing OpenAI Account",
+		ResourceType: ProviderResourceOpenAISubscription,
+		Status:       StatusActive,
+		Healthy:      true,
+		Credentials: &ProviderResourceCredentials{
+			AuthType:     "oauth",
+			AccessToken:  "access-expired",
+			RefreshToken: "refresh-old",
+			ClientID:     openAIAccountOAuthClientID,
+			ExpiresAt:    time.Now().UTC().Add(-time.Minute).Format(time.RFC3339),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.AddModel(Model{Name: "gpt-4.1-mini", Modality: "chat", Status: StatusActive})
+	store.AddRoute(ModelRoute{
+		ModelName:          "gpt-4.1-mini",
+		ProviderID:         provider.ID,
+		ProviderResourceID: resource.ID,
+		ProviderModel:      "gpt-4.1-mini",
+		Status:             StatusActive,
+	})
+	adapter := &captureAdapter{}
+	server := New(store)
+	server.adapters["capture"] = adapter
+	app := server.Handler()
+
+	resp := doJSON(t, app, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"model": "gpt-4.1-mini",
+		"messages": []map[string]any{
+			{"role": "user", "content": "refresh before call"},
+		},
+	}, secret)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body)
+	}
+	if adapter.seenKey != "access-refreshed" {
+		t.Fatalf("expected refreshed access token, got %q", adapter.seenKey)
+	}
+	if adapter.seenOptions["account_email"] != "refreshed.owner@example.com" ||
+		adapter.seenOptions["account_id"] != "acc_refreshed" ||
+		adapter.seenOptions["organization_id"] != "org_refreshed" ||
+		adapter.seenOptions["has_refresh_token"] != "true" {
+		t.Fatalf("expected refreshed account options, got %+v", adapter.seenOptions)
+	}
+}
+
+func TestOpenAIProviderAccountOAuthGenerateAuthURLAndCallback(t *testing.T) {
+	store := NewMemoryStore()
+	app := New(store).Handler()
+
+	resp := doJSON(t, app, http.MethodPost, "/api/admin/provider-account-oauth/openai/generate-auth-url", map[string]any{
+		"return_url": "http://localhost:3001/providers",
+	}, "")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected auth URL generated, got %d: %s", resp.Code, resp.Body)
+	}
+	var payload providerAccountOAuthGenerateResponse
+	if err := json.Unmarshal([]byte(resp.Body), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.AuthURL == "" || payload.SessionID == "" || payload.State == "" || payload.RedirectURI == "" {
+		t.Fatalf("unexpected auth URL payload: %+v", payload)
+	}
+	authURL, err := url.Parse(payload.AuthURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authURL.Host != "auth.openai.com" ||
+		authURL.Query().Get("client_id") != openAIAccountOAuthClientID ||
+		authURL.Query().Get("code_challenge_method") != "S256" ||
+		authURL.Query().Get("codex_cli_simplified_flow") != "true" ||
+		authURL.Query().Get("state") != payload.State {
+		t.Fatalf("unexpected authorize URL: %s", payload.AuthURL)
+	}
+
+	callback := httptest.NewRequest(http.MethodGet, "/api/admin/provider-account-oauth/openai/oauth/callback?code=oauth-code&state="+url.QueryEscape(payload.State), nil)
+	rr := httptest.NewRecorder()
+	app.ServeHTTP(rr, callback)
+	if rr.Code != http.StatusFound {
+		t.Fatalf("expected callback redirect, got %d: %s", rr.Code, rr.Body.String())
+	}
+	location := rr.Header().Get("location")
+	redirect, err := url.Parse(location)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if redirect.String() == "" ||
+		redirect.Query().Get("provider_account_oauth") != "1" ||
+		redirect.Query().Get("provider_account_oauth_session_id") != payload.SessionID ||
+		redirect.Query().Get("provider_account_oauth_state") != payload.State ||
+		redirect.Query().Get("code") != "oauth-code" {
+		t.Fatalf("unexpected callback redirect: %s", location)
+	}
+}
+
+func TestOpenAIProviderAccountOAuthExchangeCode(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		if r.Header.Get("user-agent") != "codex-cli/0.91.0" {
+			t.Fatalf("expected Codex user-agent, got %q", r.Header.Get("user-agent"))
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		if r.FormValue("grant_type") != "authorization_code" ||
+			r.FormValue("client_id") != openAIAccountOAuthClientID ||
+			r.FormValue("code") != "oauth-code" ||
+			!strings.Contains(r.FormValue("redirect_uri"), "/api/admin/provider-account-oauth/openai/oauth/callback") ||
+			r.FormValue("code_verifier") == "" {
+			t.Fatalf("unexpected token form: %s", r.Form.Encode())
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "access-from-code",
+			"refresh_token": "refresh-from-code",
+			"id_token": testJWT(map[string]any{
+				"email": "codex.owner@example.com",
+				"https://api.openai.com/auth": map[string]any{
+					"chatgpt_account_id": "acc_oauth",
+					"chatgpt_user_id":    "usr_oauth",
+					"chatgpt_plan_type":  "plus",
+					"organizations": []map[string]any{
+						{"id": "org_oauth", "is_default": true},
+					},
+				},
+			}),
+			"token_type": "Bearer",
+			"expires_in": 3600,
+			"scope":      openAIAccountOAuthScopes,
+		})
+	}))
+	defer tokenServer.Close()
+	previousEndpoint := openAIAccountOAuthTokenEndpoint
+	openAIAccountOAuthTokenEndpoint = tokenServer.URL
+	defer func() { openAIAccountOAuthTokenEndpoint = previousEndpoint }()
+
+	store := NewMemoryStore()
+	app := New(store).Handler()
+	generated := doJSON(t, app, http.MethodPost, "/api/admin/provider-account-oauth/openai/generate-auth-url", map[string]any{
+		"return_url": "http://localhost:3001/providers",
+	}, "")
+	if generated.Code != http.StatusOK {
+		t.Fatalf("expected generate 200, got %d: %s", generated.Code, generated.Body)
+	}
+	var auth providerAccountOAuthGenerateResponse
+	if err := json.Unmarshal([]byte(generated.Body), &auth); err != nil {
+		t.Fatal(err)
+	}
+	exchanged := doJSON(t, app, http.MethodPost, "/api/admin/provider-account-oauth/openai/exchange-code", map[string]any{
+		"session_id": auth.SessionID,
+		"state":      auth.State,
+		"code":       "oauth-code",
+	}, "")
+	if exchanged.Code != http.StatusOK {
+		t.Fatalf("expected exchange 200, got %d: %s", exchanged.Code, exchanged.Body)
+	}
+	var info providerAccountOAuthTokenInfo
+	if err := json.Unmarshal([]byte(exchanged.Body), &info); err != nil {
+		t.Fatal(err)
+	}
+	if info.AccessToken != "access-from-code" ||
+		info.RefreshToken != "refresh-from-code" ||
+		info.AccountEmail != "codex.owner@example.com" ||
+		info.AccountID != "acc_oauth" ||
+		info.OrganizationID != "org_oauth" ||
+		info.ClientID != openAIAccountOAuthClientID {
+		t.Fatalf("unexpected exchanged token info: %+v", info)
 	}
 }
 

@@ -1,9 +1,11 @@
 package server
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"strings"
+	"time"
 )
 
 type openAIIDTokenClaims struct {
@@ -184,6 +186,137 @@ func redactProviderResourceSecrets(resource *ProviderResource) {
 	resource.CredentialBlob = ""
 	resource.Credentials = nil
 	resource.CredentialSummary = providerResourceCredentialSummary(*resource)
+}
+
+func (s *GormStore) RefreshProviderResourceCredentials(ctx context.Context, resourceID string, force bool) (ProviderResourceCredentials, error) {
+	resourceID = strings.TrimSpace(resourceID)
+	if resourceID == "" {
+		return ProviderResourceCredentials{}, nil
+	}
+
+	s.mu.Lock()
+	var resource ProviderResource
+	if err := s.db.First(&resource, "id = ?", resourceID).Error; err != nil {
+		s.mu.Unlock()
+		return ProviderResourceCredentials{}, notFound(err, "provider_resource_not_found", "Provider resource not found")
+	}
+	creds := s.providerResourceCredentialsForRuntime(resource)
+	if !isOpenAIAccountResource(resource.ResourceType) {
+		s.mu.Unlock()
+		return creds, nil
+	}
+	needsRefresh, expired := providerResourceCredentialsNeedRefresh(creds, openAIAccountOAuthRefreshLead)
+	if !force && !needsRefresh {
+		s.mu.Unlock()
+		return creds, nil
+	}
+	if strings.TrimSpace(creds.RefreshToken) == "" {
+		s.mu.Unlock()
+		if expired {
+			return creds, NewHTTPError(503, "provider_resource_token_expired", "Provider resource access token expired and no refresh token is available")
+		}
+		return creds, nil
+	}
+	s.mu.Unlock()
+
+	refreshed, err := refreshOpenAIAccountOAuthCredentials(ctx, creds)
+	if err != nil {
+		return creds, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var current ProviderResource
+	if err := s.db.First(&current, "id = ?", resourceID).Error; err != nil {
+		return refreshed, notFound(err, "provider_resource_not_found", "Provider resource not found")
+	}
+	if !isOpenAIAccountResource(current.ResourceType) {
+		return refreshed, nil
+	}
+	if current.Options == nil {
+		current.Options = map[string]string{}
+	}
+	current.Credentials = &refreshed
+	s.mergeOpenAIAccountCredentials(&current, &ProviderResource{Credentials: &refreshed})
+	if strings.TrimSpace(current.APIKey) != "" {
+		current.APIKey = s.encryptSecret(current.APIKey)
+	}
+	current.UpdatedAt = time.Now().UTC()
+	if err := s.db.Save(&current).Error; err != nil {
+		return refreshed, err
+	}
+	return s.providerResourceCredentialsForRuntime(current), nil
+}
+
+func (s *GormStore) providerResourceCredentialsForRuntime(resource ProviderResource) ProviderResourceCredentials {
+	creds := ProviderResourceCredentials{}
+	if strings.TrimSpace(resource.APIKey) != "" {
+		creds.AccessToken = s.decryptSecret(resource.APIKey)
+	}
+	if strings.TrimSpace(resource.CredentialBlob) != "" {
+		if secret := s.decryptSecret(resource.CredentialBlob); strings.TrimSpace(secret) != "" {
+			var blob ProviderResourceCredentials
+			if err := json.Unmarshal([]byte(secret), &blob); err == nil {
+				mergeProviderResourceCredentials(&creds, blob)
+			}
+		}
+	}
+	if resource.Options != nil {
+		creds.AuthType = firstNonEmpty(creds.AuthType, resource.Options["auth_type"], "oauth")
+		creds.ExpiresAt = firstNonEmpty(creds.ExpiresAt, resource.Options["token_expires_at"])
+		creds.AccountID = firstNonEmpty(creds.AccountID, resource.Options["account_id"])
+		creds.UserID = firstNonEmpty(creds.UserID, resource.Options["user_id"])
+		creds.Email = firstNonEmpty(creds.Email, resource.Options["account_email"])
+		creds.OrganizationID = firstNonEmpty(creds.OrganizationID, resource.Options["organization_id"])
+		creds.PlanType = firstNonEmpty(creds.PlanType, resource.Options["plan_type"])
+		creds.Scopes = firstNonEmpty(creds.Scopes, resource.Options["scopes"])
+	}
+	if strings.TrimSpace(creds.AuthType) == "" {
+		creds.AuthType = "oauth"
+	}
+	return creds
+}
+
+func mergeProviderResourceCredentials(target *ProviderResourceCredentials, source ProviderResourceCredentials) {
+	target.AuthType = firstNonEmpty(source.AuthType, target.AuthType)
+	target.AccessToken = firstNonEmpty(source.AccessToken, target.AccessToken)
+	target.RefreshToken = firstNonEmpty(source.RefreshToken, target.RefreshToken)
+	target.IDToken = firstNonEmpty(source.IDToken, target.IDToken)
+	target.ClientID = firstNonEmpty(source.ClientID, target.ClientID)
+	target.Scopes = firstNonEmpty(source.Scopes, target.Scopes)
+	target.TokenType = firstNonEmpty(source.TokenType, target.TokenType)
+	target.ExpiresAt = firstNonEmpty(source.ExpiresAt, target.ExpiresAt)
+	target.AccountID = firstNonEmpty(source.AccountID, target.AccountID)
+	target.UserID = firstNonEmpty(source.UserID, target.UserID)
+	target.Email = firstNonEmpty(source.Email, target.Email)
+	target.OrganizationID = firstNonEmpty(source.OrganizationID, target.OrganizationID)
+	target.PlanType = firstNonEmpty(source.PlanType, target.PlanType)
+}
+
+func providerResourceCredentialsNeedRefresh(creds ProviderResourceCredentials, refreshLead time.Duration) (bool, bool) {
+	expiresAt, ok := parseCredentialExpiry(creds.ExpiresAt)
+	if !ok {
+		return false, false
+	}
+	now := time.Now().UTC()
+	if !expiresAt.After(now) {
+		return true, true
+	}
+	return time.Until(expiresAt) < refreshLead, false
+}
+
+func parseCredentialExpiry(value string) (time.Time, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, false
+	}
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return parsed, true
+	}
+	if parsed, err := time.Parse("2006-01-02 15:04:05", value); err == nil {
+		return parsed, true
+	}
+	return time.Time{}, false
 }
 
 func setOptionIfValue(options map[string]string, key string, value string) {

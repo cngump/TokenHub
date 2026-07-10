@@ -9,16 +9,21 @@ import (
 )
 
 type modelCatalogSeed struct {
-	Name                   string   `yaml:"name"`
-	Category               string   `yaml:"category"`
-	Family                 string   `yaml:"family"`
-	Modality               string   `yaml:"modality"`
-	ContextWindow          int64    `yaml:"context_window"`
-	InputPriceUSDPer1M     float64  `yaml:"input_price_usd_per_1m"`
-	OutputPriceUSDPer1M    float64  `yaml:"output_price_usd_per_1m"`
-	EmbeddingPriceUSDPer1M float64  `yaml:"embedding_price_usd_per_1m"`
-	Capabilities           []string `yaml:"capabilities"`
-	SupportedParameters    []string `yaml:"supported_parameters"`
+	Name                   string            `yaml:"name"`
+	Title                  string            `yaml:"title"`
+	Description            string            `yaml:"description"`
+	Category               string            `yaml:"category"`
+	Family                 string            `yaml:"family"`
+	Modality               string            `yaml:"modality"`
+	ContextWindow          int64             `yaml:"context_window"`
+	InputPriceUSDPer1M     float64           `yaml:"input_price_usd_per_1m"`
+	OutputPriceUSDPer1M    float64           `yaml:"output_price_usd_per_1m"`
+	EmbeddingPriceUSDPer1M float64           `yaml:"embedding_price_usd_per_1m"`
+	InputModalities        []string          `yaml:"input_modalities"`
+	OutputModalities       []string          `yaml:"output_modalities"`
+	Capabilities           []string          `yaml:"capabilities"`
+	SupportedParameters    []string          `yaml:"supported_parameters"`
+	Metadata               map[string]string `yaml:"metadata"`
 }
 
 type modelCatalogDocument struct {
@@ -92,6 +97,21 @@ func buildCatalogModel(seed modelCatalogSeed) Model {
 	if outputPrice == 0 {
 		outputPrice = catalogOutputPrice(name, modality)
 	}
+	metadata := map[string]string{}
+	for key, value := range seed.Metadata {
+		if strings.TrimSpace(value) != "" {
+			metadata[key] = value
+		}
+	}
+	if strings.TrimSpace(metadata["source"]) == "" {
+		metadata["source"] = "tokenhub-standard-catalog"
+	}
+	if title := strings.TrimSpace(seed.Title); title != "" {
+		metadata["title"] = title
+	}
+	if description := strings.TrimSpace(seed.Description); description != "" {
+		metadata["description"] = description
+	}
 	return Model{
 		ID:                     name,
 		Name:                   name,
@@ -99,15 +119,15 @@ func buildCatalogModel(seed modelCatalogSeed) Model {
 		Family:                 family,
 		Modality:               modality,
 		ContextWindow:          contextWindow,
+		InputModalities:        seed.InputModalities,
+		OutputModalities:       seed.OutputModalities,
 		Capabilities:           capabilities,
 		SupportedParameters:    supportedParameters,
 		InputPriceUSDPer1M:     inputPrice,
 		OutputPriceUSDPer1M:    outputPrice,
 		EmbeddingPriceUSDPer1M: seed.EmbeddingPriceUSDPer1M,
 		Status:                 StatusActive,
-		Metadata: map[string]string{
-			"source": "tokenhub-standard-catalog",
-		},
+		Metadata:               metadata,
 	}
 }
 
