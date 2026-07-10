@@ -3,6 +3,8 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -1028,6 +1030,79 @@ func TestAlertBotDeliveryFormats(t *testing.T) {
 				t.Fatalf("unexpected %s payload: %s", tt.channelType, received.String())
 			}
 		})
+	}
+}
+
+func TestDingTalkDeliverySignsWebhookWhenSecretConfigured(t *testing.T) {
+	store := NewMemoryStore()
+	const secret = "SECtestSecret"
+	var gotTimestamp, gotSign string
+	webhook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotTimestamp = r.URL.Query().Get("timestamp")
+		gotSign = r.URL.Query().Get("sign")
+		if gotTimestamp == "" || gotSign == "" {
+			t.Fatalf("expected signed dingtalk webhook URL, got %s", r.URL.RawQuery)
+		}
+		mac := hmac.New(sha256.New, []byte(secret))
+		_, _ = mac.Write([]byte(gotTimestamp + "\n" + secret))
+		expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+		if gotSign != expected {
+			t.Fatalf("unexpected dingtalk sign: got %q want %q", gotSign, expected)
+		}
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"errcode":0,"errmsg":"ok"}`))
+	}))
+	defer webhook.Close()
+
+	store.CreateResource("notification-channels", AdminResource{
+		Name:   "DingTalk",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"type":        "dingtalk",
+			"webhook_url": webhook.URL,
+			"secret":      secret,
+		},
+	})
+	alert := AlertEvent{ID: "alt_dingtalk_signed", ScopeType: "provider", ScopeID: "prv_test", Severity: "warning", Code: "monitor_check_failed", Message: "Provider failed", CreatedAt: time.Now().UTC()}
+	if err := store.db.Create(&alert).Error; err != nil {
+		t.Fatal(err)
+	}
+	app := New(store).Handler()
+
+	resp := doJSON(t, app, http.MethodPost, "/api/admin/alerts/"+alert.ID+"/deliver", map[string]any{}, "")
+	if resp.Code != http.StatusOK || !strings.Contains(resp.Body, `"status":"success"`) {
+		t.Fatalf("expected signed dingtalk delivery success, got %d: %s", resp.Code, resp.Body)
+	}
+	if gotTimestamp == "" || gotSign == "" {
+		t.Fatal("dingtalk server was not called with a signature")
+	}
+}
+
+func TestDingTalkDeliveryRecordsBusinessError(t *testing.T) {
+	store := NewMemoryStore()
+	webhook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"errcode":310000,"errmsg":"sign mismatch"}`))
+	}))
+	defer webhook.Close()
+
+	store.CreateResource("notification-channels", AdminResource{
+		Name:   "DingTalk",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"type":        "dingtalk",
+			"webhook_url": webhook.URL,
+		},
+	})
+	alert := AlertEvent{ID: "alt_dingtalk_error", ScopeType: "provider", ScopeID: "prv_test", Severity: "warning", Code: "monitor_check_failed", Message: "Provider failed", CreatedAt: time.Now().UTC()}
+	if err := store.db.Create(&alert).Error; err != nil {
+		t.Fatal(err)
+	}
+	app := New(store).Handler()
+
+	resp := doJSON(t, app, http.MethodPost, "/api/admin/alerts/"+alert.ID+"/deliver", map[string]any{}, "")
+	if resp.Code != http.StatusOK || !strings.Contains(resp.Body, `"status":"failed"`) || !strings.Contains(resp.Body, "errcode=310000") {
+		t.Fatalf("expected dingtalk business error to be recorded, got %d: %s", resp.Code, resp.Body)
 	}
 }
 

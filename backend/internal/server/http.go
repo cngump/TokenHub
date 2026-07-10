@@ -13,6 +13,7 @@ import (
 	"hash/fnv"
 	"io"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"net/smtp"
@@ -4310,9 +4311,18 @@ func (s *Server) deliverAlert(ctx context.Context, alertID string, channelID str
 		return s.store.RecordAlertDelivery(delivery), nil
 	}
 	body, _ := json.Marshal(notificationChannelPayload(delivery.Channel, payload, alert))
+	target := delivery.Target
+	if delivery.Channel == "dingtalk" {
+		target, err = signedDingTalkWebhookURL(target, firstStringField(channel.Fields, "secret", "sign_secret", "dingtalk_secret"))
+		if err != nil {
+			delivery.Status = "failed"
+			delivery.Error = err.Error()
+			return s.store.RecordAlertDelivery(delivery), nil
+		}
+	}
 	reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, delivery.Target, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		delivery.Status = "failed"
 		delivery.Error = err.Error()
@@ -4327,11 +4337,60 @@ func (s *Server) deliverAlert(ctx context.Context, alertID string, channelID str
 	}
 	defer resp.Body.Close()
 	delivery.StatusCode = resp.StatusCode
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		delivery.Status = "failed"
 		delivery.Error = resp.Status
+	} else if err := notificationChannelResponseError(delivery.Channel, resp.Header.Get("content-type"), respBody); err != nil {
+		delivery.Status = "failed"
+		delivery.Error = err.Error()
 	}
 	return s.store.RecordAlertDelivery(delivery), nil
+}
+
+func signedDingTalkWebhookURL(rawURL string, secret string) (string, error) {
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
+		return rawURL, nil
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(timestamp + "\n" + secret))
+	sign := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	query := parsed.Query()
+	query.Set("timestamp", timestamp)
+	query.Set("sign", sign)
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
+}
+
+func notificationChannelResponseError(channelType string, contentType string, body []byte) error {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil
+	}
+	mediaType, _, _ := mime.ParseMediaType(contentType)
+	if mediaType != "application/json" && !strings.HasSuffix(mediaType, "+json") {
+		return nil
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil
+	}
+	switch normalizeNotificationChannelType(channelType) {
+	case "dingtalk":
+		if code := int64Field(payload, "errcode"); code != 0 {
+			return fmt.Errorf("dingtalk response error: errcode=%d errmsg=%s", code, stringField(payload, "errmsg"))
+		}
+	case "feishu":
+		if code := int64Field(payload, "code"); code != 0 {
+			return fmt.Errorf("feishu response error: code=%d msg=%s", code, firstStringField(payload, "msg", "message"))
+		}
+	}
+	return nil
 }
 
 func normalizeNotificationChannelType(channelType string) string {
