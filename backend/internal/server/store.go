@@ -130,6 +130,7 @@ type Store interface {
 	RefreshProviderResourceCredentials(ctx context.Context, resourceID string, force bool) (ProviderResourceCredentials, error)
 	TestProvider(id string) (Provider, error)
 	TestProviderResource(id string) (ProviderResource, error)
+	GetDatabaseStatus() (map[string]interface{}, error)
 }
 
 type GormStore struct {

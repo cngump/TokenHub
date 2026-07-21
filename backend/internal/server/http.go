@@ -119,6 +119,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/admin/alert-deliveries", s.handleAdminAlertDeliveries)
 	s.mux.HandleFunc("/api/admin/approvals", s.handleAdminApprovals)
 	s.mux.HandleFunc("/api/admin/approvals/", s.handleAdminApprovalItem)
+	s.mux.HandleFunc("/api/admin/system/db-status", s.handleAdminSystemDBStatus)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -6351,4 +6352,31 @@ func cors(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s *Server) handleAdminSystemDBStatus(w http.ResponseWriter, r *http.Request) {
+	// 仅允许 GET 请求
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 验证管理员权限
+	if _, ok := s.requireAdmin(w, r, "system", r.Method); !ok {
+		return
+	}
+
+	// 获取数据库状态
+	status, err := s.store.GetDatabaseStatus()
+	if err != nil {
+		log.Printf("[tokenhub] failed to get database status: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// 返回 JSON 响应
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(status); err != nil {
+		log.Printf("[tokenhub] failed to encode database status response: %v", err)
+	}
 }
