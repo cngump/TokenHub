@@ -27,6 +27,7 @@ import (
 	"time"
 
 	sqlite3 "github.com/mattn/go-sqlite3"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -141,11 +142,47 @@ type GormStore struct {
 	cooldownDuration time.Duration
 	sqliteDSN        string
 	backupDir        string
+	dbDriver         string // "sqlite" or "postgres"
 }
 
 // MemoryStore is kept as a compatibility alias for existing tests and callers.
 // It is now backed by GORM and SQLite, not process-local maps.
 type MemoryStore = GormStore
+
+// parseDatabaseURL 解析数据库 URL 并返回驱动类型和 DSN
+// 支持格式：
+//   - sqlite://path/to/db.db
+//   - postgres://user:pass@host:port/dbname?params
+//   - postgresql://user:pass@host:port/dbname?params
+func parseDatabaseURL(databaseURL string) (driver string, dsn string, err error) {
+	if strings.TrimSpace(databaseURL) == "" {
+		return "", "", fmt.Errorf("database URL cannot be empty")
+	}
+
+	u, err := url.Parse(databaseURL)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid database URL: %w", err)
+	}
+
+	switch u.Scheme {
+	case "sqlite":
+		// SQLite URL: sqlite://path/to/db.db
+		// 提取文件路径（去掉 scheme）
+		dsn, err := sqliteDSN(databaseURL)
+		if err != nil {
+			return "", "", err
+		}
+		return "sqlite", dsn, nil
+
+	case "postgres", "postgresql":
+		// PostgreSQL URL: postgres://user:pass@host:port/dbname?params
+		// 直接使用原始 URL 作为 DSN
+		return "postgres", databaseURL, nil
+
+	default:
+		return "", "", fmt.Errorf("unsupported database scheme: %s (supported: sqlite, postgres, postgresql)", u.Scheme)
+	}
+}
 
 func OpenStore(databaseURL string) (*GormStore, error) {
 	return OpenStoreWithConfig(databaseURL, ConfigFromEnv())
@@ -155,19 +192,32 @@ func OpenStoreWithConfig(databaseURL string, config Config) (*GormStore, error) 
 	if strings.TrimSpace(databaseURL) == "" {
 		databaseURL = defaultConfigDatabaseURL()
 	}
-	return NewSQLiteStoreWithConfig(databaseURL, config)
+	return NewStoreWithDialect(databaseURL, config)
 }
 
 func NewSQLiteStore(databaseURL string) (*GormStore, error) {
-	return NewSQLiteStoreWithConfig(databaseURL, ConfigFromEnv())
+	return NewStoreWithDialect(databaseURL, ConfigFromEnv())
 }
 
-func NewSQLiteStoreWithConfig(databaseURL string, config Config) (*GormStore, error) {
-	dsn, err := sqliteDSN(databaseURL)
+// NewStoreWithDialect 根据数据库 URL 创建对应驱动的 Store
+// 支持 SQLite 和 PostgreSQL
+func NewStoreWithDialect(databaseURL string, config Config) (*GormStore, error) {
+	driver, dsn, err := parseDatabaseURL(databaseURL)
 	if err != nil {
 		return nil, err
 	}
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
+
+	var dialector gorm.Dialector
+	switch driver {
+	case "sqlite":
+		dialector = sqlite.Open(dsn)
+	case "postgres":
+		dialector = postgres.Open(dsn)
+	default:
+		return nil, fmt.Errorf("unsupported database driver: %s", driver)
+	}
+
+	db, err := gorm.Open(dialector, &gorm.Config{
 		TranslateError: true,
 		Logger: gormlogger.New(
 			log.New(os.Stdout, "\r\n", log.LstdFlags),
@@ -181,17 +231,37 @@ func NewSQLiteStoreWithConfig(databaseURL string, config Config) (*GormStore, er
 	if err != nil {
 		return nil, err
 	}
+
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, err
 	}
-	sqlDB.SetMaxOpenConns(1)
-	if err := db.Exec("PRAGMA foreign_keys = ON").Error; err != nil {
-		return nil, err
+
+	// 根据数据库类型配置连接池
+	if driver == "postgres" {
+		// PostgreSQL 使用连接池
+		maxOpenConns := defaultInt(config.DBMaxOpenConns, 25)
+		maxIdleConns := defaultInt(config.DBMaxIdleConns, 5)
+		connMaxLifetime := time.Duration(defaultInt(config.DBConnMaxLifetimeMinutes, 30)) * time.Minute
+
+		sqlDB.SetMaxOpenConns(maxOpenConns)
+		sqlDB.SetMaxIdleConns(maxIdleConns)
+		sqlDB.SetConnMaxLifetime(connMaxLifetime)
+	} else {
+		// SQLite 保持单连接
+		sqlDB.SetMaxOpenConns(1)
 	}
-	if err := db.Exec("PRAGMA busy_timeout = 5000").Error; err != nil {
-		return nil, err
+
+	// SQLite 特定配置
+	if driver == "sqlite" {
+		if err := db.Exec("PRAGMA foreign_keys = ON").Error; err != nil {
+			return nil, err
+		}
+		if err := db.Exec("PRAGMA busy_timeout = 5000").Error; err != nil {
+			return nil, err
+		}
 	}
+
 	if err := db.AutoMigrate(
 		&Project{},
 		&APIKey{},
@@ -217,6 +287,7 @@ func NewSQLiteStoreWithConfig(databaseURL string, config Config) (*GormStore, er
 	); err != nil {
 		return nil, err
 	}
+
 	return &GormStore{
 		db:               db,
 		inFlight:         map[string]int64{},
@@ -226,7 +297,13 @@ func NewSQLiteStoreWithConfig(databaseURL string, config Config) (*GormStore, er
 		cooldownDuration: time.Duration(defaultInt(config.ResourceCooldownSeconds, 300)) * time.Second,
 		sqliteDSN:        dsn,
 		backupDir:        defaultString(config.SQLiteBackupDir, "data/backups"),
+		dbDriver:         driver,
 	}, nil
+}
+
+// NewSQLiteStoreWithConfig 保留作为兼容性别名
+func NewSQLiteStoreWithConfig(databaseURL string, config Config) (*GormStore, error) {
+	return NewStoreWithDialect(databaseURL, config)
 }
 
 func NewMemoryStore() *MemoryStore {
