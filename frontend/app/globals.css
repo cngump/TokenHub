@@ -386,6 +386,10 @@ button {
   display: none;
 }
 
+.sidebar.collapsed .nav-title span {
+  display: none;
+}
+
 .nav {
   display: grid;
   gap: 4px;
