@@ -491,6 +491,7 @@ type ViewKey =
   | "security-policies"
   | "proxies"
   | "sqlite-backups"
+  | "database-status"
   | "announcements"
   | "identity-providers"
   | "settings";
@@ -526,6 +527,7 @@ const viewRoutes: Record<ViewKey, string> = {
   "security-policies": "/security-policies",
   proxies: "/proxies",
   "sqlite-backups": "/sqlite-backups",
+  "database-status": "/database-status",
   announcements: "/announcements",
   "identity-providers": "/identity-providers",
   settings: "/settings",
@@ -4411,6 +4413,8 @@ export default function AdminHome() {
             <BillingView data={data} user={currentUser} />
           ) : activeView === "audit" ? (
             <AuditView api={api} data={data} user={currentUser} />
+          ) : activeView === "database-status" ? (
+            <DatabaseStatusView api={api} isDark={theme === "dark"} />
           ) : activeView === "settings" ? (
             <SettingsView
               data={data}
