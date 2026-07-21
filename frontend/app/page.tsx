@@ -743,6 +743,14 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "代理出口": "Proxy Egress",
     "数据备份": "Data Backups",
     "数据库状态": "Database Status",
+    "数据库类型": "Database Type",
+    "运行环境": "Runtime Environment",
+    "Docker 容器": "Docker Container",
+    "本地进程": "Local Process",
+    "连接状态": "Connection Status",
+    "版本": "Version",
+    "数据库连接信息": "Database Connection Info",
+    "密码已隐藏以保护敏感信息": "Password hidden to protect sensitive information",
     "公告通知": "Announcements",
     "系统设置": "System Settings",
     "新增系统设置": "Create System Setting",
@@ -1874,6 +1882,14 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "代理出口": "プロキシ出口",
     "数据备份": "データバックアップ",
     "数据库状态": "データベース状態",
+    "数据库类型": "データベースタイプ",
+    "运行环境": "実行環境",
+    "Docker 容器": "Docker コンテナ",
+    "本地进程": "ローカルプロセス",
+    "连接状态": "接続状態",
+    "版本": "バージョン",
+    "数据库连接信息": "データベース接続情報",
+    "密码已隐藏以保护敏感信息": "パスワードは機密保護のため非表示",
     "公告通知": "お知らせ",
     "系统设置": "システム設定",
     "新增系统设置": "システム設定を作成",
@@ -3192,7 +3208,7 @@ const adminNavGroups: NavGroup[] = [
       { view: "security-policies", label: "安全策略", icon: ShieldCheck },
       { view: "proxies", label: "代理出口", icon: Server },
       { view: "sqlite-backups", label: "数据备份", icon: Database },
-      { view: "database-status", label: "数据库状态", icon: Database },
+      { view: "database-status", label: tx("数据库状态"), icon: Database },
       { view: "announcements", label: "公告通知", icon: Bell },
       { view: "settings", label: "系统设置", icon: Settings },
     ],
@@ -11883,9 +11899,9 @@ function DatabaseStatusView({ api, isDark }: { api: ApiContext; isDark: boolean 
 
   if (loading) {
     return (
-      <DataSection title="数据库状态">
+      <DataSection title={tx("数据库状态")}>
         <div className="flex items-center justify-center py-12">
-          <div className="text-gray-500">加载中...</div>
+          <div className="text-gray-500">{tx("加载中")}...</div>
         </div>
       </DataSection>
     );
@@ -11893,11 +11909,11 @@ function DatabaseStatusView({ api, isDark }: { api: ApiContext; isDark: boolean 
 
   if (error) {
     return (
-      <DataSection title="数据库状态">
+      <DataSection title={tx("数据库状态")}>
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
           <div className="flex items-center gap-2 text-red-800 dark:text-red-200">
             <AlertCircle className="w-5 h-5" />
-            <span>加载失败: {error}</span>
+            <span>{tx("加载失败")}: {error}</span>
           </div>
         </div>
       </DataSection>
@@ -11906,77 +11922,77 @@ function DatabaseStatusView({ api, isDark }: { api: ApiContext; isDark: boolean 
 
   if (!status) {
     return (
-      <DataSection title="数据库状态">
-        <div className="text-gray-500">无数据</div>
+      <DataSection title={tx("数据库状态")}>
+        <div className="text-gray-500">{tx("无数据")}</div>
       </DataSection>
     );
   }
 
   return (
-    <DataSection title="数据库状态">
+    <DataSection title={tx("数据库状态")}>
       <div className="space-y-6">
         <div className="flex justify-end">
           <button
             onClick={fetchDatabaseStatus}
             className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
-            刷新
+            {tx("刷新")}
           </button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* 数据库类型 */}
+          {/* Database type */}
           <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
             <div className="flex items-center gap-3 mb-4">
               <Database className="w-6 h-6 text-blue-600" />
-              <h2 className="text-lg font-semibold">数据库类型</h2>
+              <h2 className="text-lg font-semibold">{tx("数据库类型")}</h2>
             </div>
             <div className="text-3xl font-bold">
               {status.database_type === "postgres" ? "PostgreSQL" : "SQLite"}
             </div>
           </div>
 
-          {/* Docker 环境 */}
+          {/* Runtime environment */}
           <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
             <div className="flex items-center gap-3 mb-4">
               <Server className="w-6 h-6 text-purple-600" />
-              <h2 className="text-lg font-semibold">运行环境</h2>
+              <h2 className="text-lg font-semibold">{tx("运行环境")}</h2>
             </div>
             <div className="flex items-center gap-2">
               <div className={`w-3 h-3 rounded-full ${status.is_docker ? "bg-green-500" : "bg-gray-400"}`} />
               <span className="text-xl font-semibold">
-                {status.is_docker ? "Docker 容器" : "本地进程"}
+                {status.is_docker ? tx("Docker 容器") : tx("本地进程")}
               </span>
             </div>
           </div>
 
-          {/* 连接状态 */}
+          {/* Connection status */}
           <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
             <div className="flex items-center gap-3 mb-4">
               <Activity className="w-6 h-6 text-green-600" />
-              <h2 className="text-lg font-semibold">连接状态</h2>
+              <h2 className="text-lg font-semibold">{tx("连接状态")}</h2>
             </div>
             <div className="flex items-center gap-2">
               {status.connection_ok ? (
                 <>
                   <Check className="w-6 h-6 text-green-500" />
-                  <span className="text-xl font-semibold text-green-600">正常</span>
+                  <span className="text-xl font-semibold text-green-600">{tx("正常")}</span>
                 </>
               ) : (
                 <>
                   <X className="w-6 h-6 text-red-500" />
-                  <span className="text-xl font-semibold text-red-600">异常</span>
+                  <span className="text-xl font-semibold text-red-600">{tx("异常")}</span>
                 </>
               )}
             </div>
           </div>
 
-          {/* PostgreSQL 版本（仅 PostgreSQL 时显示）*/}
+          {/* PostgreSQL version (only shown for PostgreSQL) */}
           {status.database_type === "postgres" && status.postgres_version && (
             <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
               <div className="flex items-center gap-3 mb-4">
                 <Database className="w-6 h-6 text-indigo-600" />
-                <h2 className="text-lg font-semibold">PostgreSQL 版本</h2>
+                <h2 className="text-lg font-semibold">PostgreSQL {tx("版本")}</h2>
               </div>
               <div className="text-sm text-gray-600 dark:text-gray-400 font-mono">
                 {status.postgres_version.split('\n')[0]}
@@ -11985,18 +12001,18 @@ function DatabaseStatusView({ api, isDark }: { api: ApiContext; isDark: boolean 
           )}
         </div>
 
-        {/* 数据库连接信息 */}
+        {/* Database connection info */}
         {status.database_url && (
           <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
             <div className="flex items-center gap-3 mb-4">
               <Database className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-              <h2 className="text-base font-semibold">数据库连接信息</h2>
+              <h2 className="text-base font-semibold">{tx("数据库连接信息")}</h2>
             </div>
             <div className={`p-3 rounded-md font-mono text-sm break-all ${isDark ? "bg-gray-900 text-gray-300" : "bg-gray-100 text-gray-700"}`}>
               {status.database_url}
             </div>
             <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-              * 密码已隐藏以保护敏感信息
+              * {tx("密码已隐藏以保护敏感信息")}
             </div>
           </div>
         )}

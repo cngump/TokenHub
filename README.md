@@ -103,44 +103,6 @@ npm install
 npm run test:deepseek
 ```
 
-## Database Configuration
-
-TokenHub supports both SQLite (default) and PostgreSQL.
-
-### SQLite (Default)
-
-No configuration needed. Data is stored in `backend/data/tokenhub.db`.
-
-### PostgreSQL
-
-**Option 1: Use environment variable**
-
-```bash
-export TOKENHUB_DATABASE_URL='postgresql://user:password@localhost:5432/tokenhub?sslmode=disable'
-./scripts/local-start.sh
-```
-
-**Option 2: Use .env file**
-
-Create `backend/.env`:
-
-```bash
-TOKENHUB_DATABASE_URL=postgresql://user:password@localhost:5432/tokenhub?sslmode=disable
-TOKENHUB_DB_MAX_OPEN_CONNS=25
-TOKENHUB_DB_MAX_IDLE_CONNS=5
-TOKENHUB_DB_CONN_MAX_LIFETIME_MINUTES=30
-```
-
-**Option 3: Docker Compose with PostgreSQL**
-
-```bash
-cp deploy/.env.example deploy/.env
-# Edit deploy/.env and configure POSTGRES_* variables
-docker compose --env-file deploy/.env -f deploy/docker-compose.postgres.yml up -d --build
-```
-
-See [PostgreSQL Setup Guide](docs/postgresql-setup.md) for detailed instructions.
-
 ## Documentation
 
 - [Documentation home](docs/README.md)

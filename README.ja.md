@@ -103,44 +103,6 @@ npm install
 npm run test:deepseek
 ```
 
-## データベース設定
-
-TokenHub は SQLite（デフォルト）と PostgreSQL の両方をサポートしています。
-
-### SQLite（デフォルト）
-
-設定不要です。データは `backend/data/tokenhub.db` に保存されます。
-
-### PostgreSQL
-
-**オプション 1: 環境変数を使用**
-
-```bash
-export TOKENHUB_DATABASE_URL='postgresql://user:password@localhost:5432/tokenhub?sslmode=disable'
-./scripts/local-start.sh
-```
-
-**オプション 2: .env ファイルを使用**
-
-`backend/.env` を作成:
-
-```bash
-TOKENHUB_DATABASE_URL=postgresql://user:password@localhost:5432/tokenhub?sslmode=disable
-TOKENHUB_DB_MAX_OPEN_CONNS=25
-TOKENHUB_DB_MAX_IDLE_CONNS=5
-TOKENHUB_DB_CONN_MAX_LIFETIME_MINUTES=30
-```
-
-**オプション 3: Docker Compose と PostgreSQL**
-
-```bash
-cp deploy/.env.example deploy/.env
-# deploy/.env を編集し、POSTGRES_* 変数を設定
-docker compose --env-file deploy/.env -f deploy/docker-compose.postgres.yml up -d --build
-```
-
-詳細な手順については [PostgreSQL セットアップガイド](docs/postgresql-setup.md)をご覧ください。
-
 ## ドキュメント
 
 - [ドキュメントホーム](docs/ja/README.md)
