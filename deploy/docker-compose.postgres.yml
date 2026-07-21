@@ -35,7 +35,7 @@ services:
       TOKENHUB_PUBLIC_BASE_URL: ${TOKENHUB_PUBLIC_BASE_URL:-http://localhost:8080}
       TOKENHUB_ADMIN_TOKEN: ${TOKENHUB_ADMIN_TOKEN:-change-me-tokenhub-admin-token}
       TOKENHUB_SECRET_KEY: ${TOKENHUB_SECRET_KEY:-change-me-tokenhub-secret-key}
-      TOKENHUB_DATABASE_URL: postgresql://${POSTGRES_USER:-tokenhub}:${POSTGRES_PASSWORD:-change-me-postgres-password}@tokenhub-postgres:5432/${POSTGRES_DB:-tokenhub}?sslmode=disable
+      TOKENHUB_DATABASE_URL: ${TOKENHUB_DATABASE_URL:-postgresql://${POSTGRES_USER:-tokenhub}:${POSTGRES_PASSWORD:-change-me-postgres-password}@tokenhub-postgres:5432/${POSTGRES_DB:-tokenhub}?sslmode=disable}
       TOKENHUB_MODEL_CATALOG_FILE: /app/catalog/model-catalog.yaml
       TOKENHUB_SEED_DEMO: ${TOKENHUB_SEED_DEMO:-false}
       TOKENHUB_LOG_LEVEL: ${TOKENHUB_LOG_LEVEL:-info}
