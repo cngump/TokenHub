@@ -1,12 +1,15 @@
 package server
 
 import (
+	"fmt"
 	"os"
 	"strings"
 )
 
 type Config struct {
+	Environment              string
 	AdminToken               string
+	BootstrapAdminPassword   string
 	DatabaseURL              string
 	SQLiteBackupDir          string
 	ModelCatalogFile         string
@@ -19,7 +22,9 @@ type Config struct {
 
 func ConfigFromEnv() Config {
 	return Config{
+		Environment:              getenv("TOKENHUB_ENV", "dev"),
 		AdminToken:               getenv("TOKENHUB_ADMIN_TOKEN", "dev_admin_token"),
+		BootstrapAdminPassword:   getenv("TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD", "admin123456"),
 		DatabaseURL:              getenv("TOKENHUB_DATABASE_URL", defaultConfigDatabaseURL()),
 		SQLiteBackupDir:          getenv("TOKENHUB_SQLITE_BACKUP_DIR", defaultSQLiteBackupDir()),
 		ModelCatalogFile:         getenv("TOKENHUB_MODEL_CATALOG_FILE", defaultModelCatalogFile()),
@@ -29,6 +34,44 @@ func ConfigFromEnv() Config {
 		ResourceFailureThreshold: getenvInt("TOKENHUB_RESOURCE_FAILURE_THRESHOLD", 3),
 		ResourceCooldownSeconds:  getenvInt("TOKENHUB_RESOURCE_COOLDOWN_SECONDS", 300),
 	}
+}
+
+func (c Config) ValidateForStartup() error {
+	environment := strings.ToLower(strings.TrimSpace(c.Environment))
+	if environment == "" {
+		return fmt.Errorf("unsafe TOKENHUB_ENV configuration: set an explicit environment")
+	}
+	switch environment {
+	case "dev", "development", "local", "test":
+		return nil
+	}
+	invalid := make([]string, 0, 3)
+	if weakProductionSecret(c.AdminToken, 32, "dev_admin_token", "change-me-tokenhub-admin-token") {
+		invalid = append(invalid, "TOKENHUB_ADMIN_TOKEN")
+	}
+	if weakProductionSecret(c.SecretKey, 32, "dev_tokenhub_secret_key", "change-me-tokenhub-secret-key") {
+		invalid = append(invalid, "TOKENHUB_SECRET_KEY")
+	}
+	if weakProductionSecret(c.BootstrapAdminPassword, 12, "admin123456", "change-me-tokenhub-admin-password") {
+		invalid = append(invalid, "TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD")
+	}
+	if len(invalid) > 0 {
+		return fmt.Errorf("unsafe %s configuration: set strong values for %s", environment, strings.Join(invalid, ", "))
+	}
+	return nil
+}
+
+func weakProductionSecret(value string, minimumLength int, blocked ...string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) < minimumLength {
+		return true
+	}
+	for _, candidate := range blocked {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func getenvList(key string) []string {

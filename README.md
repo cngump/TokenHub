@@ -61,6 +61,7 @@ TokenHub separates everyday model usage, team governance, and platform administr
 
 ```bash
 cp deploy/.env.example deploy/.env
+# Replace every change-me value in deploy/.env with a strong secret.
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
 ```
 
@@ -70,12 +71,12 @@ Open:
 - Backend API: `http://localhost:8080`
 - Health check: `http://localhost:8080/healthz`
 
-Default admin login:
+Initial admin login:
 
 - Username: `admin`
-- Password: `admin123456`
+- Password: the value of `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`
 
-Change the default password and secrets in `deploy/.env` before exposing TokenHub beyond a local machine.
+Production startup fails while placeholder credentials remain in `deploy/.env`.
 
 ## Local Development
 

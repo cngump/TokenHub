@@ -588,6 +588,22 @@ func TestAdminImportsUsersFromExistingSystemCSV(t *testing.T) {
 	}
 }
 
+func TestBootstrapUsesConfiguredAdminPassword(t *testing.T) {
+	store := NewMemoryStore()
+	config := ConfigFromEnv()
+	config.BootstrapAdminPassword = "configured-bootstrap-password"
+	if err := BootstrapBaseDataWithConfig(store, config); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := store.AuthenticateAdminUser("admin", config.BootstrapAdminPassword, time.Hour); err != nil {
+		t.Fatalf("expected configured bootstrap password to authenticate: %v", err)
+	}
+	if _, _, err := store.AuthenticateAdminUser("admin", "admin123456", time.Hour); AsHTTPError(err).Code != "invalid_credentials" {
+		t.Fatalf("expected hard-coded default password to be rejected, got %v", err)
+	}
+}
+
 func TestAdminImportsUsersFromHeaderlessCSV(t *testing.T) {
 	store := NewMemoryStore()
 	if err := BootstrapBaseData(store); err != nil {
