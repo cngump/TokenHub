@@ -288,7 +288,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.store.FinishProviderResourceAttempt(resourceID, false, Usage{})
 			httpErr := AsHTTPError(err)
-			s.store.FinishCall(routed.Call, route, Usage{}, httpErr.Status, httpErr.Code, clientIP(r), r.UserAgent())
+			s.store.FinishCall(routed.Call, route, Usage{}, httpErr.Status, httpErr.Code, s.clientIP(r), r.UserAgent())
 			s.recordRequestPayload(routed.Call.RequestID, req, auditErrorPayload(err, routed.Call.RequestID))
 			writeError(w, r, err)
 			return
@@ -298,7 +298,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.store.FinishProviderResourceAttempt(resourceID, false, Usage{})
 			httpErr := AsHTTPError(err)
-			s.store.FinishCall(routed.Call, route, Usage{}, httpErr.Status, httpErr.Code, clientIP(r), r.UserAgent())
+			s.store.FinishCall(routed.Call, route, Usage{}, httpErr.Status, httpErr.Code, s.clientIP(r), r.UserAgent())
 			s.recordRequestPayload(routed.Call.RequestID, req, auditErrorPayload(err, routed.Call.RequestID))
 			writeError(w, r, err)
 			return
@@ -320,7 +320,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			ErrorCode: code,
 			Error:     errorMessage(err),
 		}})
-		s.store.FinishCall(routed.Call, route, usage, status, code, clientIP(r), r.UserAgent())
+		s.store.FinishCall(routed.Call, route, usage, status, code, s.clientIP(r), r.UserAgent())
 		s.recordRequestPayload(routed.Call.RequestID, req, auditStreamPayload(status, code, err))
 		return
 	}
@@ -335,7 +335,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	s.store.MarkRouteUsed(route.Route.ID)
 	s.store.MarkProviderResourceUsed(routeResourceID(route))
 	s.store.RecordRouteAttempts(routed.Call.RequestID, attempts)
-	s.store.FinishCall(routed.Call, route, usage, http.StatusOK, "", clientIP(r), r.UserAgent())
+	s.store.FinishCall(routed.Call, route, usage, http.StatusOK, "", s.clientIP(r), r.UserAgent())
 	s.recordRequestPayload(routed.Call.RequestID, req, resp)
 	w.Header().Set("x-request-id", routed.Call.RequestID)
 	s.writeRouteHeaders(w, routed.Call, route, len(attempts))
@@ -375,7 +375,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 	s.store.MarkRouteUsed(route.Route.ID)
 	s.store.MarkProviderResourceUsed(routeResourceID(route))
 	s.store.RecordRouteAttempts(routed.Call.RequestID, attempts)
-	s.store.FinishCall(routed.Call, route, usage, http.StatusOK, "", clientIP(r), r.UserAgent())
+	s.store.FinishCall(routed.Call, route, usage, http.StatusOK, "", s.clientIP(r), r.UserAgent())
 	s.recordRequestPayload(routed.Call.RequestID, req, resp)
 	w.Header().Set("x-request-id", routed.Call.RequestID)
 	s.writeRouteHeaders(w, routed.Call, route, len(attempts))
@@ -415,7 +415,7 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	s.store.MarkRouteUsed(route.Route.ID)
 	s.store.MarkProviderResourceUsed(routeResourceID(route))
 	s.store.RecordRouteAttempts(routed.Call.RequestID, attempts)
-	s.store.FinishCall(routed.Call, route, usage, http.StatusOK, "", clientIP(r), r.UserAgent())
+	s.store.FinishCall(routed.Call, route, usage, http.StatusOK, "", s.clientIP(r), r.UserAgent())
 	s.recordRequestPayload(routed.Call.RequestID, req, resp)
 	w.Header().Set("x-request-id", routed.Call.RequestID)
 	s.writeRouteHeaders(w, routed.Call, route, len(attempts))
@@ -426,7 +426,7 @@ func (s *Server) startRoutedCall(w http.ResponseWriter, r *http.Request, project
 	call, err := s.store.StartCall(project, key, model)
 	if err != nil {
 		httpErr := AsHTTPError(err)
-		requestID := s.store.RecordRejectedRequest(project, key, model, httpErr.Status, httpErr.Code, clientIP(r), r.UserAgent())
+		requestID := s.store.RecordRejectedRequest(project, key, model, httpErr.Status, httpErr.Code, s.clientIP(r), r.UserAgent())
 		s.recordRequestPayload(requestID, requestPayload, auditErrorPayload(err, requestID))
 		writeError(w, r, err)
 		return RoutedCall{}, false
@@ -434,7 +434,7 @@ func (s *Server) startRoutedCall(w http.ResponseWriter, r *http.Request, project
 	routes, err := s.store.SelectRouteCandidates(model)
 	if err != nil {
 		httpErr := AsHTTPError(err)
-		s.store.FinishCall(call, RouteSelection{}, Usage{}, httpErr.Status, httpErr.Code, clientIP(r), r.UserAgent())
+		s.store.FinishCall(call, RouteSelection{}, Usage{}, httpErr.Status, httpErr.Code, s.clientIP(r), r.UserAgent())
 		s.recordRequestPayload(call.RequestID, requestPayload, auditErrorPayload(err, call.RequestID))
 		writeError(w, r, err)
 		return RoutedCall{}, false
@@ -536,7 +536,7 @@ func (s *Server) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reques
 		httpErr := AsHTTPError(err)
 		route = lastAttemptRoute(attempts)
 		s.store.RecordRouteAttempts(requestID, attempts)
-		s.store.RecordPlaygroundRequest(routed.Call, route, httpErr.Status, httpErr.Code, clientIP(r), r.UserAgent())
+		s.store.RecordPlaygroundRequest(routed.Call, route, httpErr.Status, httpErr.Code, s.clientIP(r), r.UserAgent())
 		s.recordRequestPayload(requestID, req, auditErrorPayload(err, requestID))
 		s.recordAdminAudit(r, user, "chat_failed", "playground", req.Model, "", map[string]any{
 			"model":    req.Model,
@@ -549,7 +549,7 @@ func (s *Server) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reques
 	s.store.MarkRouteUsed(route.Route.ID)
 	s.store.MarkProviderResourceUsed(routeResourceID(route))
 	s.store.RecordRouteAttempts(requestID, attempts)
-	s.store.RecordPlaygroundRequest(routed.Call, route, http.StatusOK, "", clientIP(r), r.UserAgent())
+	s.store.RecordPlaygroundRequest(routed.Call, route, http.StatusOK, "", s.clientIP(r), r.UserAgent())
 	s.recordAdminAudit(r, user, "chat", "playground", req.Model, "", map[string]any{
 		"model":    req.Model,
 		"route":    playgroundRouteSummary(route),
@@ -613,7 +613,7 @@ func (s *Server) finishFailedRoutedCall(r *http.Request, routed RoutedCall, atte
 	httpErr := AsHTTPError(err)
 	route := lastAttemptRoute(attempts)
 	s.store.RecordRouteAttempts(routed.Call.RequestID, attempts)
-	s.store.FinishCall(routed.Call, route, Usage{}, httpErr.Status, httpErr.Code, clientIP(r), r.UserAgent())
+	s.store.FinishCall(routed.Call, route, Usage{}, httpErr.Status, httpErr.Code, s.clientIP(r), r.UserAgent())
 }
 
 func (s *Server) adapterForRoute(route RouteSelection) (ProviderAdapter, error) {
@@ -893,7 +893,7 @@ func (s *Server) authenticate(r *http.Request) (Project, APIKey, error) {
 	if !strings.HasPrefix(auth, prefix) {
 		return Project{}, APIKey{}, ErrInvalidAPIKey
 	}
-	return s.store.ValidateAPIKey(strings.TrimSpace(strings.TrimPrefix(auth, prefix)), clientIP(r))
+	return s.store.ValidateAPIKey(strings.TrimSpace(strings.TrimPrefix(auth, prefix)), s.clientIP(r))
 }
 
 func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
@@ -6157,7 +6157,7 @@ func (s *Server) recordAdminAudit(r *http.Request, user AdminUser, action string
 		Status:         "success",
 		BeforeSnapshot: snapshotJSON(before),
 		AfterSnapshot:  snapshotJSON(after),
-		IP:             clientIP(r),
+		IP:             s.clientIP(r),
 		UserAgent:      r.UserAgent(),
 	})
 }
@@ -6328,16 +6328,55 @@ func statusAndCode(err error) (int, string) {
 	return httpErr.Status, httpErr.Code
 }
 
-func clientIP(r *http.Request) string {
-	forwarded := r.Header.Get("x-forwarded-for")
-	if forwarded != "" {
-		return strings.TrimSpace(strings.Split(forwarded, ",")[0])
+func (s *Server) clientIP(r *http.Request) string {
+	remoteIP := requestRemoteIP(r)
+	if !ipMatchesTrustedProxy(remoteIP, s.config.TrustedProxyCIDRs) {
+		return remoteIP
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	forwarded := strings.Split(r.Header.Get("x-forwarded-for"), ",")
+	parsed := make([]string, 0, len(forwarded))
+	for _, value := range forwarded {
+		value = strings.TrimSpace(value)
+		ip := net.ParseIP(value)
+		if value == "" || ip == nil {
+			return remoteIP
+		}
+		parsed = append(parsed, ip.String())
+	}
+	for index := len(parsed) - 1; index >= 0; index-- {
+		if !ipMatchesTrustedProxy(parsed[index], s.config.TrustedProxyCIDRs) {
+			return parsed[index]
+		}
+	}
+	if len(parsed) > 0 {
+		return parsed[0]
+	}
+	return remoteIP
+}
+
+func requestRemoteIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
 	if err == nil {
 		return host
 	}
-	return r.RemoteAddr
+	return strings.Trim(strings.TrimSpace(r.RemoteAddr), "[]")
+}
+
+func ipMatchesTrustedProxy(rawIP string, trusted []string) bool {
+	ip := net.ParseIP(strings.TrimSpace(rawIP))
+	if ip == nil {
+		return false
+	}
+	for _, entry := range trusted {
+		entry = strings.TrimSpace(entry)
+		if candidate := net.ParseIP(entry); candidate != nil && candidate.Equal(ip) {
+			return true
+		}
+		if _, network, err := net.ParseCIDR(entry); err == nil && network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func cors(next http.Handler) http.Handler {

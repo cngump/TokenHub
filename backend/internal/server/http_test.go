@@ -3871,6 +3871,39 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestClientIPIgnoresForwardedHeaderFromUntrustedPeer(t *testing.T) {
+	server := &Server{config: Config{TrustedProxyCIDRs: []string{"10.0.0.0/8"}}}
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	request.RemoteAddr = "198.51.100.7:4321"
+	request.Header.Set("X-Forwarded-For", "203.0.113.25")
+
+	if got := server.clientIP(request); got != "198.51.100.7" {
+		t.Fatalf("expected direct peer IP, got %q", got)
+	}
+}
+
+func TestClientIPUsesForwardedChainFromTrustedProxy(t *testing.T) {
+	server := &Server{config: Config{TrustedProxyCIDRs: []string{"10.0.0.0/8", "192.0.2.10"}}}
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	request.RemoteAddr = "10.0.0.8:4321"
+	request.Header.Set("X-Forwarded-For", "203.0.113.25, 192.0.2.10")
+
+	if got := server.clientIP(request); got != "203.0.113.25" {
+		t.Fatalf("expected first untrusted address from the right, got %q", got)
+	}
+}
+
+func TestClientIPRejectsMalformedForwardedChain(t *testing.T) {
+	server := &Server{config: Config{TrustedProxyCIDRs: []string{"10.0.0.0/8"}}}
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	request.RemoteAddr = "10.0.0.8:4321"
+	request.Header.Set("X-Forwarded-For", "203.0.113.25, not-an-ip")
+
+	if got := server.clientIP(request); got != "10.0.0.8" {
+		t.Fatalf("expected malformed chain to fall back to direct peer, got %q", got)
+	}
+}
+
 func newTestServer() http.Handler {
 	store := NewMemoryStore()
 	if err := SeedDemoData(store); err != nil {
