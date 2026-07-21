@@ -184,6 +184,20 @@ func parseDatabaseURL(databaseURL string) (driver string, dsn string, err error)
 	}
 }
 
+// redactDatabaseURL 隐藏数据库 URL 中的密码，用于安全日志输出
+func redactDatabaseURL(databaseURL string) string {
+	u, err := url.Parse(databaseURL)
+	if err != nil {
+		return "<invalid-url>"
+	}
+	if u.User != nil {
+		if _, hasPassword := u.User.Password(); hasPassword {
+			u.User = url.UserPassword(u.User.Username(), "****")
+		}
+	}
+	return u.String()
+}
+
 func OpenStore(databaseURL string) (*GormStore, error) {
 	return OpenStoreWithConfig(databaseURL, ConfigFromEnv())
 }
@@ -206,6 +220,8 @@ func NewStoreWithDialect(databaseURL string, config Config) (*GormStore, error) 
 	if err != nil {
 		return nil, err
 	}
+
+	log.Printf("[tokenhub] initializing database: driver=%s url=%s", driver, redactDatabaseURL(databaseURL))
 
 	var dialector gorm.Dialector
 	switch driver {
