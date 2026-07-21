@@ -1425,7 +1425,7 @@ func (s *GormStore) SelectRouteCandidates(modelName string) ([]RouteSelection, e
 		var resources []ProviderResource
 		query := s.db.Where("provider_id = ? AND status = ? AND healthy = ?", provider.ID, StatusActive, true)
 		if strings.TrimSpace(route.ResourceGroup) != "" {
-			query = query.Where("`group` = ?", strings.TrimSpace(route.ResourceGroup))
+			query = query.Where("\"group\" = ?", strings.TrimSpace(route.ResourceGroup))
 		}
 		if err := query.Order("priority asc, weight desc, created_at asc").
 			Find(&resources).Error; err != nil {
