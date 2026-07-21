@@ -2413,9 +2413,11 @@ func (s *GormStore) AuthenticateAdminUser(identity string, password string, ttl 
 		return AdminUser{}, AdminSession{}, NewHTTPError(401, "invalid_credentials", "Invalid username or password")
 	}
 	if needsPasswordUpgrade {
-		if upgradedHash, err := hashPassword(password); err == nil {
-			user.PasswordHash = upgradedHash
+		upgradedHash, err := hashPasswordForUpgrade(password)
+		if err != nil {
+			return AdminUser{}, AdminSession{}, err
 		}
+		user.PasswordHash = upgradedHash
 	}
 	now := time.Now().UTC()
 	session := AdminSession{

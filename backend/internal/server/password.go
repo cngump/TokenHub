@@ -9,6 +9,8 @@ import (
 
 const passwordHashCost = bcrypt.DefaultCost
 
+const prehashedPasswordPrefix = "$tokenhub$bcrypt-sha256$"
+
 func hashPassword(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), passwordHashCost)
 	if err != nil {
@@ -20,7 +22,26 @@ func hashPassword(password string) (string, error) {
 	return string(hash), nil
 }
 
+func hashPasswordForUpgrade(password string) (string, error) {
+	if len([]byte(password)) <= 72 {
+		return hashPassword(password)
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(HashSecret(password)), passwordHashCost)
+	if err != nil {
+		return "", err
+	}
+	return prehashedPasswordPrefix + string(hash), nil
+}
+
 func verifyPassword(hash string, password string) (valid bool, needsUpgrade bool) {
+	if strings.HasPrefix(hash, prehashedPasswordPrefix) {
+		bcryptHash := strings.TrimPrefix(hash, prehashedPasswordPrefix)
+		if bcrypt.CompareHashAndPassword([]byte(bcryptHash), []byte(HashSecret(password))) != nil {
+			return false, false
+		}
+		cost, err := bcrypt.Cost([]byte(bcryptHash))
+		return true, err == nil && cost < passwordHashCost
+	}
 	if strings.HasPrefix(hash, "$2") {
 		if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
 			return false, false

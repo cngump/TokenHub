@@ -61,6 +61,36 @@ func TestLegacyAdminPasswordMigratesAfterLogin(t *testing.T) {
 	}
 }
 
+func TestOversizeLegacyAdminPasswordMigratesAfterLogin(t *testing.T) {
+	store := NewMemoryStore()
+	password := strings.Repeat("a", 73)
+	legacyHash := HashSecret(password)
+	user, err := store.CreateAdminUser(AdminUser{
+		Username:     "oversize-legacy-user",
+		Email:        "oversize-legacy-user@example.com",
+		Role:         "admin",
+		Status:       StatusActive,
+		PasswordHash: legacyHash,
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := store.AuthenticateAdminUser(user.Username, password, time.Hour); err != nil {
+		t.Fatalf("expected oversize legacy password authentication to succeed: %v", err)
+	}
+	stored := privateAdminUser(t, store, user.ID)
+	if stored.PasswordHash == legacyHash || !strings.HasPrefix(stored.PasswordHash, prehashedPasswordPrefix) {
+		t.Fatalf("expected legacy hash to be upgraded, got %q", stored.PasswordHash)
+	}
+	if _, _, err := store.AuthenticateAdminUser(user.Username, password, time.Hour); err != nil {
+		t.Fatalf("expected upgraded password authentication to succeed: %v", err)
+	}
+	if _, _, err := store.AuthenticateAdminUser(user.Username, password+"x", time.Hour); AsHTTPError(err).Code != "invalid_credentials" {
+		t.Fatalf("expected invalid credentials, got %v", err)
+	}
+}
+
 func TestAdminPasswordRejectsBcryptOversizeInput(t *testing.T) {
 	store := NewMemoryStore()
 	_, err := store.CreateAdminUser(AdminUser{
