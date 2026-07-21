@@ -2537,6 +2537,10 @@ func (s *GormStore) RevokeAdminSession(token string) {
 }
 
 func (s *GormStore) CreateSQLiteBackup(createdBy string, expireDays int) (SQLiteBackupRecord, error) {
+	if s.IsPostgreSQL() {
+		return s.CreatePostgreSQLBackup(createdBy, expireDays)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -2613,6 +2617,10 @@ func (s *GormStore) GetSQLiteBackup(id string) (SQLiteBackupRecord, error) {
 }
 
 func (s *GormStore) RestoreSQLiteBackup(id string, restoredBy string) (SQLiteBackupRecord, error) {
+	if s.IsPostgreSQL() {
+		return s.RestorePostgreSQLBackup(id, restoredBy)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
