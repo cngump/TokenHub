@@ -8,40 +8,40 @@ log() {
   printf '[TokenHub Compose] %s\n' "$*"
 }
 
-# 检查 docker-compose 命令
+# Detect docker-compose command
 if command -v docker-compose >/dev/null 2>&1; then
   COMPOSE_CMD="docker-compose"
 elif docker compose version >/dev/null 2>&1; then
   COMPOSE_CMD="docker compose"
 else
-  log "未找到 docker-compose 命令"
+  log "docker-compose command not found"
   exit 1
 fi
 
 cd "$DEPLOY_DIR"
 
-# 检查是否需要删除数据卷
+# Check if volumes should be removed
 if [ "${REMOVE_VOLUMES:-false}" = "true" ]; then
-  log "停止服务并删除数据卷..."
+  log "Stopping services and removing volumes..."
   $COMPOSE_CMD -f docker-compose.postgres.yml down -v
-  log "⚠️  PostgreSQL 数据卷已删除"
+  log "⚠️  PostgreSQL data volumes removed"
 else
-  log "停止服务（保留数据卷）..."
+  log "Stopping services (keeping volumes)..."
   $COMPOSE_CMD -f docker-compose.postgres.yml down
 fi
 
 cat <<EOF
 
 ┌─────────────────────────────────────────────────────┐
-│  TokenHub (Docker Compose) 已停止                   │
+│  TokenHub (Docker Compose) Stopped                  │
 ├─────────────────────────────────────────────────────┤
-│  ✅ 所有容器已停止                                  │
-│  📦 数据卷已保留（重启后数据仍在）                  │
+│  ✅ All containers stopped                          │
+│  📦 Data volumes preserved (data persists on restart)│
 ├─────────────────────────────────────────────────────┤
-│  提示:                                              │
-│  • 重新启动: ./scripts/start-docker-compose.sh      │
-│  • 查看日志: $COMPOSE_CMD -f deploy/docker-compose.postgres.yml logs     │
-│  • 删除数据: REMOVE_VOLUMES=true ./scripts/stop-docker-compose.sh │
+│  Tips:                                              │
+│  • Restart:     ./scripts/start-docker-compose.sh   │
+│  • View logs:   $COMPOSE_CMD -f deploy/docker-compose.postgres.yml logs     │
+│  • Remove data: REMOVE_VOLUMES=true ./scripts/stop-docker-compose.sh │
 └─────────────────────────────────────────────────────┘
 
 EOF

@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 
 TOKENHUB_HTTP_ADDR="${TOKENHUB_HTTP_ADDR:-:8080}"
 TOKENHUB_PUBLIC_BASE_URL="${TOKENHUB_PUBLIC_BASE_URL:-http://localhost:8080}"
 TOKENHUB_ADMIN_TOKEN="${TOKENHUB_ADMIN_TOKEN:-dev_admin_token}"
-# 不在此处强制默认数据库 URL。若 shell 未显式设置，则交给后端的 godotenv 从 backend/.env 加载，
-# 都没有时后端再回退到自身默认（SQLite）。这样 backend/.env 里的 PostgreSQL 配置才能生效。
+# Don't force a default database URL here. If not explicitly set in shell,
+# let backend's godotenv load from backend/.env, so PostgreSQL config in .env can take effect.
+# If neither exists, backend falls back to its own default (SQLite).
 TOKENHUB_DATABASE_URL="${TOKENHUB_DATABASE_URL:-}"
 NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL:-$TOKENHUB_PUBLIC_BASE_URL}"
 NEXT_PUBLIC_ADMIN_TOKEN="${NEXT_PUBLIC_ADMIN_TOKEN:-$TOKENHUB_ADMIN_TOKEN}"
@@ -41,13 +42,13 @@ find_go() {
     return
   fi
 
-  log "未找到 Go。请安装 Go，或通过 GO_BIN=/path/to/go 指定。"
+  log "Go not found. Please install Go, or specify via GO_BIN=/path/to/go."
   exit 1
 }
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
-    log "未找到命令：$1"
+    log "Command not found: $1"
     exit 1
   fi
 }
@@ -72,12 +73,12 @@ cleanup() {
   trap - INT TERM EXIT
 
   if [ -n "$FRONTEND_PID" ] && kill -0 "$FRONTEND_PID" >/dev/null 2>&1; then
-    log "停止前端服务 PID=$FRONTEND_PID"
+    log "Stopping frontend service PID=$FRONTEND_PID"
     kill_tree "$FRONTEND_PID"
   fi
 
   if [ -n "$BACKEND_PID" ] && kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
-    log "停止后端服务 PID=$BACKEND_PID"
+    log "Stopping backend service PID=$BACKEND_PID"
     kill_tree "$BACKEND_PID"
   fi
 
@@ -93,20 +94,20 @@ GO_CMD="$(find_go)"
 require_command npm
 
 if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
-  log "前端依赖不存在，执行 npm install"
+  log "Frontend dependencies not found, running npm install"
   (cd "$FRONTEND_DIR" && npm install)
 fi
 
 mkdir -p "$(dirname "$BACKEND_BIN")"
 
-log "编译后端二进制"
+log "Building backend binary"
 (cd "$BACKEND_DIR" && "$GO_CMD" build -o "$BACKEND_BIN" ./cmd/tokenhub)
 
-log "启动后端: $TOKENHUB_HTTP_ADDR"
+log "Starting backend: $TOKENHUB_HTTP_ADDR"
 (
   cd "$BACKEND_DIR"
-  # 仅当 TOKENHUB_DATABASE_URL 非空（shell 显式设置）时才传入，
-  # 否则不传，让后端 godotenv 从 backend/.env 读取，避免覆盖 .env 配置。
+  # Only pass TOKENHUB_DATABASE_URL if non-empty (explicitly set in shell),
+  # otherwise let backend godotenv read from backend/.env to avoid overriding .env config.
   backend_env=(
     TOKENHUB_HTTP_ADDR="$TOKENHUB_HTTP_ADDR"
     TOKENHUB_PUBLIC_BASE_URL="$TOKENHUB_PUBLIC_BASE_URL"
@@ -119,7 +120,7 @@ log "启动后端: $TOKENHUB_HTTP_ADDR"
 ) &
 BACKEND_PID=$!
 
-log "启动前端: http://localhost:$FRONTEND_PORT"
+log "Starting frontend: http://localhost:$FRONTEND_PORT"
 (
   cd "$FRONTEND_DIR"
   exec env \
@@ -131,23 +132,23 @@ FRONTEND_PID=$!
 
 cat <<EOF
 
-TokenHub 已启动：
-  后端 API:  $TOKENHUB_PUBLIC_BASE_URL
-  前端后台: http://localhost:$FRONTEND_PORT
-  Admin Token: $TOKENHUB_ADMIN_TOKEN
+TokenHub started:
+  Backend API:  $TOKENHUB_PUBLIC_BASE_URL
+  Frontend:     http://localhost:$FRONTEND_PORT
+  Admin Token:  $TOKENHUB_ADMIN_TOKEN
 
-按 Ctrl-C 同时停止前后端。
+Press Ctrl-C to stop both services.
 EOF
 
 while true; do
   if ! kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
-    log "后端服务已退出"
+    log "Backend service exited"
     wait "$BACKEND_PID" || exit $?
     exit 0
   fi
 
   if ! kill -0 "$FRONTEND_PID" >/dev/null 2>&1; then
-    log "前端服务已退出"
+    log "Frontend service exited"
     wait "$FRONTEND_PID" || exit $?
     exit 0
   fi

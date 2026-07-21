@@ -13,43 +13,43 @@ error() {
   exit 1
 }
 
-# 检查 Docker 是否运行
+# Check if Docker is running
 if ! docker info >/dev/null 2>&1; then
-  error "Docker 未运行。请先启动 Docker。"
+  error "Docker is not running. Please start Docker first."
 fi
 
-# 检查 docker-compose 命令
+# Detect docker-compose command
 if command -v docker-compose >/dev/null 2>&1; then
   COMPOSE_CMD="docker-compose"
 elif docker compose version >/dev/null 2>&1; then
   COMPOSE_CMD="docker compose"
 else
-  error "未找到 docker-compose 命令"
+  error "docker-compose command not found"
 fi
 
-log "使用 Docker Compose 命令: $COMPOSE_CMD"
+log "Using Docker Compose command: $COMPOSE_CMD"
 
-# 检查 .env 文件
+# Check .env file
 if [ ! -f "$DEPLOY_DIR/.env" ]; then
-  log "未找到 deploy/.env，从 .env.example 复制"
+  log ".env not found in deploy/, copying from .env.example"
   cp "$DEPLOY_DIR/.env.example" "$DEPLOY_DIR/.env"
-  log "⚠️  请编辑 deploy/.env 修改默认密码和密钥"
+  log "⚠️  Please edit deploy/.env to change default passwords and secrets"
 fi
 
 cd "$DEPLOY_DIR"
 
-# 构建并启动所有服务
-log "构建并启动 TokenHub 服务（PostgreSQL + 后端 + 前端）..."
+# Build and start all services
+log "Building and starting TokenHub services (PostgreSQL + Backend + Frontend)..."
 $COMPOSE_CMD --env-file .env -f docker-compose.postgres.yml up -d --build
 
-log "等待服务启动..."
+log "Waiting for services to start..."
 sleep 5
 
-# 检查服务状态
-log "检查服务状态..."
+# Check service status
+log "Checking service status..."
 $COMPOSE_CMD -f docker-compose.postgres.yml ps
 
-# 读取配置
+# Read configuration
 source .env
 POSTGRES_PORT="${POSTGRES_PORT:-5432}"
 TOKENHUB_BACKEND_PORT="${TOKENHUB_BACKEND_PORT:-8080}"
@@ -59,25 +59,25 @@ TOKENHUB_ADMIN_TOKEN="${TOKENHUB_ADMIN_TOKEN:-change-me-tokenhub-admin-token}"
 cat <<EOF
 
 ┌─────────────────────────────────────────────────────┐
-│  TokenHub (Full Docker Compose) 已启动              │
+│  TokenHub (Full Docker Compose) Started             │
 ├─────────────────────────────────────────────────────┤
 │  🗄️  PostgreSQL:  localhost:${POSTGRES_PORT}                   │
-│  🔧 后端 API:     http://localhost:${TOKENHUB_BACKEND_PORT}             │
-│  🌐 前端控制台:   http://localhost:${TOKENHUB_FRONTEND_PORT}           │
+│  🔧 Backend API:  http://localhost:${TOKENHUB_BACKEND_PORT}             │
+│  🌐 Frontend:     http://localhost:${TOKENHUB_FRONTEND_PORT}           │
 │  🔑 Admin Token:  ${TOKENHUB_ADMIN_TOKEN:0:20}...    │
 ├─────────────────────────────────────────────────────┤
-│  默认登录:                                          │
-│    用户名: admin                                    │
-│    密码:   admin123456                              │
+│  Default login:                                     │
+│    Username: admin                                  │
+│    Password: admin123456                            │
 ├─────────────────────────────────────────────────────┤
-│  常用命令:                                          │
-│    查看日志:   $COMPOSE_CMD -f deploy/docker-compose.postgres.yml logs -f  │
-│    查看状态:   $COMPOSE_CMD -f deploy/docker-compose.postgres.yml ps       │
-│    重启服务:   $COMPOSE_CMD -f deploy/docker-compose.postgres.yml restart  │
-│    停止服务:   ./scripts/stop-docker-compose.sh    │
+│  Common commands:                                   │
+│    View logs:   $COMPOSE_CMD -f deploy/docker-compose.postgres.yml logs -f  │
+│    Check status: $COMPOSE_CMD -f deploy/docker-compose.postgres.yml ps      │
+│    Restart:     $COMPOSE_CMD -f deploy/docker-compose.postgres.yml restart  │
+│    Stop:        ./scripts/stop-docker-compose.sh    │
 └─────────────────────────────────────────────────────┘
 
 EOF
 
-log "✅ 所有服务已启动"
-log "访问 http://localhost:${TOKENHUB_FRONTEND_PORT} 开始使用 TokenHub"
+log "✅ All services started"
+log "Visit http://localhost:${TOKENHUB_FRONTEND_PORT} to use TokenHub"

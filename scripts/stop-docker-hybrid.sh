@@ -8,74 +8,74 @@ log() {
   printf '[TokenHub Docker] %s\n' "$*"
 }
 
-# 检查 docker-compose 命令
+# Detect docker-compose command
 if command -v docker-compose >/dev/null 2>&1; then
   COMPOSE_CMD="docker-compose"
 elif docker compose version >/dev/null 2>&1; then
   COMPOSE_CMD="docker compose"
 else
-  log "未找到 docker-compose 命令，跳过容器清理"
+  log "docker-compose command not found, skipping container cleanup"
   COMPOSE_CMD=""
 fi
 
-# 停止后端服务
+# Stop backend service
 if [ -f "$ROOT_DIR/.tmp/backend.pid" ]; then
   BACKEND_PID=$(cat "$ROOT_DIR/.tmp/backend.pid")
   if kill -0 "$BACKEND_PID" 2>/dev/null; then
-    log "停止后端服务 (PID: $BACKEND_PID)..."
+    log "Stopping backend service (PID: $BACKEND_PID)..."
     kill "$BACKEND_PID" 2>/dev/null || true
     sleep 1
-    # 强制终止如果还在运行
+    # Force kill if still running
     if kill -0 "$BACKEND_PID" 2>/dev/null; then
       kill -9 "$BACKEND_PID" 2>/dev/null || true
     fi
   fi
   rm -f "$ROOT_DIR/.tmp/backend.pid"
-  log "后端服务已停止"
+  log "Backend service stopped"
 else
-  log "未找到后端 PID 文件"
+  log "Backend PID file not found"
 fi
 
-# 停止前端服务
+# Stop frontend service
 if [ -f "$ROOT_DIR/.tmp/frontend.pid" ]; then
   FRONTEND_PID=$(cat "$ROOT_DIR/.tmp/frontend.pid")
   if kill -0 "$FRONTEND_PID" 2>/dev/null; then
-    log "停止前端服务 (PID: $FRONTEND_PID)..."
-    # 终止前端及其子进程
+    log "Stopping frontend service (PID: $FRONTEND_PID)..."
+    # Kill frontend and its child processes
     pkill -P "$FRONTEND_PID" 2>/dev/null || true
     kill "$FRONTEND_PID" 2>/dev/null || true
     sleep 1
-    # 强制终止如果还在运行
+    # Force kill if still running
     if kill -0 "$FRONTEND_PID" 2>/dev/null; then
       kill -9 "$FRONTEND_PID" 2>/dev/null || true
     fi
   fi
   rm -f "$ROOT_DIR/.tmp/frontend.pid"
-  log "前端服务已停止"
+  log "Frontend service stopped"
 else
-  log "未找到前端 PID 文件"
+  log "Frontend PID file not found"
 fi
 
-# 额外清理：确保端口被释放
-log "清理端口占用..."
+# Extra cleanup: ensure ports are released
+log "Cleaning up port usage..."
 lsof -ti:8080 2>/dev/null | xargs kill -9 2>/dev/null || true
 lsof -ti:3000 2>/dev/null | xargs kill -9 2>/dev/null || true
 
-# 停止 PostgreSQL 容器
+# Stop PostgreSQL container
 if [ -n "$COMPOSE_CMD" ]; then
-  log "停止 PostgreSQL 容器..."
+  log "Stopping PostgreSQL container..."
   cd "$DEPLOY_DIR"
   if [ -f "docker-compose.postgres.yml" ]; then
     $COMPOSE_CMD -f docker-compose.postgres.yml down 2>/dev/null || true
-    log "PostgreSQL 容器已停止"
+    log "PostgreSQL container stopped"
   else
-    log "未找到 docker-compose.postgres.yml"
+    log "docker-compose.postgres.yml not found"
   fi
 fi
 
-# 清理日志文件（可选）
+# Clean log files (optional)
 if [ "${CLEAN_LOGS:-false}" = "true" ]; then
-  log "清理日志文件..."
+  log "Cleaning log files..."
   rm -f "$ROOT_DIR/.tmp/backend.log"
   rm -f "$ROOT_DIR/.tmp/frontend.log"
 fi
@@ -83,16 +83,16 @@ fi
 cat <<EOF
 
 ┌─────────────────────────────────────────────────────┐
-│  TokenHub 已停止                                    │
+│  TokenHub Stopped                                   │
 ├─────────────────────────────────────────────────────┤
-│  ✅ 后端服务已停止                                  │
-│  ✅ 前端服务已停止                                  │
-│  ✅ PostgreSQL 容器已停止                           │
+│  ✅ Backend service stopped                         │
+│  ✅ Frontend service stopped                        │
+│  ✅ PostgreSQL container stopped                    │
 ├─────────────────────────────────────────────────────┤
-│  提示:                                              │
-│  • 重新启动: ./scripts/start-docker.sh              │
-│  • 查看日志: tail -f .tmp/backend.log               │
-│  • 清理日志: CLEAN_LOGS=true ./scripts/stop-docker.sh │
+│  Tips:                                              │
+│  • Restart:    ./scripts/start-docker.sh            │
+│  • View logs:  tail -f .tmp/backend.log             │
+│  • Clean logs: CLEAN_LOGS=true ./scripts/stop-docker.sh │
 └─────────────────────────────────────────────────────┘
 
 EOF

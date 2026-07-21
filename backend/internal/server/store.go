@@ -185,16 +185,16 @@ func parseDatabaseURL(databaseURL string) (driver string, dsn string, err error)
 	}
 }
 
-// redactDatabaseURL 隐藏数据库 URL 中的密码，用于安全日志输出
+// redactDatabaseURL redacts the password in database URL for safe logging
 func redactDatabaseURL(databaseURL string) string {
 	u, err := url.Parse(databaseURL)
 	if err != nil {
 		return "<invalid-url>"
 	}
 	if u.User != nil {
-		if _, hasPassword := u.User.Password(); hasPassword {
-			u.User = url.UserPassword(u.User.Username(), "****")
-		}
+		username := u.User.Username()
+		// Hide password only, preserve username
+		u.User = url.UserPassword(username, "****")
 	}
 	return u.String()
 }

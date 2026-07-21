@@ -117,7 +117,7 @@ No configuration needed. Data is stored in `backend/data/tokenhub.db`.
 
 ```bash
 export TOKENHUB_DATABASE_URL='postgresql://user:password@localhost:5432/tokenhub?sslmode=disable'
-./start.sh
+./scripts/local-start.sh
 ```
 
 **Option 2: Use .env file**

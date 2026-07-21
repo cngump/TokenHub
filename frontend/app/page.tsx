@@ -11881,113 +11881,125 @@ function DatabaseStatusView({ api, isDark }: { api: ApiContext; isDark: boolean 
 
   if (loading) {
     return (
-      <div className="p-6">
+      <DataSection title="数据库状态">
         <div className="flex items-center justify-center py-12">
           <div className="text-gray-500">加载中...</div>
         </div>
-      </div>
+      </DataSection>
     );
   }
 
   if (error) {
     return (
-      <div className="p-6">
+      <DataSection title="数据库状态">
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
           <div className="flex items-center gap-2 text-red-800 dark:text-red-200">
             <AlertCircle className="w-5 h-5" />
             <span>加载失败: {error}</span>
           </div>
         </div>
-      </div>
+      </DataSection>
     );
   }
 
   if (!status) {
     return (
-      <div className="p-6">
+      <DataSection title="数据库状态">
         <div className="text-gray-500">无数据</div>
-      </div>
+      </DataSection>
     );
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">数据库状态</h1>
-        <button
-          onClick={fetchDatabaseStatus}
-          className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-        >
-          刷新
-        </button>
-      </div>
+    <DataSection title="数据库状态">
+      <div className="space-y-6">
+        <div className="flex justify-end">
+          <button
+            onClick={fetchDatabaseStatus}
+            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            刷新
+          </button>
+        </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* 数据库类型 */}
-        <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
-          <div className="flex items-center gap-3 mb-4">
-            <Database className="w-6 h-6 text-blue-600" />
-            <h2 className="text-lg font-semibold">数据库类型</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* 数据库类型 */}
+          <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
+            <div className="flex items-center gap-3 mb-4">
+              <Database className="w-6 h-6 text-blue-600" />
+              <h2 className="text-lg font-semibold">数据库类型</h2>
+            </div>
+            <div className="text-3xl font-bold">
+              {status.database_type === "postgres" ? "PostgreSQL" : "SQLite"}
+            </div>
           </div>
-          <div className="text-3xl font-bold">
-            {status.database_type === "postgres" ? "PostgreSQL" : "SQLite"}
+
+          {/* Docker 环境 */}
+          <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
+            <div className="flex items-center gap-3 mb-4">
+              <Server className="w-6 h-6 text-purple-600" />
+              <h2 className="text-lg font-semibold">运行环境</h2>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className={`w-3 h-3 rounded-full ${status.is_docker ? "bg-green-500" : "bg-gray-400"}`} />
+              <span className="text-xl font-semibold">
+                {status.is_docker ? "Docker 容器" : "本地进程"}
+              </span>
+            </div>
           </div>
-          {status.database_url && (
-            <div className="mt-3 text-sm text-gray-500 font-mono truncate">
-              {status.database_url}
+
+          {/* 连接状态 */}
+          <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
+            <div className="flex items-center gap-3 mb-4">
+              <Activity className="w-6 h-6 text-green-600" />
+              <h2 className="text-lg font-semibold">连接状态</h2>
+            </div>
+            <div className="flex items-center gap-2">
+              {status.connection_ok ? (
+                <>
+                  <Check className="w-6 h-6 text-green-500" />
+                  <span className="text-xl font-semibold text-green-600">正常</span>
+                </>
+              ) : (
+                <>
+                  <X className="w-6 h-6 text-red-500" />
+                  <span className="text-xl font-semibold text-red-600">异常</span>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* PostgreSQL 版本（仅 PostgreSQL 时显示）*/}
+          {status.database_type === "postgres" && status.postgres_version && (
+            <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
+              <div className="flex items-center gap-3 mb-4">
+                <Database className="w-6 h-6 text-indigo-600" />
+                <h2 className="text-lg font-semibold">PostgreSQL 版本</h2>
+              </div>
+              <div className="text-sm text-gray-600 dark:text-gray-400 font-mono">
+                {status.postgres_version.split('\n')[0]}
+              </div>
             </div>
           )}
         </div>
 
-        {/* Docker 环境 */}
-        <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
-          <div className="flex items-center gap-3 mb-4">
-            <Server className="w-6 h-6 text-purple-600" />
-            <h2 className="text-lg font-semibold">运行环境</h2>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className={`w-3 h-3 rounded-full ${status.is_docker ? "bg-green-500" : "bg-gray-400"}`} />
-            <span className="text-xl font-semibold">
-              {status.is_docker ? "Docker 容器" : "本地进程"}
-            </span>
-          </div>
-        </div>
-
-        {/* 连接状态 */}
-        <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
-          <div className="flex items-center gap-3 mb-4">
-            <Activity className="w-6 h-6 text-green-600" />
-            <h2 className="text-lg font-semibold">连接状态</h2>
-          </div>
-          <div className="flex items-center gap-2">
-            {status.connection_ok ? (
-              <>
-                <Check className="w-6 h-6 text-green-500" />
-                <span className="text-xl font-semibold text-green-600">正常</span>
-              </>
-            ) : (
-              <>
-                <X className="w-6 h-6 text-red-500" />
-                <span className="text-xl font-semibold text-red-600">异常</span>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* PostgreSQL 版本（仅 PostgreSQL 时显示）*/}
-        {status.database_type === "postgres" && status.postgres_version && (
+        {/* 数据库连接信息 */}
+        {status.database_url && (
           <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
             <div className="flex items-center gap-3 mb-4">
-              <Database className="w-6 h-6 text-indigo-600" />
-              <h2 className="text-lg font-semibold">PostgreSQL 版本</h2>
+              <Database className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+              <h2 className="text-base font-semibold">数据库连接信息</h2>
             </div>
-            <div className="text-sm text-gray-600 dark:text-gray-400 font-mono">
-              {status.postgres_version.split('\n')[0]}
+            <div className={`p-3 rounded-md font-mono text-sm break-all ${isDark ? "bg-gray-900 text-gray-300" : "bg-gray-100 text-gray-700"}`}>
+              {status.database_url}
+            </div>
+            <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              * 密码已隐藏以保护敏感信息
             </div>
           </div>
         )}
       </div>
-    </div>
+    </DataSection>
   );
 }
 

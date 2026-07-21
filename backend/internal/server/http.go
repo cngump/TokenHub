@@ -6343,7 +6343,15 @@ func clientIP(r *http.Request) string {
 
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("access-control-allow-origin", "*")
+		origin := r.Header.Get("Origin")
+		// If request has Origin header, echo it back; otherwise use wildcard
+		// This allows browser cross-origin requests with credentials while supporting non-browser clients
+		if origin != "" {
+			w.Header().Set("access-control-allow-origin", origin)
+			w.Header().Set("access-control-allow-credentials", "true")
+		} else {
+			w.Header().Set("access-control-allow-origin", "*")
+		}
 		w.Header().Set("access-control-allow-methods", "GET,POST,PATCH,DELETE,OPTIONS")
 		w.Header().Set("access-control-allow-headers", "authorization,content-type")
 		if r.Method == http.MethodOptions {
