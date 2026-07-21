@@ -111,6 +111,10 @@ npm run test:deepseek
 - [English documentation](docs/README.md)
 - [简体中文文档](docs/zh-CN/README.md)
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=astaxie%2FTokenHub&type=Date&legend=top-left)](https://www.star-history.com/?repos=astaxie%2FTokenHub&type=date&legend=top-left)
+
 ## License
 
 TokenHub は [Apache License 2.0](LICENSE) の下で提供されています。
