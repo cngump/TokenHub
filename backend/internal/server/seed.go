@@ -433,6 +433,10 @@ func seedAdminResources(store Store) {
 }
 
 func seedMockData(store Store) error {
+	mockPasswordHash, err := hashPassword("mock123456")
+	if err != nil {
+		return err
+	}
 	for i := 1; i <= 80; i++ {
 		teamID := fmt.Sprintf("team_mock_%02d", ((i-1)%24)+1)
 		projectID := fmt.Sprintf("prj_mock_%03d", i)
@@ -566,14 +570,15 @@ func seedMockData(store Store) error {
 
 	for i := 1; i <= 72; i++ {
 		_, err := store.CreateAdminUser(AdminUser{
-			ID:       fmt.Sprintf("usr_mock_%03d", i),
-			Username: fmt.Sprintf("mock.user%03d", i),
-			Name:     fmt.Sprintf("Mock User %03d", i),
-			Email:    fmt.Sprintf("mock.user%03d@tokenhub.local", i),
-			Role:     mockRole(i),
-			TeamID:   fmt.Sprintf("team_mock_%02d", ((i-1)%24)+1),
-			Status:   activeEvery(i, 16),
-		}, "mock123456")
+			ID:           fmt.Sprintf("usr_mock_%03d", i),
+			Username:     fmt.Sprintf("mock.user%03d", i),
+			Name:         fmt.Sprintf("Mock User %03d", i),
+			Email:        fmt.Sprintf("mock.user%03d@tokenhub.local", i),
+			Role:         mockRole(i),
+			TeamID:       fmt.Sprintf("team_mock_%02d", ((i-1)%24)+1),
+			Status:       activeEvery(i, 16),
+			PasswordHash: mockPasswordHash,
+		}, "")
 		if err != nil && AsHTTPError(err).Code != "admin_user_conflict" {
 			return err
 		}
