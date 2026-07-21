@@ -3756,3 +3756,50 @@ func resourcePrefix(kind string) string {
 		return "res"
 	}
 }
+
+// GetDatabaseStatus 返回数据库类型、Docker 环境和连接状态
+func (s *GormStore) GetDatabaseStatus() (map[string]interface{}, error) {
+	status := make(map[string]interface{})
+
+	// 1. 检测数据库类型
+	dbType := "sqlite"
+	if s.db.Dialector.Name() == "postgres" {
+		dbType = "postgres"
+	}
+	status["database_type"] = dbType
+
+	// 2. 检测是否运行在 Docker 中
+	isDocker := false
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		isDocker = true
+	}
+	status["is_docker"] = isDocker
+
+	// 3. 测试数据库连接
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		status["connection_ok"] = false
+		return status, nil
+	}
+
+	if err := sqlDB.Ping(); err != nil {
+		status["connection_ok"] = false
+		return status, nil
+	}
+	status["connection_ok"] = true
+
+	// 4. 如果是 PostgreSQL，获取版本信息
+	if dbType == "postgres" {
+		var version string
+		if err := s.db.Raw("SELECT version()").Scan(&version).Error; err == nil {
+			status["postgres_version"] = version
+		}
+	}
+
+	// 5. 获取已脱敏的数据库 URL
+	if databaseURL := os.Getenv("TOKENHUB_DATABASE_URL"); databaseURL != "" {
+		status["database_url"] = redactDatabaseURL(databaseURL)
+	}
+
+	return status, nil
+}
