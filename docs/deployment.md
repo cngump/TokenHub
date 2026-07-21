@@ -102,6 +102,7 @@ Only use `down -v` when you intentionally want to delete local data.
 | `TOKENHUB_ENV` | `prod` | Runtime environment label |
 | `TOKENHUB_HTTP_ADDR` | `:8080` | Backend listen address |
 | `TOKENHUB_PUBLIC_BASE_URL` | `http://localhost:8080` | Public backend URL shown to users |
+| `TOKENHUB_TRUSTED_PROXY_CIDRS` | empty | Comma-separated proxy IPs or CIDRs allowed to supply `X-Forwarded-For` |
 | `TOKENHUB_ADMIN_TOKEN` | `change-me-tokenhub-admin-token` | Bootstrap admin token for Admin API access |
 | `TOKENHUB_SECRET_KEY` | `change-me-tokenhub-secret-key` | Backend secret key |
 | `TOKENHUB_DATABASE_URL` | `sqlite:///app/data/tokenhub.db` | SQLite database location inside the container |

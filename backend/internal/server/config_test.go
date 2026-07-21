@@ -63,6 +63,15 @@ func TestConfigDefaultDatabaseURLUsesLocalDataFromBackendDir(t *testing.T) {
 	}
 }
 
+func TestConfigParsesTrustedProxyCIDRs(t *testing.T) {
+	t.Setenv("TOKENHUB_TRUSTED_PROXY_CIDRS", "127.0.0.1, 10.0.0.0/8;2001:db8::/32")
+
+	config := ConfigFromEnv()
+	if len(config.TrustedProxyCIDRs) != 3 {
+		t.Fatalf("expected three trusted proxy entries, got %#v", config.TrustedProxyCIDRs)
+	}
+}
+
 func withWorkingDir(t *testing.T, dir string) {
 	t.Helper()
 	previous, err := os.Getwd()
