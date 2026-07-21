@@ -2449,7 +2449,7 @@ func (s *GormStore) AuthenticateAdminUser(identity string, password string, ttl 
 
 	identity = strings.ToLower(strings.TrimSpace(identity))
 	var user AdminUser
-	if err := s.db.Where("lower(email) = ? OR lower(username) = ?", identity, identity).First(&user).Error; err != nil {
+	if err := s.db.Where("LOWER(email) = ? OR LOWER(username) = ?", identity, identity).First(&user).Error; err != nil {
 		return AdminUser{}, AdminSession{}, NewHTTPError(401, "invalid_credentials", "Invalid username or password")
 	}
 	if user.Status != StatusActive {
