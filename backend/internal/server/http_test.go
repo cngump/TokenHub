@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/hmac"
@@ -8,12 +9,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -542,6 +545,7 @@ func TestAdminImportsUsersFromExistingSystemCSV(t *testing.T) {
 	if err := BootstrapBaseData(store); err != nil {
 		t.Fatal(err)
 	}
+	messages := configureTestSMTPChannel(t, store)
 	app := New(store).Handler()
 
 	content := "username,name,email,role,team_id,status\nimported_user,导入用户,imported@example.com,user,team_platform,active\n"
@@ -556,6 +560,7 @@ func TestAdminImportsUsersFromExistingSystemCSV(t *testing.T) {
 	if !strings.Contains(resp.Body, `"created":1`) || !strings.Contains(resp.Body, `"updated":0`) {
 		t.Fatalf("expected one created user: %s", resp.Body)
 	}
+	assertPasswordResetEmail(t, messages, "imported@example.com")
 
 	update := "username,name,email,role,team_id,status\nimported_user,导入用户已更新,imported@example.com,team_leader,team_platform,active\n"
 	updated := doJSON(t, app, http.MethodPost, "/api/admin/users/import", map[string]any{
@@ -569,6 +574,7 @@ func TestAdminImportsUsersFromExistingSystemCSV(t *testing.T) {
 	if !strings.Contains(updated.Body, `"created":0`) || !strings.Contains(updated.Body, `"updated":1`) {
 		t.Fatalf("expected one updated user: %s", updated.Body)
 	}
+	assertPasswordResetEmail(t, messages, "imported@example.com")
 	users := store.ListAdminUsers()
 	var found AdminUser
 	for _, user := range users {
@@ -587,6 +593,7 @@ func TestAdminImportsUsersFromHeaderlessCSV(t *testing.T) {
 	if err := BootstrapBaseData(store); err != nil {
 		t.Fatal(err)
 	}
+	messages := configureTestSMTPChannel(t, store)
 	app := New(store).Handler()
 
 	content := "xiemengjun,谢孟军,xiemengjun@e-lead.cn,admin,team_UK8jwEcIIoFmNVmJ,active\n" +
@@ -602,6 +609,8 @@ func TestAdminImportsUsersFromHeaderlessCSV(t *testing.T) {
 	if !strings.Contains(resp.Body, `"created":2`) || !strings.Contains(resp.Body, `"skipped":0`) {
 		t.Fatalf("expected two created users: %s", resp.Body)
 	}
+	assertPasswordResetEmail(t, messages, "xiemengjun@e-lead.cn")
+	assertPasswordResetEmail(t, messages, "lisk@e-lead.cn")
 }
 
 func TestGatewayRejectsUnauthorizedModel(t *testing.T) {
@@ -3868,6 +3877,113 @@ func newTestServer() http.Handler {
 		panic(err)
 	}
 	return New(store).Handler()
+}
+
+func configureTestSMTPChannel(t *testing.T, store *GormStore) <-chan string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	messages := make(chan string, 10)
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go serveTestSMTPConnection(conn, messages)
+		}
+	}()
+
+	host, portText, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.CreateResource("notification-channels", AdminResource{
+		Name:   "Test SMTP",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"type":      "email",
+			"smtp_host": host,
+			"smtp_port": port,
+			"smtp_from": "tokenhub@example.com",
+		},
+	})
+	return messages
+}
+
+func serveTestSMTPConnection(conn net.Conn, messages chan<- string) {
+	defer conn.Close()
+	reader := bufio.NewReader(conn)
+	writer := bufio.NewWriter(conn)
+	write := func(response string) bool {
+		if _, err := writer.WriteString(response + "\r\n"); err != nil {
+			return false
+		}
+		return writer.Flush() == nil
+	}
+	if !write("220 localhost ESMTP") {
+		return
+	}
+	var message strings.Builder
+	readingData := false
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return
+		}
+		command := strings.TrimRight(line, "\r\n")
+		if readingData {
+			if command == "." {
+				messages <- message.String()
+				message.Reset()
+				readingData = false
+				if !write("250 queued") {
+					return
+				}
+				continue
+			}
+			message.WriteString(strings.TrimPrefix(command, "."))
+			message.WriteByte('\n')
+			continue
+		}
+		switch {
+		case strings.HasPrefix(command, "EHLO "), strings.HasPrefix(command, "HELO "):
+			if !write("250 localhost") {
+				return
+			}
+		case command == "DATA":
+			readingData = true
+			if !write("354 end with <CRLF>.<CRLF>") {
+				return
+			}
+		case command == "QUIT":
+			_ = write("221 bye")
+			return
+		default:
+			if !write("250 ok") {
+				return
+			}
+		}
+	}
+}
+
+func assertPasswordResetEmail(t *testing.T, messages <-chan string, recipient string) {
+	t.Helper()
+	select {
+	case message := <-messages:
+		if !strings.Contains(message, "To: "+recipient) || !strings.Contains(message, "reset_token=") {
+			t.Fatalf("unexpected password reset email: %s", message)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for password reset email to %s", recipient)
+	}
 }
 
 type responseBody struct {
