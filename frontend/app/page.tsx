@@ -90,6 +90,14 @@ type APIKey = {
   last_used_at?: string;
 };
 
+type DatabaseStatus = {
+  database_type: "sqlite" | "postgres";
+  is_docker: boolean;
+  connection_ok: boolean;
+  postgres_version?: string;
+  database_url?: string;
+};
+
 type Provider = {
   id: string;
   name: string;
