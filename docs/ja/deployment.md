@@ -15,6 +15,7 @@ cp deploy/.env.example deploy/.env
 起動前に `deploy/.env` を編集してください。
 
 - `TOKENHUB_ADMIN_TOKEN`: Admin API の初期 Token。強いランダム値を使用してください。
+- `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`: 初期 `admin` ユーザーの作成時にのみ使用するパスワード。
 - `TOKENHUB_SECRET_KEY`: バックエンド秘密鍵。強いランダム値を使用し、安定して保持してください。
 - `TOKENHUB_PUBLIC_BASE_URL`: ユーザーに表示するバックエンド URL。
 - `NEXT_PUBLIC_API_BASE_URL`: ブラウザの管理コンソールが使用するバックエンド URL。
@@ -71,9 +72,9 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml ps
 初回管理者ログイン:
 
 - ユーザー名: `admin`
-- パスワード: `admin123456`
+- パスワード: 設定した `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`
 
-サービスを広いネットワークに公開する前に、デフォルトパスワードを変更するか、新しい管理者アカウントを作成してください。
+`prod`、`production`、ステージングなどの非開発環境では、Admin Token、秘密鍵、初期パスワードがプレースホルダーまたは弱い値のままだと起動を拒否します。
 
 ログを確認します。
 
@@ -104,6 +105,7 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml down -v
 | `TOKENHUB_PUBLIC_BASE_URL` | `http://localhost:8080` | ユーザーに表示するバックエンド URL |
 | `TOKENHUB_TRUSTED_PROXY_CIDRS` | 空 | `X-Forwarded-For` を提供できるプロキシ IP または CIDR（カンマ区切り） |
 | `TOKENHUB_ADMIN_TOKEN` | `change-me-tokenhub-admin-token` | Admin API 用の初期 Token |
+| `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD` | `change-me-tokenhub-admin-password` | 初期 `admin` ユーザーのパスワード。本番起動前に変更が必要 |
 | `TOKENHUB_SECRET_KEY` | `change-me-tokenhub-secret-key` | バックエンド秘密鍵 |
 | `TOKENHUB_DATABASE_URL` | `sqlite:///app/data/tokenhub.db` | コンテナ内 SQLite データベースパス |
 | `TOKENHUB_SQLITE_BACKUP_DIR` | `/app/data/backups` | バックアップ出力ディレクトリ |

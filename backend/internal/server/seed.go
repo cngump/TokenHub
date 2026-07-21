@@ -9,7 +9,11 @@ import (
 const defaultProjectID = "prj_default"
 
 func SeedDemoData(store Store) error {
-	if err := BootstrapBaseData(store); err != nil {
+	return SeedDemoDataWithConfig(store, ConfigFromEnv())
+}
+
+func SeedDemoDataWithConfig(store Store, config Config) error {
+	if err := BootstrapBaseDataWithConfig(store, config); err != nil {
 		return err
 	}
 
@@ -116,6 +120,10 @@ func SeedDemoData(store Store) error {
 }
 
 func BootstrapBaseData(store Store) error {
+	return BootstrapBaseDataWithConfig(store, ConfigFromEnv())
+}
+
+func BootstrapBaseDataWithConfig(store Store, config Config) error {
 	if _, err := store.CreateAdminUser(AdminUser{
 		ID:       "usr_admin",
 		Username: "admin",
@@ -124,7 +132,7 @@ func BootstrapBaseData(store Store) error {
 		Role:     "admin",
 		TeamID:   "team_platform",
 		Status:   StatusActive,
-	}, "admin123456"); err != nil {
+	}, config.BootstrapAdminPassword); err != nil {
 		if AsHTTPError(err).Code != "admin_user_conflict" {
 			return err
 		}
@@ -132,7 +140,7 @@ func BootstrapBaseData(store Store) error {
 	seedDefaultOrgResources(store)
 	seedDefaultProject(store)
 	pruneProviderImportedModelCatalog(store)
-	if err := seedDefaultModelCatalog(store, ConfigFromEnv().ModelCatalogFile); err != nil {
+	if err := seedDefaultModelCatalog(store, config.ModelCatalogFile); err != nil {
 		return err
 	}
 	return nil

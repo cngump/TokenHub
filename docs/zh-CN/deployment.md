@@ -15,6 +15,7 @@ cp deploy/.env.example deploy/.env
 启动前请编辑 `deploy/.env`：
 
 - `TOKENHUB_ADMIN_TOKEN`：Admin API 启动 Token，请使用强随机值。
+- `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`：仅用于创建初始 `admin` 用户的密码。
 - `TOKENHUB_SECRET_KEY`：后端密钥，请使用强随机值并保持稳定。
 - `TOKENHUB_PUBLIC_BASE_URL`：展示给用户的后端访问地址。
 - `NEXT_PUBLIC_API_BASE_URL`：浏览器管理后台访问后端的地址。
@@ -71,9 +72,9 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml ps
 首次登录后台：
 
 - 用户名：`admin`
-- 密码：`admin123456`
+- 密码：配置的 `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`
 
-对外开放前，请修改默认密码或创建新的管理员账号。
+在 `prod`、`production`、预发布等非开发环境中，如果 Admin Token、后端密钥或初始密码仍为占位值或强度不足，服务会拒绝启动。
 
 查看日志：
 
@@ -104,6 +105,7 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml down -v
 | `TOKENHUB_PUBLIC_BASE_URL` | `http://localhost:8080` | 展示给用户的后端地址 |
 | `TOKENHUB_TRUSTED_PROXY_CIDRS` | 空 | 允许提供 `X-Forwarded-For` 的代理 IP 或 CIDR，逗号分隔 |
 | `TOKENHUB_ADMIN_TOKEN` | `change-me-tokenhub-admin-token` | Admin API 启动访问 Token |
+| `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD` | `change-me-tokenhub-admin-password` | 初始 `admin` 用户密码；生产启动前必须修改 |
 | `TOKENHUB_SECRET_KEY` | `change-me-tokenhub-secret-key` | 后端密钥 |
 | `TOKENHUB_DATABASE_URL` | `sqlite:///app/data/tokenhub.db` | 容器内 SQLite 数据库路径 |
 | `TOKENHUB_SQLITE_BACKUP_DIR` | `/app/data/backups` | 备份目录 |
