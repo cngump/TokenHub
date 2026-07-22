@@ -73,9 +73,23 @@ sudo -u postgres psql
 ```
 
 ```sql
-CREATE DATABASE tokenhub;
 CREATE USER tokenhub WITH PASSWORD 'your-password';
+-- Make tokenhub the database owner so it can create tables in the public schema.
+-- On PostgreSQL 15/16, GRANT ALL PRIVILEGES ON DATABASE alone does NOT grant
+-- CREATE on the public schema, which causes GORM AutoMigrate to fail with
+-- "permission denied for schema public".
+CREATE DATABASE tokenhub OWNER tokenhub;
 GRANT ALL PRIVILEGES ON DATABASE tokenhub TO tokenhub;
+\q
+```
+
+If the database already exists and is owned by another role (for example `postgres`),
+connect to it and grant schema privileges explicitly instead:
+
+```sql
+\c tokenhub
+GRANT ALL ON SCHEMA public TO tokenhub;
+ALTER SCHEMA public OWNER TO tokenhub;
 \q
 ```
 

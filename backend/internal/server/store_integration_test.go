@@ -4,6 +4,7 @@
 package server
 
 import (
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -144,6 +145,58 @@ func TestPostgreSQLIntegration(t *testing.T) {
 		httpErr := AsHTTPError(err)
 		if httpErr.Status != 501 {
 			t.Errorf("Expected status 501, got %d", httpErr.Status)
+		}
+	})
+
+	t.Run("ConcurrentWrites", func(t *testing.T) {
+		// Verify that PostgreSQL connection pooling handles concurrent writes correctly.
+		const numGoroutines = 10
+		const projectsPerGoroutine = 5
+
+		type result struct {
+			id  string
+			err error
+		}
+		results := make(chan result, numGoroutines*projectsPerGoroutine)
+
+		// Launch concurrent goroutines, each creating multiple projects.
+		for i := 0; i < numGoroutines; i++ {
+			go func(workerID int) {
+				for j := 0; j < projectsPerGoroutine; j++ {
+					project := Project{
+						ID:     NewID("prj"),
+						Name:   "Concurrent Test Project",
+						Status: StatusActive,
+					}
+					created := store.CreateProject(project)
+					if created.ID != project.ID {
+						results <- result{id: "", err: fmt.Errorf("worker %d: created project ID %q does not match expected %q", workerID, created.ID, project.ID)}
+					} else {
+						results <- result{id: created.ID, err: nil}
+					}
+				}
+			}(i)
+		}
+
+		// Collect all results and verify no errors.
+		createdIDs := make([]string, 0, numGoroutines*projectsPerGoroutine)
+		for i := 0; i < numGoroutines*projectsPerGoroutine; i++ {
+			res := <-results
+			if res.err != nil {
+				t.Errorf("Concurrent write failed: %v", res.err)
+			} else if res.id != "" {
+				createdIDs = append(createdIDs, res.id)
+			}
+		}
+
+		// Verify all projects were created.
+		if len(createdIDs) != numGoroutines*projectsPerGoroutine {
+			t.Errorf("Expected %d projects, got %d", numGoroutines*projectsPerGoroutine, len(createdIDs))
+		}
+
+		// Clean up.
+		for _, id := range createdIDs {
+			store.DeleteProject(id)
 		}
 	})
 }

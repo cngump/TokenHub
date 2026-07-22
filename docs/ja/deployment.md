@@ -4,6 +4,48 @@ Language: [English](../deployment.md) | [简体中文](../zh-CN/deployment.md) |
 
 TokenHub は、Go バックエンド、Next.js 管理コンソール、SQLite 永続化で構成されるプライベートデプロイ向けのサービスです。
 
+## データベースの選択
+
+TokenHub は 2 種類のデータベースバックエンドをサポートしています。
+
+### SQLite（デフォルト）
+
+**利点：**
+- 設定不要で、別途データベースサービスが不要
+- 中小規模のデプロイに適する
+- バックアップが簡単（ファイルを直接コピー）
+
+**ユースケース：**
+- 開発およびテスト環境
+- 1000 ユーザー未満のデプロイ
+- 単一サーバーのデプロイ
+
+**デプロイ：**
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d
+```
+
+### PostgreSQL（本番環境推奨）
+
+**利点：**
+- 高並行シナリオに適したエンタープライズ級データベース
+- より優れたトランザクションサポートとデータ整合性
+- レプリケーションと高可用性をサポート
+
+**ユースケース：**
+- 本番環境
+- 1000 ユーザーを超えるデプロイ
+- 高可用性要件
+
+**デプロイ：**
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.postgres.yml up -d
+```
+
+PostgreSQL の詳細な設定については、[PostgreSQL セットアップガイド](../postgresql-setup.md)を参照してください。
+
 ## Docker Compose
 
 デプロイ用の環境変数ファイルを作成します。

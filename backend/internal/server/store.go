@@ -157,9 +157,19 @@ type MemoryStore = GormStore
 //   - path/to/db.db       (bare path treated as SQLite)
 //   - postgres://user:pass@host:port/dbname?params
 //   - postgresql://user:pass@host:port/dbname?params
+//   - host=... user=... password=... dbname=... (PostgreSQL keyword DSN)
+//
+// The keyword DSN form is preferred when the password contains URI delimiters
+// such as #, ?, /, or %, which would otherwise be misparsed in the URL form.
 func parseDatabaseURL(databaseURL string) (driver string, dsn string, err error) {
 	if strings.TrimSpace(databaseURL) == "" {
 		return "", "", fmt.Errorf("database URL cannot be empty")
+	}
+
+	// PostgreSQL keyword DSN (e.g. "host=db user=u password=p dbname=x").
+	// It has no URL scheme, so detect it before attempting url.Parse.
+	if isPostgresKeywordDSN(databaseURL) {
+		return "postgres", databaseURL, nil
 	}
 
 	u, err := url.Parse(databaseURL)
@@ -185,6 +195,26 @@ func parseDatabaseURL(databaseURL string) (driver string, dsn string, err error)
 	default:
 		return "", "", fmt.Errorf("unsupported database scheme: %s (supported: sqlite, file, postgres, postgresql)", u.Scheme)
 	}
+}
+
+// isPostgresKeywordDSN reports whether the string is a PostgreSQL keyword/value
+// DSN (e.g. "host=localhost user=tokenhub password=secret dbname=tokenhub")
+// rather than a URL. Such DSNs have no "scheme://" prefix and begin with a
+// recognized connection keyword.
+func isPostgresKeywordDSN(databaseURL string) bool {
+	trimmed := strings.TrimSpace(databaseURL)
+	if strings.Contains(trimmed, "://") {
+		return false
+	}
+	firstField := strings.SplitN(trimmed, "=", 2)
+	if len(firstField) != 2 {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(firstField[0])) {
+	case "host", "hostaddr", "user", "dbname", "port", "password", "sslmode":
+		return true
+	}
+	return false
 }
 
 // redactDatabaseURL redacts the password in database URL for safe logging

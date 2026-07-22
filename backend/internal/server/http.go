@@ -63,7 +63,7 @@ func NewWithConfig(store Store, config Config) *Server {
 }
 
 func (s *Server) Handler() http.Handler {
-	return cors(s.mux)
+	return s.cors(s.mux)
 }
 
 func (s *Server) routes() {
@@ -6380,20 +6380,57 @@ func ipMatchesTrustedProxy(rawIP string, trusted []string) bool {
 	return false
 }
 
-func cors(next http.Handler) http.Handler {
+func isDevEnvironment(environment string) bool {
+	switch strings.ToLower(strings.TrimSpace(environment)) {
+	case "dev", "development", "local", "test":
+		return true
+	}
+	return false
+}
+
+func (s *Server) cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		// If request has Origin header, echo it back; otherwise use wildcard
-		// This allows browser cross-origin requests with credentials while supporting non-browser clients
-		if origin != "" {
+
+		// Determine allowed origins: use explicit config if set, otherwise derive from PublicBaseURL
+		allowedOrigins := s.config.CORSAllowedOrigins
+		if len(allowedOrigins) == 0 && s.config.PublicBaseURL != "" {
+			allowedOrigins = []string{s.config.PublicBaseURL}
+		}
+
+		// If request has Origin header and we have an allowed origins list, validate it
+		if origin != "" && len(allowedOrigins) > 0 {
+			allowed := false
+			for _, allowedOrigin := range allowedOrigins {
+				if origin == strings.TrimSpace(allowedOrigin) {
+					allowed = true
+					break
+				}
+			}
+			if allowed {
+				w.Header().Set("access-control-allow-origin", origin)
+				w.Header().Set("access-control-allow-credentials", "true")
+				w.Header().Add("Vary", "Origin")
+			} else {
+				// Origin not in allowlist, deny credentials but allow simple requests
+				w.Header().Set("access-control-allow-origin", "*")
+			}
+		} else if origin != "" && isDevEnvironment(s.config.Environment) {
+			// Dev environment without an allowlist: echo origin with credentials
+			// for convenience. Never do this in production, where an explicit
+			// allowlist (or PublicBaseURL) is required to authorize credentials.
 			w.Header().Set("access-control-allow-origin", origin)
 			w.Header().Set("access-control-allow-credentials", "true")
-			// Signal caches that the response varies by Origin so shared caches
-			// (CDNs/proxies) do not serve one origin's response to another.
 			w.Header().Add("Vary", "Origin")
 		} else {
+			// No Origin header, or production with no configured allowlist:
+			// allow simple cross-origin requests but never credentials.
 			w.Header().Set("access-control-allow-origin", "*")
+			if origin != "" {
+				w.Header().Add("Vary", "Origin")
+			}
 		}
+
 		w.Header().Set("access-control-allow-methods", "GET,POST,PATCH,DELETE,OPTIONS")
 		w.Header().Set("access-control-allow-headers", "authorization,content-type")
 		if r.Method == http.MethodOptions {
