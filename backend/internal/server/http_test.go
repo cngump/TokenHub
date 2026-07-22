@@ -3338,10 +3338,10 @@ func TestProviderResourceBulkOperations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.FinishProviderResourceAttempt(resource.ID, false, Usage{})
-	store.FinishProviderResourceAttempt(resource.ID, false, Usage{})
-	store.FinishProviderResourceAttempt(resource.ID, false, Usage{})
-	if err := store.CheckProviderResourceCapacity(resource.ID); AsHTTPError(err).Code != "provider_resource_cooling_down" {
+	store.FinishProviderResourceAttempt(resource.ID, "", false, Usage{})
+	store.FinishProviderResourceAttempt(resource.ID, "", false, Usage{})
+	store.FinishProviderResourceAttempt(resource.ID, "", false, Usage{})
+	if _, err := store.CheckProviderResourceCapacity(resource.ID); AsHTTPError(err).Code != "provider_resource_cooling_down" {
 		t.Fatalf("expected cooldown before clear_error, got %v", err)
 	}
 	app := New(store).Handler()
@@ -3365,11 +3365,12 @@ func TestProviderResourceBulkOperations(t *testing.T) {
 	if cleared.Code != http.StatusOK || !strings.Contains(cleared.Body, `"success":1`) {
 		t.Fatalf("clear error failed: %d %s", cleared.Code, cleared.Body)
 	}
-	if err := store.CheckProviderResourceCapacity(resource.ID); err != nil {
+	leaseID, err := store.CheckProviderResourceCapacity(resource.ID)
+	if err != nil {
 		t.Fatalf("capacity should be available after clear_error: %v", err)
 	}
-	store.FinishProviderResourceAttempt(resource.ID, true, Usage{TotalTokens: 5})
-	if err := store.CheckProviderResourceCapacity(resource.ID); AsHTTPError(err).Code != "provider_resource_rpm_exceeded" {
+	store.FinishProviderResourceAttempt(resource.ID, leaseID, true, Usage{TotalTokens: 5})
+	if _, err := store.CheckProviderResourceCapacity(resource.ID); AsHTTPError(err).Code != "provider_resource_rpm_exceeded" {
 		t.Fatalf("expected rpm limit before reset, got %v", err)
 	}
 	reset := doJSON(t, app, http.MethodPost, "/api/admin/provider-resources/bulk", map[string]any{
@@ -3379,10 +3380,11 @@ func TestProviderResourceBulkOperations(t *testing.T) {
 	if reset.Code != http.StatusOK || !strings.Contains(reset.Body, `"success":1`) {
 		t.Fatalf("reset usage failed: %d %s", reset.Code, reset.Body)
 	}
-	if err := store.CheckProviderResourceCapacity(resource.ID); err != nil {
+	leaseID, err = store.CheckProviderResourceCapacity(resource.ID)
+	if err != nil {
 		t.Fatalf("capacity should be available after reset_usage: %v", err)
 	}
-	store.FinishProviderResourceAttempt(resource.ID, true, Usage{})
+	store.FinishProviderResourceAttempt(resource.ID, leaseID, true, Usage{})
 }
 
 func TestProviderResourceImport(t *testing.T) {
@@ -3884,6 +3886,27 @@ func TestHealth(t *testing.T) {
 	resp := doJSON(t, app, http.MethodGet, "/healthz", nil, "")
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body)
+	}
+}
+
+func TestReadinessFailsWhenDatabaseIsUnavailableButLivenessRemainsHealthy(t *testing.T) {
+	store := NewMemoryStore()
+	app := New(store).Handler()
+	sqlDB, err := store.db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	ready := doJSON(t, app, http.MethodGet, "/readyz", nil, "")
+	if ready.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected readiness 503 after database close, got %d: %s", ready.Code, ready.Body)
+	}
+	live := doJSON(t, app, http.MethodGet, "/livez", nil, "")
+	if live.Code != http.StatusOK {
+		t.Fatalf("expected liveness 200 after database close, got %d: %s", live.Code, live.Body)
 	}
 }
 

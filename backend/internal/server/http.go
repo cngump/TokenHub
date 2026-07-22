@@ -27,11 +27,10 @@ import (
 )
 
 type Server struct {
-	store                    Store
-	adapters                 map[string]ProviderAdapter
-	mux                      *http.ServeMux
-	config                   Config
-	providerAccountOAuthFlow *providerAccountOAuthSessionStore
+	store    Store
+	adapters map[string]ProviderAdapter
+	mux      *http.ServeMux
+	config   Config
 }
 
 func New(store Store) *Server {
@@ -54,9 +53,8 @@ func NewWithConfig(store Store, config Config) *Server {
 			ProviderAnthropic:        AnthropicAdapter{Client: client},
 			ProviderGemini:           GeminiAdapter{Client: client},
 		},
-		mux:                      http.NewServeMux(),
-		config:                   config,
-		providerAccountOAuthFlow: newProviderAccountOAuthSessionStore(),
+		mux:    http.NewServeMux(),
+		config: config,
 	}
 	s.routes()
 	return s
@@ -67,6 +65,8 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) routes() {
+	s.mux.HandleFunc("/livez", s.handleLive)
+	s.mux.HandleFunc("/readyz", s.handleHealth)
 	s.mux.HandleFunc("/healthz", s.handleHealth)
 	s.mux.HandleFunc("/v1/models", s.handleModels)
 	s.mux.HandleFunc("/v1/models/", s.handleModel)
@@ -122,9 +122,23 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/admin/system/db-status", s.handleAdminSystemDBStatus)
 }
 
+func (s *Server) handleLive(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "service": "tokenhub-backend"})
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := s.store.Ping(ctx); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "unavailable", "service": "tokenhub-backend"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "service": "tokenhub-backend"})
@@ -274,7 +288,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if req.Stream {
 		route := routed.Routes[0]
 		resourceID := routeResourceID(route)
-		if err := s.store.CheckProviderResourceCapacity(resourceID); err != nil {
+		leaseID, err := s.store.CheckProviderResourceCapacity(resourceID)
+		if err != nil {
 			s.finishFailedRoutedCall(r, routed, []RouteAttempt{{
 				Selection: route,
 				Status:    AsHTTPError(err).Status,
@@ -287,7 +302,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		preparedRoute, err := s.prepareRouteForUpstream(r.Context(), route)
 		if err != nil {
-			s.store.FinishProviderResourceAttempt(resourceID, false, Usage{})
+			s.store.FinishProviderResourceAttempt(resourceID, leaseID, false, Usage{})
 			httpErr := AsHTTPError(err)
 			s.store.FinishCall(routed.Call, route, Usage{}, httpErr.Status, httpErr.Code, s.clientIP(r), r.UserAgent())
 			s.recordRequestPayload(routed.Call.RequestID, req, auditErrorPayload(err, routed.Call.RequestID))
@@ -297,7 +312,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		route = preparedRoute
 		adapter, err := s.adapterForRoute(route)
 		if err != nil {
-			s.store.FinishProviderResourceAttempt(resourceID, false, Usage{})
+			s.store.FinishProviderResourceAttempt(resourceID, leaseID, false, Usage{})
 			httpErr := AsHTTPError(err)
 			s.store.FinishCall(routed.Call, route, Usage{}, httpErr.Status, httpErr.Code, s.clientIP(r), r.UserAgent())
 			s.recordRequestPayload(routed.Call.RequestID, req, auditErrorPayload(err, routed.Call.RequestID))
@@ -309,7 +324,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("x-request-id", routed.Call.RequestID)
 		s.writeRouteHeaders(w, routed.Call, route, 1)
 		usage, err := adapter.ChatStream(r.Context(), route.Provider, route.ProviderModel, req, w)
-		s.store.FinishProviderResourceAttempt(resourceID, err == nil, usage)
+		s.store.FinishProviderResourceAttempt(resourceID, leaseID, err == nil, usage)
 		status, code := statusAndCode(err)
 		if err == nil {
 			s.store.MarkRouteUsed(route.Route.ID)
@@ -574,7 +589,8 @@ func executeRoutedWithStore[T any](store Store, routed RoutedCall, call func(Rou
 	attempts := make([]RouteAttempt, 0, len(routed.Routes))
 	for _, route := range routed.Routes {
 		resourceID := routeResourceID(route)
-		if err := store.CheckProviderResourceCapacity(resourceID); err != nil {
+		leaseID, err := store.CheckProviderResourceCapacity(resourceID)
+		if err != nil {
 			status, code := statusAndCode(err)
 			attempts = append(attempts, RouteAttempt{
 				Selection: route,
@@ -590,7 +606,7 @@ func executeRoutedWithStore[T any](store Store, routed RoutedCall, call func(Rou
 		}
 		resp, usage, err := call(route)
 		if resourceID != "" {
-			store.FinishProviderResourceAttempt(resourceID, err == nil, usage)
+			store.FinishProviderResourceAttempt(resourceID, leaseID, err == nil, usage)
 		}
 		status, code := statusAndCode(err)
 		attempts = append(attempts, RouteAttempt{

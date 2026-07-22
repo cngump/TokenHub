@@ -8,6 +8,10 @@ import (
 
 const defaultProjectID = "prj_default"
 
+// BootstrapTaskRevision must be increased whenever startup seed behavior needs
+// to run again on an existing cluster.
+const BootstrapTaskRevision int64 = 1
+
 func SeedDemoData(store Store) error {
 	return SeedDemoDataWithConfig(store, ConfigFromEnv())
 }

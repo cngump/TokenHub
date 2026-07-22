@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -13,8 +12,10 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const (
@@ -39,57 +40,102 @@ type providerAccountOAuthSession struct {
 	CreatedAt    time.Time
 }
 
-type providerAccountOAuthSessionStore struct {
-	mu       sync.RWMutex
-	sessions map[string]providerAccountOAuthSession
+type providerAccountOAuthSessionRecord struct {
+	ID                    string `gorm:"primaryKey"`
+	StateHash             string `gorm:"uniqueIndex"`
+	CodeVerifierEncrypted string
+	ClientID              string
+	RedirectURI           string
+	ReturnURL             string
+	CreatedAt             time.Time
+	ExpiresAt             time.Time `gorm:"index"`
 }
 
-func newProviderAccountOAuthSessionStore() *providerAccountOAuthSessionStore {
-	return &providerAccountOAuthSessionStore{sessions: map[string]providerAccountOAuthSession{}}
-}
-
-func (s *providerAccountOAuthSessionStore) Set(session providerAccountOAuthSession) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sessions[session.ID] = session
-}
-
-func (s *providerAccountOAuthSessionStore) Get(id string) (providerAccountOAuthSession, bool) {
-	s.mu.RLock()
-	session, ok := s.sessions[strings.TrimSpace(id)]
-	s.mu.RUnlock()
-	if !ok || providerAccountOAuthSessionExpired(session) {
-		if ok {
-			s.Delete(id)
-		}
-		return providerAccountOAuthSession{}, false
+func (s *GormStore) SaveProviderAccountOAuthSession(session providerAccountOAuthSession) error {
+	if strings.TrimSpace(session.ID) == "" || strings.TrimSpace(session.State) == "" || strings.TrimSpace(session.CodeVerifier) == "" {
+		return fmt.Errorf("provider account OAuth session is incomplete")
 	}
-	return session, true
+	now := time.Now().UTC()
+	if session.CreatedAt.IsZero() {
+		session.CreatedAt = now
+	}
+	record := providerAccountOAuthSessionRecord{
+		ID:                    session.ID,
+		StateHash:             HashSecret(session.State),
+		CodeVerifierEncrypted: s.encryptSecret(session.CodeVerifier),
+		ClientID:              session.ClientID,
+		RedirectURI:           session.RedirectURI,
+		ReturnURL:             session.ReturnURL,
+		CreatedAt:             session.CreatedAt,
+		ExpiresAt:             session.CreatedAt.Add(openAIAccountOAuthSessionTTL),
+	}
+	_ = s.db.Where("expires_at <= ?", now).Delete(&providerAccountOAuthSessionRecord{}).Error
+	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&record).Error
 }
 
-func (s *providerAccountOAuthSessionStore) GetByState(state string) (providerAccountOAuthSession, bool) {
+func (s *GormStore) GetProviderAccountOAuthSessionByState(state string) (providerAccountOAuthSession, bool) {
 	state = strings.TrimSpace(state)
 	if state == "" {
 		return providerAccountOAuthSession{}, false
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for _, session := range s.sessions {
-		if subtle.ConstantTimeCompare([]byte(session.State), []byte(state)) == 1 && !providerAccountOAuthSessionExpired(session) {
-			return session, true
-		}
+	var record providerAccountOAuthSessionRecord
+	if err := s.db.First(&record, "state_hash = ? AND expires_at > ?", HashSecret(state), time.Now().UTC()).Error; err != nil {
+		return providerAccountOAuthSession{}, false
 	}
-	return providerAccountOAuthSession{}, false
+	return s.providerAccountOAuthSessionFromRecord(record, state)
 }
 
-func (s *providerAccountOAuthSessionStore) Delete(id string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.sessions, strings.TrimSpace(id))
+func (s *GormStore) ConsumeProviderAccountOAuthSession(id string, state string) (providerAccountOAuthSession, bool) {
+	id = strings.TrimSpace(id)
+	state = strings.TrimSpace(state)
+	if id == "" || state == "" {
+		return providerAccountOAuthSession{}, false
+	}
+	var session providerAccountOAuthSession
+	consumed := false
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := s.lockScopeForUpdate(tx, "provider_account_oauth", id); err != nil {
+			return err
+		}
+		query := tx
+		if s.dbDriver == "postgres" {
+			query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+		}
+		var record providerAccountOAuthSessionRecord
+		if err := query.First(&record, "id = ? AND state_hash = ? AND expires_at > ?", id, HashSecret(state), time.Now().UTC()).Error; err != nil {
+			return err
+		}
+		decoded, ok := s.providerAccountOAuthSessionFromRecord(record, state)
+		if !ok {
+			return gorm.ErrRecordNotFound
+		}
+		if err := tx.Delete(&record).Error; err != nil {
+			return err
+		}
+		session = decoded
+		consumed = true
+		return nil
+	})
+	if err != nil {
+		return providerAccountOAuthSession{}, false
+	}
+	return session, consumed
 }
 
-func providerAccountOAuthSessionExpired(session providerAccountOAuthSession) bool {
-	return session.CreatedAt.IsZero() || time.Since(session.CreatedAt) > openAIAccountOAuthSessionTTL
+func (s *GormStore) providerAccountOAuthSessionFromRecord(record providerAccountOAuthSessionRecord, state string) (providerAccountOAuthSession, bool) {
+	codeVerifier := s.decryptSecret(record.CodeVerifierEncrypted)
+	if strings.TrimSpace(codeVerifier) == "" {
+		return providerAccountOAuthSession{}, false
+	}
+	return providerAccountOAuthSession{
+		ID:           record.ID,
+		State:        state,
+		CodeVerifier: codeVerifier,
+		ClientID:     record.ClientID,
+		RedirectURI:  record.RedirectURI,
+		ReturnURL:    record.ReturnURL,
+		CreatedAt:    record.CreatedAt,
+	}, true
 }
 
 type providerAccountOAuthGenerateRequest struct {
@@ -176,7 +222,10 @@ func (s *Server) handleAdminOpenAIAccountOAuthGenerateAuthURL(w http.ResponseWri
 		ReturnURL:    returnURL,
 		CreatedAt:    time.Now().UTC(),
 	}
-	s.providerAccountOAuthFlow.Set(session)
+	if err := s.store.SaveProviderAccountOAuthSession(session); err != nil {
+		writeError(w, r, err)
+		return
+	}
 	authURL, err := buildOpenAIAccountOAuthAuthorizeURL(state, openAICodeChallenge(codeVerifier), redirectURI)
 	if err != nil {
 		writeError(w, r, err)
@@ -198,7 +247,7 @@ func (s *Server) handleOpenAIAccountOAuthCallback(w http.ResponseWriter, r *http
 		return
 	}
 	state := strings.TrimSpace(r.URL.Query().Get("state"))
-	session, ok := s.providerAccountOAuthFlow.GetByState(state)
+	session, ok := s.store.GetProviderAccountOAuthSessionByState(state)
 	if !ok {
 		writeError(w, r, NewHTTPError(400, "invalid_oauth_state", "OAuth state is invalid or expired"))
 		return
@@ -240,12 +289,7 @@ func (s *Server) handleAdminOpenAIAccountOAuthExchangeCode(w http.ResponseWriter
 		writeError(w, r, NewHTTPError(400, "invalid_request", err.Error()))
 		return
 	}
-	session, ok := s.providerAccountOAuthFlow.Get(req.SessionID)
-	if !ok {
-		writeError(w, r, NewHTTPError(400, "oauth_session_not_found", "OAuth session was not found or has expired"))
-		return
-	}
-	if strings.TrimSpace(req.State) == "" || subtle.ConstantTimeCompare([]byte(req.State), []byte(session.State)) != 1 {
+	if strings.TrimSpace(req.State) == "" {
 		writeError(w, r, NewHTTPError(400, "invalid_oauth_state", "OAuth state is invalid or expired"))
 		return
 	}
@@ -254,16 +298,24 @@ func (s *Server) handleAdminOpenAIAccountOAuthExchangeCode(w http.ResponseWriter
 		writeError(w, r, NewHTTPError(400, "missing_oauth_code", "OAuth authorization code is required"))
 		return
 	}
+	session, ok := s.store.ConsumeProviderAccountOAuthSession(req.SessionID, req.State)
+	if !ok {
+		writeError(w, r, NewHTTPError(400, "oauth_session_not_found", "OAuth session was not found or has expired"))
+		return
+	}
 	redirectURI := session.RedirectURI
 	if strings.TrimSpace(req.RedirectURI) != "" {
 		redirectURI = strings.TrimSpace(req.RedirectURI)
 	}
 	token, err := exchangeOpenAIAccountOAuthCode(r.Context(), code, session.CodeVerifier, redirectURI, session.ClientID)
 	if err != nil {
+		// Preserve retryability when the token endpoint fails before consuming
+		// the authorization code. Concurrent exchanges are still serialized by
+		// the atomic session consume operation.
+		_ = s.store.SaveProviderAccountOAuthSession(session)
 		writeError(w, r, err)
 		return
 	}
-	s.providerAccountOAuthFlow.Delete(session.ID)
 	info := openAIAccountOAuthTokenInfoFromResponse(token, session.ClientID, ProviderResourceCredentials{})
 	s.recordAdminAudit(r, user, "exchange_oauth_code", "provider_account", "openai", "", providerAccountCredentialSummary(info.ToCredentials()))
 	writeJSON(w, http.StatusOK, info)

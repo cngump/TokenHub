@@ -43,6 +43,36 @@ type QuotaBucket struct {
 	QuotaCounter
 }
 
+// InFlightLease makes concurrency enforcement visible to every backend
+// instance. Leases are renewed by the owning process and expire automatically
+// after a crash so capacity cannot remain permanently wedged.
+type InFlightLease struct {
+	ID        string    `gorm:"primaryKey"`
+	ScopeType string    `gorm:"index:idx_in_flight_scope,priority:1"`
+	ScopeID   string    `gorm:"index:idx_in_flight_scope,priority:2"`
+	ExpiresAt time.Time `gorm:"index"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// ClusterLease is a database-backed, expiring mutex used for operations that
+// must have a single writer across the whole TokenHub cluster.
+type ClusterLease struct {
+	Name      string    `gorm:"primaryKey"`
+	OwnerID   string    `gorm:"index"`
+	ExpiresAt time.Time `gorm:"index"`
+	UpdatedAt time.Time
+}
+
+// ClusterTaskState prevents every replica from repeating the same startup
+// task. Revisions are monotonic: an older binary never overwrites work already
+// completed by a newer revision.
+type ClusterTaskState struct {
+	Name        string `gorm:"primaryKey"`
+	Revision    int64
+	CompletedAt time.Time
+}
+
 type Store interface {
 	CreateProject(project Project) Project
 	ListProjects() []Project
@@ -125,25 +155,30 @@ type Store interface {
 	RestoreSQLiteBackup(id string, restoredBy string) (SQLiteBackupRecord, error)
 	DeleteSQLiteBackup(id string) error
 	AccessibleModels(key APIKey) []Model
-	CheckProviderResourceCapacity(resourceID string) error
-	FinishProviderResourceAttempt(resourceID string, success bool, usage Usage)
+	CheckProviderResourceCapacity(resourceID string) (string, error)
+	FinishProviderResourceAttempt(resourceID string, leaseID string, success bool, usage Usage)
 	RefreshProviderResourceCredentials(ctx context.Context, resourceID string, force bool) (ProviderResourceCredentials, error)
+	SaveProviderAccountOAuthSession(session providerAccountOAuthSession) error
+	GetProviderAccountOAuthSessionByState(state string) (providerAccountOAuthSession, bool)
+	ConsumeProviderAccountOAuthSession(id string, state string) (providerAccountOAuthSession, bool)
 	TestProvider(id string) (Provider, error)
 	TestProviderResource(id string) (ProviderResource, error)
 	GetDatabaseStatus() (map[string]interface{}, error)
+	Ping(ctx context.Context) error
 }
 
 type GormStore struct {
 	db               *gorm.DB
 	mu               sync.Mutex
-	inFlight         map[string]int64
-	resourceInFlight map[string]int64
+	leaseHeartbeats  sync.Map
 	secretKey        string
 	failureThreshold int
 	cooldownDuration time.Duration
 	sqliteDSN        string
 	backupDir        string
 	dbDriver         string // "sqlite" or "postgres"
+	inFlightLeaseTTL time.Duration
+	clusterLockTTL   time.Duration
 }
 
 // MemoryStore is kept as a compatibility alias for existing tests and callers.
@@ -307,14 +342,18 @@ func NewStoreWithDialect(databaseURL string, config Config) (*GormStore, error) 
 		return nil, err
 	}
 
-	// Configure the connection pool based on database type.
+	// Configure the connection pool based on database type. PostgreSQL keeps a
+	// dedicated connection for the migration advisory lock, so migrations need
+	// at least one additional connection even when the runtime pool is set to 1.
+	postgresMaxOpenConns := 0
 	if driver == "postgres" {
 		// PostgreSQL uses connection pooling.
 		maxOpenConns := defaultInt(config.DBMaxOpenConns, 25)
 		maxIdleConns := defaultInt(config.DBMaxIdleConns, 5)
 		connMaxLifetime := time.Duration(defaultInt(config.DBConnMaxLifetimeMinutes, 30)) * time.Minute
 
-		sqlDB.SetMaxOpenConns(maxOpenConns)
+		postgresMaxOpenConns = maxOpenConns
+		sqlDB.SetMaxOpenConns(maxInt(2, maxOpenConns))
 		sqlDB.SetMaxIdleConns(maxIdleConns)
 		sqlDB.SetConnMaxLifetime(connMaxLifetime)
 	} else {
@@ -332,43 +371,73 @@ func NewStoreWithDialect(databaseURL string, config Config) (*GormStore, error) 
 		}
 	}
 
-	if err := db.AutoMigrate(
-		&Project{},
-		&APIKey{},
-		&Provider{},
-		&ProviderResource{},
-		&Model{},
-		&ModelRoute{},
-		&QuotaBucket{},
-		&UsageRecord{},
-		&RequestLog{},
-		&RequestPayloadLog{},
-		&RouteAttemptLog{},
-		&AlertEvent{},
-		&AlertDelivery{},
-		&ProviderResourceBucket{},
-		&AuditEvent{},
-		&AdminResource{},
-		&ApprovalRequest{},
-		&AdminUser{},
-		&AdminSession{},
-		&AdminPasswordResetToken{},
-		&SQLiteBackupRecord{},
-	); err != nil {
+	migrate := func() error {
+		return db.AutoMigrate(
+			&Project{},
+			&APIKey{},
+			&Provider{},
+			&ProviderResource{},
+			&Model{},
+			&ModelRoute{},
+			&QuotaBucket{},
+			&InFlightLease{},
+			&ClusterLease{},
+			&ClusterTaskState{},
+			&providerAccountOAuthSessionRecord{},
+			&UsageRecord{},
+			&RequestLog{},
+			&RequestPayloadLog{},
+			&RouteAttemptLog{},
+			&AlertEvent{},
+			&AlertDelivery{},
+			&ProviderResourceBucket{},
+			&AuditEvent{},
+			&AdminResource{},
+			&ApprovalRequest{},
+			&AdminUser{},
+			&AdminSession{},
+			&AdminPasswordResetToken{},
+			&SQLiteBackupRecord{},
+		)
+	}
+	if err := runSchemaMigrationLocked(sqlDB, driver, migrate); err != nil {
 		return nil, err
+	}
+	if postgresMaxOpenConns > 0 {
+		sqlDB.SetMaxOpenConns(postgresMaxOpenConns)
 	}
 
 	return &GormStore{
 		db:               db,
-		inFlight:         map[string]int64{},
-		resourceInFlight: map[string]int64{},
 		secretKey:        config.SecretKey,
 		failureThreshold: defaultInt(config.ResourceFailureThreshold, 3),
 		cooldownDuration: time.Duration(defaultInt(config.ResourceCooldownSeconds, 300)) * time.Second,
 		sqliteDSN:        dsn,
 		backupDir:        defaultString(config.SQLiteBackupDir, "data/backups"),
 		dbDriver:         driver,
+		inFlightLeaseTTL: time.Duration(defaultInt(config.InFlightLeaseTTLSeconds, 300)) * time.Second,
+		clusterLockTTL:   time.Duration(defaultInt(config.ClusterLockTTLSeconds, 180)) * time.Second,
 	}, nil
+}
+
+func runSchemaMigrationLocked(sqlDB *sql.DB, driver string, migrate func() error) error {
+	if driver != "postgres" {
+		return migrate()
+	}
+	ctx := context.Background()
+	conn, err := sqlDB.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	const lockName = "tokenhub:schema-migration"
+	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock(hashtextextended($1, 0))", lockName); err != nil {
+		return err
+	}
+	defer func() {
+		_, _ = conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock(hashtextextended($1, 0))", lockName)
+	}()
+	return migrate()
 }
 
 // NewSQLiteStoreWithConfig is retained as a compatibility alias.
@@ -382,6 +451,93 @@ func NewMemoryStore() *MemoryStore {
 		panic(err)
 	}
 	return store
+}
+
+// RunClusterTask runs fn once for the requested monotonic revision across all
+// replicas sharing the database. A failed task is not recorded and is retried
+// by the next replica.
+func (s *GormStore) RunClusterTask(ctx context.Context, name string, revision int64, fn func() error) error {
+	name = strings.TrimSpace(name)
+	if name == "" || revision <= 0 {
+		return fmt.Errorf("cluster task name and positive revision are required")
+	}
+	return s.withClusterLease(ctx, "task:"+name, func() error {
+		var state ClusterTaskState
+		err := s.db.First(&state, "name = ?", name).Error
+		if err == nil && state.Revision >= revision {
+			return nil
+		}
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if err := fn(); err != nil {
+			return err
+		}
+		state = ClusterTaskState{Name: name, Revision: revision, CompletedAt: time.Now().UTC()}
+		return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&state).Error
+	})
+}
+
+func (s *GormStore) withClusterLease(ctx context.Context, name string, fn func() error) error {
+	ownerID := NewID("lock")
+	ttl := s.clusterLockTTL
+	if ttl < 3*time.Second {
+		ttl = 180 * time.Second
+	}
+	for {
+		now := time.Now().UTC()
+		expiresAt := now.Add(ttl)
+		result := s.db.WithContext(ctx).Exec(`
+			INSERT INTO cluster_leases (name, owner_id, expires_at, updated_at)
+			VALUES (?, ?, ?, ?)
+			ON CONFLICT (name) DO UPDATE SET
+				owner_id = excluded.owner_id,
+				expires_at = excluded.expires_at,
+				updated_at = excluded.updated_at
+			WHERE cluster_leases.expires_at <= ?`, name, ownerID, expiresAt, now, now)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 1 {
+			break
+		}
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	stopRenewal := make(chan struct{})
+	renewalDone := make(chan struct{})
+	go func() {
+		defer close(renewalDone)
+		interval := ttl / 3
+		if interval < 100*time.Millisecond {
+			interval = 100 * time.Millisecond
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopRenewal:
+				return
+			case now := <-ticker.C:
+				_ = s.db.Model(&ClusterLease{}).
+					Where("name = ? AND owner_id = ?", name, ownerID).
+					Updates(map[string]any{"expires_at": now.UTC().Add(ttl), "updated_at": now.UTC()}).Error
+			}
+		}
+	}()
+
+	defer func() {
+		close(stopRenewal)
+		<-renewalDone
+		_ = s.db.Delete(&ClusterLease{}, "name = ? AND owner_id = ?", name, ownerID).Error
+	}()
+	return fn()
 }
 
 func sqliteDSN(databaseURL string) (string, error) {
@@ -499,9 +655,11 @@ func (s *GormStore) DeleteProject(id string) error {
 		keyIDs := make([]string, 0, len(keys))
 		for _, key := range keys {
 			keyIDs = append(keyIDs, key.ID)
-			delete(s.inFlight, key.ID)
 		}
 		if len(keyIDs) > 0 {
+			if err := tx.Where("scope_type = ? AND scope_id IN ?", "api_key", keyIDs).Delete(&InFlightLease{}).Error; err != nil {
+				return err
+			}
 			if err := tx.Where("key_id IN ?", keyIDs).Delete(&QuotaBucket{}).Error; err != nil {
 				return err
 			}
@@ -694,7 +852,9 @@ func (s *GormStore) DeleteAPIKey(id string) error {
 		if err := tx.Where("key_id = ?", id).Delete(&QuotaBucket{}).Error; err != nil {
 			return err
 		}
-		delete(s.inFlight, id)
+		if err := tx.Where("scope_type = ? AND scope_id = ?", "api_key", id).Delete(&InFlightLease{}).Error; err != nil {
+			return err
+		}
 		return tx.Delete(&key).Error
 	})
 }
@@ -810,6 +970,18 @@ func (s *GormStore) DeleteProvider(id string) error {
 		}
 		if err := tx.Where("provider_id = ?", id).Delete(&ModelRoute{}).Error; err != nil {
 			return err
+		}
+		var resourceIDs []string
+		if err := tx.Model(&ProviderResource{}).Where("provider_id = ?", id).Pluck("id", &resourceIDs).Error; err != nil {
+			return err
+		}
+		if len(resourceIDs) > 0 {
+			if err := tx.Where("scope_type = ? AND scope_id IN ?", "provider_resource", resourceIDs).Delete(&InFlightLease{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("resource_id IN ?", resourceIDs).Delete(&ProviderResourceBucket{}).Error; err != nil {
+				return err
+			}
 		}
 		if err := tx.Where("provider_id = ?", id).Delete(&ProviderResource{}).Error; err != nil {
 			return err
@@ -958,6 +1130,12 @@ func (s *GormStore) DeleteProviderResource(id string) error {
 			Update("provider_resource_id", "").Error; err != nil {
 			return err
 		}
+		if err := tx.Where("scope_type = ? AND scope_id = ?", "provider_resource", id).Delete(&InFlightLease{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("resource_id = ?", id).Delete(&ProviderResourceBucket{}).Error; err != nil {
+			return err
+		}
 		return tx.Delete(&resource).Error
 	})
 }
@@ -1053,7 +1231,6 @@ func (s *GormStore) BulkOperateProviderResources(action string, ids []string) (P
 				result.Errors = append(result.Errors, id+": "+err.Error())
 				continue
 			}
-			s.resourceInFlight[resource.ID] = 0
 		}
 		if err := s.db.Model(&ProviderResource{}).Where("id = ?", resource.ID).Updates(updates).Error; err != nil {
 			result.Failed++
@@ -1127,93 +1304,247 @@ func (s *GormStore) ImportProviderResources(resources []ProviderResource) (Provi
 	return result, nil
 }
 
-func (s *GormStore) CheckProviderResourceCapacity(resourceID string) error {
-	if resourceID == "" {
+func (s *GormStore) lockScopeForUpdate(tx *gorm.DB, scopeType string, scopeID string) error {
+	if s.dbDriver != "postgres" {
 		return nil
 	}
+	key := "tokenhub:" + scopeType + ":" + scopeID
+	return tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", key).Error
+}
+
+func (s *GormStore) acquireInFlightLease(tx *gorm.DB, scopeType string, scopeID string, limit int64, leaseID string, now time.Time) error {
+	if limit <= 0 {
+		return nil
+	}
+	if err := s.lockScopeForUpdate(tx, scopeType, scopeID); err != nil {
+		return err
+	}
+	if err := tx.Where("scope_type = ? AND scope_id = ? AND expires_at <= ?", scopeType, scopeID, now).
+		Delete(&InFlightLease{}).Error; err != nil {
+		return err
+	}
+	var count int64
+	if err := tx.Model(&InFlightLease{}).
+		Where("scope_type = ? AND scope_id = ? AND expires_at > ?", scopeType, scopeID, now).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count >= limit {
+		return ErrRateLimitExceeded
+	}
+	ttl := s.inFlightLeaseTTL
+	if ttl < 3*time.Second {
+		ttl = 300 * time.Second
+	}
+	lease := InFlightLease{
+		ID:        leaseID,
+		ScopeType: scopeType,
+		ScopeID:   scopeID,
+		ExpiresAt: now.Add(ttl),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	return tx.Create(&lease).Error
+}
+
+func (s *GormStore) startInFlightLeaseHeartbeat(leaseID string) {
+	if strings.TrimSpace(leaseID) == "" {
+		return
+	}
+	ttl := s.inFlightLeaseTTL
+	if ttl < 3*time.Second {
+		ttl = 300 * time.Second
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	if previous, loaded := s.leaseHeartbeats.LoadOrStore(leaseID, cancel); loaded {
+		cancel()
+		if previousCancel, ok := previous.(context.CancelFunc); ok {
+			previousCancel()
+		}
+		s.leaseHeartbeats.Store(leaseID, cancel)
+	}
+	go func() {
+		interval := ttl / 3
+		if interval < 100*time.Millisecond {
+			interval = 100 * time.Millisecond
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				result := s.db.Model(&InFlightLease{}).Where("id = ?", leaseID).
+					Updates(map[string]any{"expires_at": now.UTC().Add(ttl), "updated_at": now.UTC()})
+				if result.Error != nil || result.RowsAffected == 0 {
+					return
+				}
+			}
+		}
+	}()
+}
+
+func (s *GormStore) stopInFlightLeaseHeartbeat(leaseID string) {
+	if cancel, ok := s.leaseHeartbeats.LoadAndDelete(leaseID); ok {
+		if cancelFunc, ok := cancel.(context.CancelFunc); ok {
+			cancelFunc()
+		}
+	}
+}
+
+func (s *GormStore) providerResourceBucketForUpdate(tx *gorm.DB, resourceID string, bucket string) (ProviderResourceBucket, error) {
+	seed := ProviderResourceBucket{ResourceID: resourceID, Bucket: bucket, UpdatedAt: time.Now().UTC()}
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&seed).Error; err != nil {
+		return ProviderResourceBucket{}, err
+	}
+	query := tx
+	if s.dbDriver == "postgres" {
+		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	var item ProviderResourceBucket
+	if err := query.First(&item, "resource_id = ? AND bucket = ?", resourceID, bucket).Error; err != nil {
+		return ProviderResourceBucket{}, err
+	}
+	return item, nil
+}
+
+func (s *GormStore) CheckProviderResourceCapacity(resourceID string) (string, error) {
+	if resourceID == "" {
+		return "", nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var resource ProviderResource
-	if err := s.db.First(&resource, "id = ?", resourceID).Error; err != nil {
-		return notFound(err, "provider_resource_not_found", "Provider resource not found")
-	}
-	now := time.Now().UTC()
-	if resource.CooldownUntil != nil && now.Before(*resource.CooldownUntil) {
-		return NewHTTPError(http.StatusTooManyRequests, "provider_resource_cooling_down", "Provider resource is cooling down")
-	}
-	if resource.MaxConcurrency > 0 && s.resourceInFlight[resource.ID] >= resource.MaxConcurrency {
-		return NewHTTPError(http.StatusTooManyRequests, "provider_resource_concurrency_exceeded", "Provider resource concurrency limit exceeded")
-	}
-	if resource.RateLimitRPM > 0 || resource.TokenLimitTPM > 0 {
-		bucket, err := providerResourceBucket(s.db, resource.ID, minuteBucket(now))
-		if err != nil {
+	leaseID := NewID("lease")
+	acquiredLease := false
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := s.lockScopeForUpdate(tx, "provider_resource", resourceID); err != nil {
 			return err
 		}
-		if resource.RateLimitRPM > 0 && bucket.Requests >= resource.RateLimitRPM {
-			return NewHTTPError(http.StatusTooManyRequests, "provider_resource_rpm_exceeded", "Provider resource RPM limit exceeded")
+		query := tx
+		if s.dbDriver == "postgres" {
+			query = query.Clauses(clause.Locking{Strength: "UPDATE"})
 		}
-		if resource.TokenLimitTPM > 0 && bucket.Tokens >= resource.TokenLimitTPM {
-			return NewHTTPError(http.StatusTooManyRequests, "provider_resource_tpm_exceeded", "Provider resource TPM limit exceeded")
+		var resource ProviderResource
+		if err := query.First(&resource, "id = ?", resourceID).Error; err != nil {
+			return notFound(err, "provider_resource_not_found", "Provider resource not found")
 		}
-		bucket.Requests++
-		bucket.UpdatedAt = now
-		if err := s.db.Save(&bucket).Error; err != nil {
-			return err
+		now := time.Now().UTC()
+		if resource.CooldownUntil != nil && now.Before(*resource.CooldownUntil) {
+			return NewHTTPError(http.StatusTooManyRequests, "provider_resource_cooling_down", "Provider resource is cooling down")
 		}
+		if resource.MaxConcurrency > 0 {
+			if err := s.acquireInFlightLease(tx, "provider_resource", resource.ID, resource.MaxConcurrency, leaseID, now); err != nil {
+				if errors.Is(err, ErrRateLimitExceeded) {
+					return NewHTTPError(http.StatusTooManyRequests, "provider_resource_concurrency_exceeded", "Provider resource concurrency limit exceeded")
+				}
+				return err
+			}
+			acquiredLease = true
+		}
+		if resource.RateLimitRPM > 0 || resource.TokenLimitTPM > 0 {
+			bucket, err := s.providerResourceBucketForUpdate(tx, resource.ID, minuteBucket(now))
+			if err != nil {
+				return err
+			}
+			if resource.RateLimitRPM > 0 && bucket.Requests >= resource.RateLimitRPM {
+				return NewHTTPError(http.StatusTooManyRequests, "provider_resource_rpm_exceeded", "Provider resource RPM limit exceeded")
+			}
+			if resource.TokenLimitTPM > 0 && bucket.Tokens >= resource.TokenLimitTPM {
+				return NewHTTPError(http.StatusTooManyRequests, "provider_resource_tpm_exceeded", "Provider resource TPM limit exceeded")
+			}
+			bucket.Requests++
+			bucket.UpdatedAt = now
+			if err := tx.Save(&bucket).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
 	}
-	s.resourceInFlight[resource.ID]++
-	return nil
+	if acquiredLease {
+		s.startInFlightLeaseHeartbeat(leaseID)
+		return leaseID, nil
+	}
+	return "", nil
 }
 
-func (s *GormStore) FinishProviderResourceAttempt(resourceID string, success bool, usage Usage) {
+func (s *GormStore) FinishProviderResourceAttempt(resourceID string, leaseID string, success bool, usage Usage) {
 	if resourceID == "" {
 		return
 	}
+	s.stopInFlightLeaseHeartbeat(leaseID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.resourceInFlight[resourceID] > 0 {
-		s.resourceInFlight[resourceID]--
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := s.lockScopeForUpdate(tx, "provider_resource", resourceID); err != nil {
+			return err
+		}
+		if strings.TrimSpace(leaseID) != "" {
+			if err := tx.Delete(&InFlightLease{}, "id = ?", leaseID).Error; err != nil {
+				return err
+			}
+		}
+		query := tx
+		if s.dbDriver == "postgres" {
+			query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+		}
+		var resource ProviderResource
+		if err := query.First(&resource, "id = ?", resourceID).Error; err != nil {
+			return err
+		}
+		now := time.Now().UTC()
+		updates := map[string]any{"updated_at": now}
+		if success {
+			if usage.TotalTokens == 0 {
+				usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+			}
+			if usage.TotalTokens > 0 {
+				bucket, err := s.providerResourceBucketForUpdate(tx, resourceID, minuteBucket(now))
+				if err != nil {
+					return err
+				}
+				bucket.Tokens += usage.TotalTokens
+				bucket.UpdatedAt = now
+				if err := tx.Save(&bucket).Error; err != nil {
+					return err
+				}
+			}
+			updates["failure_count"] = 0
+			if resource.CooldownUntil != nil && now.After(*resource.CooldownUntil) {
+				updates["cooldown_until"] = nil
+			}
+		} else {
+			nextFailures := resource.FailureCount + 1
+			updates["failure_count"] = nextFailures
+			if nextFailures >= s.failureThreshold {
+				cooldownUntil := now.Add(s.cooldownDuration)
+				updates["healthy"] = false
+				updates["cooldown_until"] = &cooldownUntil
+				updates["last_checked_at"] = now
+				if err := tx.Create(&AlertEvent{
+					ID:         NewID("alt"),
+					ScopeType:  "provider_resource",
+					ScopeID:    resource.ID,
+					Severity:   "warning",
+					Code:       "provider_resource_cooling_down",
+					Message:    "Provider resource entered cooldown after repeated failures",
+					ResourceID: resource.ProviderID,
+					CreatedAt:  now,
+				}).Error; err != nil {
+					return err
+				}
+			}
+		}
+		return tx.Model(&ProviderResource{}).Where("id = ?", resourceID).Updates(updates).Error
+	})
+	if err != nil {
+		log.Printf("[tokenhub] failed to finish provider resource attempt resource=%s: %v", resourceID, err)
 	}
-	var resource ProviderResource
-	if err := s.db.First(&resource, "id = ?", resourceID).Error; err != nil {
-		return
-	}
-	now := time.Now().UTC()
-	updates := map[string]any{"updated_at": now}
-	if success {
-		if usage.TotalTokens == 0 {
-			usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-		}
-		if usage.TotalTokens > 0 {
-			_ = addProviderResourceTokens(s.db, resourceID, minuteBucket(now), usage.TotalTokens)
-		}
-		updates["failure_count"] = 0
-		if resource.CooldownUntil != nil && now.After(*resource.CooldownUntil) {
-			updates["cooldown_until"] = nil
-		}
-	} else {
-		nextFailures := resource.FailureCount + 1
-		updates["failure_count"] = nextFailures
-		if nextFailures >= s.failureThreshold {
-			cooldownUntil := now.Add(s.cooldownDuration)
-			updates["healthy"] = false
-			updates["cooldown_until"] = &cooldownUntil
-			updates["last_checked_at"] = now
-			_ = s.db.Create(&AlertEvent{
-				ID:         NewID("alt"),
-				ScopeType:  "provider_resource",
-				ScopeID:    resource.ID,
-				Severity:   "warning",
-				Code:       "provider_resource_cooling_down",
-				Message:    "Provider resource entered cooldown after repeated failures",
-				ResourceID: resource.ProviderID,
-				CreatedAt:  now,
-			}).Error
-		}
-	}
-	_ = s.db.Model(&ProviderResource{}).Where("id = ?", resourceID).Updates(updates).Error
 }
 
 func (s *GormStore) TestProvider(id string) (Provider, error) {
@@ -1595,8 +1926,12 @@ func (s *GormStore) StartCall(project Project, key APIKey, modelName string) (Ca
 	defer s.mu.Unlock()
 
 	var call CallContext
-	var keyID string
+	requestID := NewID("req")
+	leaseAcquired := false
 	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := s.lockScopeForUpdate(tx, "api_key", key.ID); err != nil {
+			return err
+		}
 		var privateKey APIKey
 		if err := tx.First(&privateKey, "id = ?", key.ID).Error; err != nil {
 			return ErrInvalidAPIKey
@@ -1611,16 +1946,19 @@ func (s *GormStore) StartCall(project Project, key APIKey, modelName string) (Ca
 		}
 		effectiveLimits := mergeQuotaLimits(privateKey.Limits, quotaPolicyLimits(tx, project, privateKey))
 		now := time.Now().UTC()
-		dayCounter, err := quotaBucket(tx, privateKey.ID, "day", dayBucket(now))
+		dayCounter, err := s.quotaBucketForUpdate(tx, privateKey.ID, "day", dayBucket(now))
 		if err != nil {
 			return err
 		}
-		monthCounter, err := quotaBucket(tx, privateKey.ID, "month", monthBucket(now))
+		monthCounter, err := s.quotaBucketForUpdate(tx, privateKey.ID, "month", monthBucket(now))
 		if err != nil {
 			return err
 		}
-		if effectiveLimits.MaxConcurrency > 0 && s.inFlight[privateKey.ID] >= effectiveLimits.MaxConcurrency {
-			return ErrRateLimitExceeded
+		if effectiveLimits.MaxConcurrency > 0 {
+			if err := s.acquireInFlightLease(tx, "api_key", privateKey.ID, effectiveLimits.MaxConcurrency, requestID, now); err != nil {
+				return err
+			}
+			leaseAcquired = true
 		}
 		if exceedsRequestQuota(effectiveLimits, &dayCounter.QuotaCounter, &monthCounter.QuotaCounter) ||
 			exceedsTokenQuota(effectiveLimits, &dayCounter.QuotaCounter, &monthCounter.QuotaCounter) ||
@@ -1638,9 +1976,8 @@ func (s *GormStore) StartCall(project Project, key APIKey, modelName string) (Ca
 		if err := tx.Save(&monthCounter).Error; err != nil {
 			return err
 		}
-		keyID = privateKey.ID
 		call = CallContext{
-			RequestID: NewID("req"),
+			RequestID: requestID,
 			Project:   project,
 			Key:       publicKey(privateKey),
 			Model:     model,
@@ -1651,27 +1988,31 @@ func (s *GormStore) StartCall(project Project, key APIKey, modelName string) (Ca
 	if err != nil {
 		return CallContext{}, err
 	}
-	s.inFlight[keyID]++
+	if leaseAcquired {
+		s.startInFlightLeaseHeartbeat(requestID)
+	}
 	return call, nil
 }
 
 func (s *GormStore) FinishCall(call CallContext, route RouteSelection, usage Usage, statusCode int, errorCode string, clientIP string, userAgent string) {
+	s.stopInFlightLeaseHeartbeat(call.RequestID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	if call.Key.ID != "" && s.inFlight[call.Key.ID] > 0 {
-		s.inFlight[call.Key.ID]--
-	}
 	usage = priceUsage(call.Model, usage)
 	now := time.Now().UTC()
-	_ = s.db.Transaction(func(tx *gorm.DB) error {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if call.Key.ID != "" {
+			if err := s.lockScopeForUpdate(tx, "api_key", call.Key.ID); err != nil {
+				return err
+			}
+		}
 		var key APIKey
 		if err := tx.First(&key, "id = ?", call.Key.ID).Error; err == nil {
-			dayCounter, err := quotaBucket(tx, key.ID, "day", dayBucket(now))
+			dayCounter, err := s.quotaBucketForUpdate(tx, key.ID, "day", dayBucket(now))
 			if err != nil {
 				return err
 			}
-			monthCounter, err := quotaBucket(tx, key.ID, "month", monthBucket(now))
+			monthCounter, err := s.quotaBucketForUpdate(tx, key.ID, "month", monthBucket(now))
 			if err != nil {
 				return err
 			}
@@ -1705,7 +2046,7 @@ func (s *GormStore) FinishCall(call CallContext, route RouteSelection, usage Usa
 				return err
 			}
 		}
-		return tx.Create(&RequestLog{
+		if err := tx.Create(&RequestLog{
 			ID:                 NewID("log"),
 			RequestID:          call.RequestID,
 			ProjectID:          call.Project.ID,
@@ -1720,8 +2061,17 @@ func (s *GormStore) FinishCall(call CallContext, route RouteSelection, usage Usa
 			ClientIP:           clientIP,
 			UserAgent:          userAgent,
 			CreatedAt:          now,
-		}).Error
+		}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&InFlightLease{}, "id = ?", call.RequestID).Error
 	})
+	if err != nil {
+		log.Printf("[tokenhub] failed to finish call request=%s: %v", call.RequestID, err)
+		if releaseErr := s.db.Delete(&InFlightLease{}, "id = ?", call.RequestID).Error; releaseErr != nil {
+			log.Printf("[tokenhub] failed to release API key concurrency lease request=%s: %v", call.RequestID, releaseErr)
+		}
+	}
 }
 
 func (s *GormStore) RecordPlaygroundRequest(call CallContext, route RouteSelection, statusCode int, errorCode string, clientIP string, userAgent string) {
@@ -2904,48 +3254,20 @@ func (s *GormStore) AccessibleModels(key APIKey) []Model {
 	return items
 }
 
-func quotaBucket(tx *gorm.DB, keyID, scope, bucket string) (QuotaBucket, error) {
-	item := QuotaBucket{KeyID: keyID, Scope: scope, Bucket: bucket}
-	err := tx.First(&item, "key_id = ? AND scope = ? AND bucket = ?", keyID, scope, bucket).Error
-	if err == nil {
-		return item, nil
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
+func (s *GormStore) quotaBucketForUpdate(tx *gorm.DB, keyID, scope, bucket string) (QuotaBucket, error) {
+	seed := QuotaBucket{KeyID: keyID, Scope: scope, Bucket: bucket}
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&seed).Error; err != nil {
 		return QuotaBucket{}, err
 	}
-	if err := tx.Create(&item).Error; err != nil {
+	query := tx
+	if s.dbDriver == "postgres" {
+		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	var item QuotaBucket
+	if err := query.First(&item, "key_id = ? AND scope = ? AND bucket = ?", keyID, scope, bucket).Error; err != nil {
 		return QuotaBucket{}, err
 	}
 	return item, nil
-}
-
-func providerResourceBucket(tx *gorm.DB, resourceID, bucket string) (ProviderResourceBucket, error) {
-	item := ProviderResourceBucket{ResourceID: resourceID, Bucket: bucket}
-	err := tx.First(&item, "resource_id = ? AND bucket = ?", resourceID, bucket).Error
-	if err == nil {
-		return item, nil
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return ProviderResourceBucket{}, err
-	}
-	item.UpdatedAt = time.Now().UTC()
-	if err := tx.Create(&item).Error; err != nil {
-		return ProviderResourceBucket{}, err
-	}
-	return item, nil
-}
-
-func addProviderResourceTokens(tx *gorm.DB, resourceID string, bucket string, tokens int64) error {
-	if tokens <= 0 {
-		return nil
-	}
-	item, err := providerResourceBucket(tx, resourceID, bucket)
-	if err != nil {
-		return err
-	}
-	item.Tokens += tokens
-	item.UpdatedAt = time.Now().UTC()
-	return tx.Save(&item).Error
 }
 
 func priceUsage(model Model, usage Usage) Usage {
@@ -3898,4 +4220,12 @@ func (s *GormStore) GetDatabaseStatus() (map[string]interface{}, error) {
 	}
 
 	return status, nil
+}
+
+func (s *GormStore) Ping(ctx context.Context) error {
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.PingContext(ctx)
 }
