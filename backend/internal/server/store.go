@@ -157,9 +157,19 @@ type MemoryStore = GormStore
 //   - path/to/db.db       (bare path treated as SQLite)
 //   - postgres://user:pass@host:port/dbname?params
 //   - postgresql://user:pass@host:port/dbname?params
+//   - host=... user=... password=... dbname=... (PostgreSQL keyword DSN)
+//
+// The keyword DSN form is preferred when the password contains URI delimiters
+// such as #, ?, /, or %, which would otherwise be misparsed in the URL form.
 func parseDatabaseURL(databaseURL string) (driver string, dsn string, err error) {
 	if strings.TrimSpace(databaseURL) == "" {
 		return "", "", fmt.Errorf("database URL cannot be empty")
+	}
+
+	// PostgreSQL keyword DSN (e.g. "host=db user=u password=p dbname=x").
+	// It has no URL scheme, so detect it before attempting url.Parse.
+	if isPostgresKeywordDSN(databaseURL) {
+		return "postgres", databaseURL, nil
 	}
 
 	u, err := url.Parse(databaseURL)
@@ -187,6 +197,26 @@ func parseDatabaseURL(databaseURL string) (driver string, dsn string, err error)
 	}
 }
 
+// isPostgresKeywordDSN reports whether the string is a PostgreSQL keyword/value
+// DSN (e.g. "host=localhost user=tokenhub password=secret dbname=tokenhub")
+// rather than a URL. Such DSNs have no "scheme://" prefix and begin with a
+// recognized connection keyword.
+func isPostgresKeywordDSN(databaseURL string) bool {
+	trimmed := strings.TrimSpace(databaseURL)
+	if strings.Contains(trimmed, "://") {
+		return false
+	}
+	firstField := strings.SplitN(trimmed, "=", 2)
+	if len(firstField) != 2 {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(firstField[0])) {
+	case "host", "hostaddr", "user", "dbname", "port", "password", "sslmode":
+		return true
+	}
+	return false
+}
+
 // redactDatabaseURL redacts the password in database URL for safe logging
 func redactDatabaseURL(databaseURL string) string {
 	u, err := url.Parse(databaseURL)
@@ -202,6 +232,21 @@ func redactDatabaseURL(databaseURL string) string {
 		} else {
 			// No password in original URL, keep username only
 			u.User = url.User(username)
+		}
+	}
+	// PostgreSQL URIs also allow credentials in query parameters
+	// (for example, ?user=u&password=secret). Mask any password-bearing keys.
+	if query := u.Query(); len(query) > 0 {
+		changed := false
+		for key := range query {
+			switch strings.ToLower(key) {
+			case "password", "passwd", "pgpassword":
+				query.Set(key, "****")
+				changed = true
+			}
+		}
+		if changed {
+			u.RawQuery = query.Encode()
 		}
 	}
 	return u.String()
@@ -222,8 +267,8 @@ func NewSQLiteStore(databaseURL string) (*GormStore, error) {
 	return NewStoreWithDialect(databaseURL, ConfigFromEnv())
 }
 
-// NewStoreWithDialect 根据数据库 URL 创建对应驱动的 Store
-// 支持 SQLite 和 PostgreSQL
+// NewStoreWithDialect creates a Store with the appropriate driver based on the database URL.
+// It supports SQLite and PostgreSQL.
 func NewStoreWithDialect(databaseURL string, config Config) (*GormStore, error) {
 	driver, dsn, err := parseDatabaseURL(databaseURL)
 	if err != nil {
@@ -262,9 +307,9 @@ func NewStoreWithDialect(databaseURL string, config Config) (*GormStore, error) 
 		return nil, err
 	}
 
-	// 根据数据库类型配置连接池
+	// Configure the connection pool based on database type.
 	if driver == "postgres" {
-		// PostgreSQL 使用连接池
+		// PostgreSQL uses connection pooling.
 		maxOpenConns := defaultInt(config.DBMaxOpenConns, 25)
 		maxIdleConns := defaultInt(config.DBMaxIdleConns, 5)
 		connMaxLifetime := time.Duration(defaultInt(config.DBConnMaxLifetimeMinutes, 30)) * time.Minute
@@ -273,11 +318,11 @@ func NewStoreWithDialect(databaseURL string, config Config) (*GormStore, error) 
 		sqlDB.SetMaxIdleConns(maxIdleConns)
 		sqlDB.SetConnMaxLifetime(connMaxLifetime)
 	} else {
-		// SQLite 保持单连接
+		// SQLite maintains a single connection.
 		sqlDB.SetMaxOpenConns(1)
 	}
 
-	// SQLite 特定配置
+	// SQLite-specific configuration.
 	if driver == "sqlite" {
 		if err := db.Exec("PRAGMA foreign_keys = ON").Error; err != nil {
 			return nil, err
@@ -326,7 +371,7 @@ func NewStoreWithDialect(databaseURL string, config Config) (*GormStore, error) 
 	}, nil
 }
 
-// NewSQLiteStoreWithConfig 保留作为兼容性别名
+// NewSQLiteStoreWithConfig is retained as a compatibility alias.
 func NewSQLiteStoreWithConfig(databaseURL string, config Config) (*GormStore, error) {
 	return NewStoreWithDialect(databaseURL, config)
 }
@@ -3808,25 +3853,25 @@ func resourcePrefix(kind string) string {
 	}
 }
 
-// GetDatabaseStatus 返回数据库类型、Docker 环境和连接状态
+// GetDatabaseStatus returns the database type, Docker environment, and connection status.
 func (s *GormStore) GetDatabaseStatus() (map[string]interface{}, error) {
 	status := make(map[string]interface{})
 
-	// 1. 检测数据库类型
+	// 1. Detect the database type.
 	dbType := "sqlite"
 	if s.db.Dialector.Name() == "postgres" {
 		dbType = "postgres"
 	}
 	status["database_type"] = dbType
 
-	// 2. 检测是否运行在 Docker 中
+	// 2. Detect whether running in Docker.
 	isDocker := false
 	if _, err := os.Stat("/.dockerenv"); err == nil {
 		isDocker = true
 	}
 	status["is_docker"] = isDocker
 
-	// 3. 测试数据库连接
+	// 3. Test the database connection.
 	sqlDB, err := s.db.DB()
 	if err != nil {
 		status["connection_ok"] = false
@@ -3839,7 +3884,7 @@ func (s *GormStore) GetDatabaseStatus() (map[string]interface{}, error) {
 	}
 	status["connection_ok"] = true
 
-	// 4. 如果是 PostgreSQL，获取版本信息
+	// 4. If PostgreSQL, retrieve the version information.
 	if dbType == "postgres" {
 		var version string
 		if err := s.db.Raw("SELECT version()").Scan(&version).Error; err == nil {
@@ -3847,7 +3892,7 @@ func (s *GormStore) GetDatabaseStatus() (map[string]interface{}, error) {
 		}
 	}
 
-	// 5. 获取已脱敏的数据库 URL
+	// 5. Get the redacted database URL.
 	if databaseURL := os.Getenv("TOKENHUB_DATABASE_URL"); databaseURL != "" {
 		status["database_url"] = redactDatabaseURL(databaseURL)
 	}
