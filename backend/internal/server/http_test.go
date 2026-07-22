@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -3224,6 +3225,79 @@ func TestOpenAIProviderAccountOAuthGenerateAuthURLAndCallback(t *testing.T) {
 	}
 }
 
+func TestOpenAIProviderAccountOAuthCallbackSurfacesDatabaseFailure(t *testing.T) {
+	store := NewMemoryStore()
+	session := providerAccountOAuthSession{
+		ID:           "oauth-db-error",
+		State:        "oauth-db-error-state",
+		CodeVerifier: "oauth-db-error-verifier",
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := store.SaveProviderAccountOAuthSession(session); err != nil {
+		t.Fatal(err)
+	}
+	app := New(store).Handler()
+	sqlDB, err := store.db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	callback := httptest.NewRequest(http.MethodGet, "/api/admin/provider-account-oauth/openai/oauth/callback?code=oauth-code&state="+url.QueryEscape(session.State), nil)
+	rr := httptest.NewRecorder()
+	app.ServeHTTP(rr, callback)
+	if rr.Code != http.StatusInternalServerError || !strings.Contains(rr.Body.String(), "internal_error") {
+		t.Fatalf("expected database failure to surface as 500, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+type oauthRestoreFailureStore struct {
+	Store
+	saveCalls int
+}
+
+func (s *oauthRestoreFailureStore) SaveProviderAccountOAuthSession(session providerAccountOAuthSession) error {
+	s.saveCalls++
+	if s.saveCalls > 1 {
+		return errors.New("restore failed")
+	}
+	return s.Store.SaveProviderAccountOAuthSession(session)
+}
+
+func TestOpenAIProviderAccountOAuthExchangeSurfacesSessionRestoreFailure(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "token endpoint unavailable", http.StatusBadGateway)
+	}))
+	defer tokenServer.Close()
+	previousEndpoint := openAIAccountOAuthTokenEndpoint
+	openAIAccountOAuthTokenEndpoint = tokenServer.URL
+	defer func() { openAIAccountOAuthTokenEndpoint = previousEndpoint }()
+
+	baseStore := NewMemoryStore()
+	store := &oauthRestoreFailureStore{Store: baseStore}
+	app := New(store).Handler()
+	generated := doJSON(t, app, http.MethodPost, "/api/admin/provider-account-oauth/openai/generate-auth-url", map[string]any{
+		"return_url": "http://localhost:3001/providers",
+	}, "")
+	if generated.Code != http.StatusOK {
+		t.Fatalf("expected generate 200, got %d: %s", generated.Code, generated.Body)
+	}
+	var auth providerAccountOAuthGenerateResponse
+	if err := json.Unmarshal([]byte(generated.Body), &auth); err != nil {
+		t.Fatal(err)
+	}
+	exchanged := doJSON(t, app, http.MethodPost, "/api/admin/provider-account-oauth/openai/exchange-code", map[string]any{
+		"session_id": auth.SessionID,
+		"state":      auth.State,
+		"code":       "oauth-code",
+	}, "")
+	if exchanged.Code != http.StatusInternalServerError || !strings.Contains(exchanged.Body, "internal_error") {
+		t.Fatalf("expected restore failure to surface as 500, got %d: %s", exchanged.Code, exchanged.Body)
+	}
+}
+
 func TestOpenAIProviderAccountOAuthExchangeCode(t *testing.T) {
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -3341,7 +3415,7 @@ func TestProviderResourceBulkOperations(t *testing.T) {
 	store.FinishProviderResourceAttempt(resource.ID, "", false, Usage{})
 	store.FinishProviderResourceAttempt(resource.ID, "", false, Usage{})
 	store.FinishProviderResourceAttempt(resource.ID, "", false, Usage{})
-	if _, err := store.CheckProviderResourceCapacity(resource.ID); AsHTTPError(err).Code != "provider_resource_cooling_down" {
+	if _, _, err := store.CheckProviderResourceCapacity(context.Background(), resource.ID); AsHTTPError(err).Code != "provider_resource_cooling_down" {
 		t.Fatalf("expected cooldown before clear_error, got %v", err)
 	}
 	app := New(store).Handler()
@@ -3365,12 +3439,12 @@ func TestProviderResourceBulkOperations(t *testing.T) {
 	if cleared.Code != http.StatusOK || !strings.Contains(cleared.Body, `"success":1`) {
 		t.Fatalf("clear error failed: %d %s", cleared.Code, cleared.Body)
 	}
-	leaseID, err := store.CheckProviderResourceCapacity(resource.ID)
+	leaseID, _, err := store.CheckProviderResourceCapacity(context.Background(), resource.ID)
 	if err != nil {
 		t.Fatalf("capacity should be available after clear_error: %v", err)
 	}
 	store.FinishProviderResourceAttempt(resource.ID, leaseID, true, Usage{TotalTokens: 5})
-	if _, err := store.CheckProviderResourceCapacity(resource.ID); AsHTTPError(err).Code != "provider_resource_rpm_exceeded" {
+	if _, _, err := store.CheckProviderResourceCapacity(context.Background(), resource.ID); AsHTTPError(err).Code != "provider_resource_rpm_exceeded" {
 		t.Fatalf("expected rpm limit before reset, got %v", err)
 	}
 	reset := doJSON(t, app, http.MethodPost, "/api/admin/provider-resources/bulk", map[string]any{
@@ -3380,7 +3454,7 @@ func TestProviderResourceBulkOperations(t *testing.T) {
 	if reset.Code != http.StatusOK || !strings.Contains(reset.Body, `"success":1`) {
 		t.Fatalf("reset usage failed: %d %s", reset.Code, reset.Body)
 	}
-	leaseID, err = store.CheckProviderResourceCapacity(resource.ID)
+	leaseID, _, err = store.CheckProviderResourceCapacity(context.Background(), resource.ID)
 	if err != nil {
 		t.Fatalf("capacity should be available after reset_usage: %v", err)
 	}

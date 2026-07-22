@@ -6,9 +6,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -37,7 +40,7 @@ func (a *multiInstanceBlockingAdapter) Chat(ctx context.Context, provider Provid
 func TestMultiInstancePostgresE2E(t *testing.T) {
 	storeA, storeB, config := openSharedPostgresStores(t)
 	t.Run("concurrent migrations work with a one-connection runtime pool", func(t *testing.T) {
-		testConcurrentMigrations(t, config)
+		testConcurrentMigrations(t, storeA, config)
 	})
 	t.Run("HTTP quotas and concurrency are cluster wide", func(t *testing.T) {
 		testClusterWideHTTPEnforcement(t, storeA, storeB, config)
@@ -48,10 +51,30 @@ func TestMultiInstancePostgresE2E(t *testing.T) {
 	t.Run("startup task revision runs once", func(t *testing.T) {
 		testClusterTaskRunsOnce(t, storeA, storeB)
 	})
+	t.Run("lost cluster leases cancel guarded work", func(t *testing.T) {
+		testClusterLeaseLossCancelsWork(t, storeA, storeB)
+	})
 }
 
-func testConcurrentMigrations(t *testing.T, config Config) {
+func testConcurrentMigrations(t *testing.T, adminStore *GormStore, config Config) {
 	t.Helper()
+	schema := fmt.Sprintf("tokenhub_e2e_migration_%d", time.Now().UnixNano())
+	if err := adminStore.db.Exec("CREATE SCHEMA " + schema).Error; err != nil {
+		t.Fatalf("create fresh migration schema: %v", err)
+	}
+	defer func() {
+		if err := adminStore.db.Exec("DROP SCHEMA " + schema + " CASCADE").Error; err != nil {
+			t.Errorf("drop migration schema: %v", err)
+		}
+	}()
+	parsedURL, err := url.Parse(config.DatabaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := parsedURL.Query()
+	query.Set("search_path", schema)
+	parsedURL.RawQuery = query.Encode()
+	config.DatabaseURL = parsedURL.String()
 	config.DBMaxOpenConns = 1
 	config.DBMaxIdleConns = 1
 	stores := make(chan *GormStore, 2)
@@ -81,6 +104,13 @@ func testConcurrentMigrations(t *testing.T, config Config) {
 		if sqlDB, err := store.db.DB(); err == nil {
 			_ = sqlDB.Close()
 		}
+	}
+	var tableCount int64
+	if err := adminStore.db.Raw("SELECT count(*) FROM information_schema.tables WHERE table_schema = ?", schema).Scan(&tableCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if tableCount == 0 {
+		t.Fatal("concurrent constructors did not create tables in the fresh schema")
 	}
 }
 
@@ -205,6 +235,42 @@ func testClusterWideHTTPEnforcement(t *testing.T, storeA *GormStore, storeB *Gor
 	if err := storeB.db.Model(&InFlightLease{}).Where("id = ?", expiredLeaseID).Count(&expiredCount).Error; err != nil || expiredCount != 0 {
 		t.Fatalf("expired lease remained after acquisition: count=%d err=%v", expiredCount, err)
 	}
+
+	func() {
+		previousTTL := storeA.inFlightLeaseTTL
+		storeA.inFlightLeaseTTL = 600 * time.Millisecond
+		defer func() { storeA.inFlightLeaseTTL = previousTTL }()
+		lostLeaseAdapter := &multiInstanceBlockingAdapter{started: make(chan struct{}), release: make(chan struct{})}
+		serverA.adapters[ProviderMock] = lostLeaseAdapter
+		defer func() { serverA.adapters[ProviderMock] = MockAdapter{} }()
+		result := make(chan struct {
+			status int
+			body   string
+		}, 1)
+		go func() {
+			status, body := postChat(httpA.URL, concurrencySecret, modelName)
+			result <- struct {
+				status int
+				body   string
+			}{status: status, body: body}
+		}()
+		select {
+		case <-lostLeaseAdapter.started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("lease-loss request did not reach the blocking upstream")
+		}
+		if err := storeB.db.Where("scope_type = ? AND scope_id = ?", "api_key", concurrencyKey.ID).Delete(&InFlightLease{}).Error; err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case response := <-result:
+			if response.status != http.StatusServiceUnavailable || !strings.Contains(response.body, "coordination_lease_lost") {
+				t.Fatalf("lost request lease did not cancel upstream work: status=%d body=%s", response.status, response.body)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("request continued after its concurrency lease was lost")
+		}
+	}()
 
 	quotaKey, quotaSecret, err := storeA.CreateAPIKey(project.ID, APIKey{
 		ID:     "key_quota_" + suffix,
@@ -441,7 +507,7 @@ func testClusterTaskRunsOnce(t *testing.T, storeA *GormStore, storeB *GormStore)
 		wg.Add(1)
 		go func(store *GormStore) {
 			defer wg.Done()
-			errors <- store.RunClusterTask(context.Background(), name, 1, func() error {
+			errors <- store.RunClusterTask(context.Background(), name, 1, func(context.Context) error {
 				executions.Add(1)
 				time.Sleep(150 * time.Millisecond)
 				return nil
@@ -459,7 +525,7 @@ func testClusterTaskRunsOnce(t *testing.T, storeA *GormStore, storeB *GormStore)
 		t.Fatalf("cluster task ran %d times", got)
 	}
 	var reran atomic.Bool
-	if err := storeB.RunClusterTask(context.Background(), name, 1, func() error {
+	if err := storeB.RunClusterTask(context.Background(), name, 1, func(context.Context) error {
 		reran.Store(true)
 		return nil
 	}); err != nil {
@@ -467,6 +533,47 @@ func testClusterTaskRunsOnce(t *testing.T, storeA *GormStore, storeB *GormStore)
 	}
 	if reran.Load() {
 		t.Fatal("completed cluster task revision ran again")
+	}
+}
+
+func testClusterLeaseLossCancelsWork(t *testing.T, storeA *GormStore, storeB *GormStore) {
+	t.Helper()
+	previousTTL := storeA.clusterLockTTL
+	storeA.clusterLockTTL = 600 * time.Millisecond
+	defer func() { storeA.clusterLockTTL = previousTTL }()
+
+	name := "e2e-lost-task-" + NewID("task")
+	started := make(chan struct{})
+	result := make(chan error, 1)
+	go func() {
+		result <- storeA.RunClusterTask(context.Background(), name, 1, func(ctx context.Context) error {
+			close(started)
+			<-ctx.Done()
+			return context.Cause(ctx)
+		})
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("cluster task did not acquire its lease")
+	}
+	if err := storeB.db.Delete(&ClusterLease{}, "name = ?", "task:"+name).Error; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-result:
+		if !errors.Is(err, ErrCoordinationLeaseLost) {
+			t.Fatalf("expected lost cluster lease error, got %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("guarded task continued after its cluster lease was lost")
+	}
+	var stateCount int64
+	if err := storeB.db.Model(&ClusterTaskState{}).Where("name = ?", name).Count(&stateCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stateCount != 0 {
+		t.Fatalf("lost cluster task was recorded as complete: count=%d", stateCount)
 	}
 }
 

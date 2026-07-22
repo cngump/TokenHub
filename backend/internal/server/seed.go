@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -721,7 +722,7 @@ func seedMockUsage(store Store) {
 			continue
 		}
 		modelName := "gpt-4.1-mini"
-		call, err := store.StartCall(project, key, modelName)
+		call, err := store.StartCall(context.Background(), project, key, modelName)
 		if err != nil {
 			store.RecordRejectedRequest(project, key, modelName, http.StatusTooManyRequests, "quota_exceeded", mockIP(i), "mock-seed/1.0")
 			continue

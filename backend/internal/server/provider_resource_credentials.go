@@ -195,10 +195,10 @@ func (s *GormStore) RefreshProviderResourceCredentials(ctx context.Context, reso
 	}
 
 	var result ProviderResourceCredentials
-	err := s.withClusterLease(ctx, "credential-refresh:"+resourceID, func() error {
+	err := s.withClusterLease(ctx, "credential-refresh:"+resourceID, func(leaseCtx context.Context) error {
 		s.mu.Lock()
 		var resource ProviderResource
-		if err := s.db.First(&resource, "id = ?", resourceID).Error; err != nil {
+		if err := s.db.WithContext(leaseCtx).First(&resource, "id = ?", resourceID).Error; err != nil {
 			s.mu.Unlock()
 			return notFound(err, "provider_resource_not_found", "Provider resource not found")
 		}
@@ -224,7 +224,7 @@ func (s *GormStore) RefreshProviderResourceCredentials(ctx context.Context, reso
 		}
 		s.mu.Unlock()
 
-		refreshed, err := refreshOpenAIAccountOAuthCredentials(ctx, creds)
+		refreshed, err := refreshOpenAIAccountOAuthCredentials(leaseCtx, creds)
 		if err != nil {
 			return err
 		}
@@ -232,7 +232,7 @@ func (s *GormStore) RefreshProviderResourceCredentials(ctx context.Context, reso
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		var current ProviderResource
-		if err := s.db.First(&current, "id = ?", resourceID).Error; err != nil {
+		if err := s.db.WithContext(leaseCtx).First(&current, "id = ?", resourceID).Error; err != nil {
 			return notFound(err, "provider_resource_not_found", "Provider resource not found")
 		}
 		if !isOpenAIAccountResource(current.ResourceType) {
@@ -248,7 +248,7 @@ func (s *GormStore) RefreshProviderResourceCredentials(ctx context.Context, reso
 			current.APIKey = s.encryptSecret(current.APIKey)
 		}
 		current.UpdatedAt = time.Now().UTC()
-		if err := s.db.Save(&current).Error; err != nil {
+		if err := s.db.WithContext(leaseCtx).Save(&current).Error; err != nil {
 			return err
 		}
 		result = s.providerResourceCredentialsForRuntime(current)

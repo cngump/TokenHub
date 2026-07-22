@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -288,7 +289,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if req.Stream {
 		route := routed.Routes[0]
 		resourceID := routeResourceID(route)
-		leaseID, err := s.store.CheckProviderResourceCapacity(resourceID)
+		leaseID, leaseCtx, err := s.store.CheckProviderResourceCapacity(r.Context(), resourceID)
 		if err != nil {
 			s.finishFailedRoutedCall(r, routed, []RouteAttempt{{
 				Selection: route,
@@ -300,7 +301,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			writeError(w, r, err)
 			return
 		}
-		preparedRoute, err := s.prepareRouteForUpstream(r.Context(), route)
+		preparedRoute, err := s.prepareRouteForUpstream(leaseCtx, route)
 		if err != nil {
 			s.store.FinishProviderResourceAttempt(resourceID, leaseID, false, Usage{})
 			httpErr := AsHTTPError(err)
@@ -323,7 +324,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("cache-control", "no-cache")
 		w.Header().Set("x-request-id", routed.Call.RequestID)
 		s.writeRouteHeaders(w, routed.Call, route, 1)
-		usage, err := adapter.ChatStream(r.Context(), route.Provider, route.ProviderModel, req, w)
+		usage, err := adapter.ChatStream(leaseCtx, route.Provider, route.ProviderModel, req, w)
+		if leaseErr := coordinationLeaseError(leaseCtx); leaseErr != nil {
+			err = leaseErr
+		}
 		s.store.FinishProviderResourceAttempt(resourceID, leaseID, err == nil, usage)
 		status, code := statusAndCode(err)
 		if err == nil {
@@ -439,13 +443,16 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) startRoutedCall(w http.ResponseWriter, r *http.Request, project Project, key APIKey, model string, requestPayload any) (RoutedCall, bool) {
-	call, err := s.store.StartCall(project, key, model)
+	call, err := s.store.StartCall(r.Context(), project, key, model)
 	if err != nil {
 		httpErr := AsHTTPError(err)
 		requestID := s.store.RecordRejectedRequest(project, key, model, httpErr.Status, httpErr.Code, s.clientIP(r), r.UserAgent())
 		s.recordRequestPayload(requestID, requestPayload, auditErrorPayload(err, requestID))
 		writeError(w, r, err)
 		return RoutedCall{}, false
+	}
+	if call.requestContext != nil {
+		*r = *r.WithContext(call.requestContext)
 	}
 	routes, err := s.store.SelectRouteCandidates(model)
 	if err != nil {
@@ -459,8 +466,8 @@ func (s *Server) startRoutedCall(w http.ResponseWriter, r *http.Request, project
 }
 
 func (s *Server) executeRoutedChat(r *http.Request, routed RoutedCall, req ChatCompletionRequest) (any, RouteSelection, Usage, []RouteAttempt, error) {
-	return executeRoutedWithStore(s.store, routed, func(route RouteSelection) (any, Usage, error) {
-		route, err := s.prepareRouteForUpstream(r.Context(), route)
+	return executeRoutedWithStore(r.Context(), s.store, routed, func(ctx context.Context, route RouteSelection) (any, Usage, error) {
+		route, err := s.prepareRouteForUpstream(ctx, route)
 		if err != nil {
 			return nil, Usage{}, err
 		}
@@ -468,13 +475,13 @@ func (s *Server) executeRoutedChat(r *http.Request, routed RoutedCall, req ChatC
 		if err != nil {
 			return nil, Usage{}, err
 		}
-		return adapter.Chat(r.Context(), route.Provider, route.ProviderModel, req)
+		return adapter.Chat(ctx, route.Provider, route.ProviderModel, req)
 	})
 }
 
 func (s *Server) executeRoutedResponses(r *http.Request, routed RoutedCall, req ResponsesRequest) (any, RouteSelection, Usage, []RouteAttempt, error) {
-	return executeRoutedWithStore(s.store, routed, func(route RouteSelection) (any, Usage, error) {
-		route, err := s.prepareRouteForUpstream(r.Context(), route)
+	return executeRoutedWithStore(r.Context(), s.store, routed, func(ctx context.Context, route RouteSelection) (any, Usage, error) {
+		route, err := s.prepareRouteForUpstream(ctx, route)
 		if err != nil {
 			return nil, Usage{}, err
 		}
@@ -482,13 +489,13 @@ func (s *Server) executeRoutedResponses(r *http.Request, routed RoutedCall, req 
 		if err != nil {
 			return nil, Usage{}, err
 		}
-		return adapter.Responses(r.Context(), route.Provider, route.ProviderModel, req)
+		return adapter.Responses(ctx, route.Provider, route.ProviderModel, req)
 	})
 }
 
 func (s *Server) executeRoutedEmbeddings(r *http.Request, routed RoutedCall, req EmbeddingsRequest) (any, RouteSelection, Usage, []RouteAttempt, error) {
-	return executeRoutedWithStore(s.store, routed, func(route RouteSelection) (any, Usage, error) {
-		route, err := s.prepareRouteForUpstream(r.Context(), route)
+	return executeRoutedWithStore(r.Context(), s.store, routed, func(ctx context.Context, route RouteSelection) (any, Usage, error) {
+		route, err := s.prepareRouteForUpstream(ctx, route)
 		if err != nil {
 			return nil, Usage{}, err
 		}
@@ -496,7 +503,7 @@ func (s *Server) executeRoutedEmbeddings(r *http.Request, routed RoutedCall, req
 		if err != nil {
 			return nil, Usage{}, err
 		}
-		return adapter.Embeddings(r.Context(), route.Provider, route.ProviderModel, req)
+		return adapter.Embeddings(ctx, route.Provider, route.ProviderModel, req)
 	})
 }
 
@@ -583,13 +590,16 @@ func (s *Server) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-func executeRoutedWithStore[T any](store Store, routed RoutedCall, call func(RouteSelection) (T, Usage, error)) (T, RouteSelection, Usage, []RouteAttempt, error) {
+func executeRoutedWithStore[T any](ctx context.Context, store Store, routed RoutedCall, call func(context.Context, RouteSelection) (T, Usage, error)) (T, RouteSelection, Usage, []RouteAttempt, error) {
 	var zero T
 	var lastErr error = ErrProviderMissing
 	attempts := make([]RouteAttempt, 0, len(routed.Routes))
 	for _, route := range routed.Routes {
+		if leaseErr := coordinationLeaseError(ctx); leaseErr != nil {
+			return zero, route, Usage{}, attempts, leaseErr
+		}
 		resourceID := routeResourceID(route)
-		leaseID, err := store.CheckProviderResourceCapacity(resourceID)
+		leaseID, leaseCtx, err := store.CheckProviderResourceCapacity(ctx, resourceID)
 		if err != nil {
 			status, code := statusAndCode(err)
 			attempts = append(attempts, RouteAttempt{
@@ -604,7 +614,10 @@ func executeRoutedWithStore[T any](store Store, routed RoutedCall, call func(Rou
 			}
 			continue
 		}
-		resp, usage, err := call(route)
+		resp, usage, err := call(leaseCtx, route)
+		if leaseErr := coordinationLeaseError(leaseCtx); leaseErr != nil {
+			err = leaseErr
+		}
 		if resourceID != "" {
 			store.FinishProviderResourceAttempt(resourceID, leaseID, err == nil, usage)
 		}
@@ -624,6 +637,13 @@ func executeRoutedWithStore[T any](store Store, routed RoutedCall, call func(Rou
 		}
 	}
 	return zero, RouteSelection{}, Usage{}, attempts, lastErr
+}
+
+func coordinationLeaseError(ctx context.Context) error {
+	if ctx != nil && errors.Is(context.Cause(ctx), ErrCoordinationLeaseLost) {
+		return ErrCoordinationLeaseLost
+	}
+	return nil
 }
 
 func (s *Server) finishFailedRoutedCall(r *http.Request, routed RoutedCall, attempts []RouteAttempt, err error) {
@@ -832,6 +852,9 @@ func routeStrategy(route ModelRoute) string {
 
 func shouldFailoverProviderError(err error) bool {
 	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrCoordinationLeaseLost) {
 		return false
 	}
 	httpErr := AsHTTPError(err)

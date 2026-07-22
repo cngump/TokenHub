@@ -27,10 +27,20 @@ func main() {
 		log.Fatal(err)
 	}
 	bootstrapTask := "bootstrap-base"
-	bootstrap := func() error { return server.BootstrapBaseDataWithConfig(store, config) }
+	bootstrap := func(ctx context.Context) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return server.BootstrapBaseDataWithConfig(store, config)
+	}
 	if config.SeedDemo {
 		bootstrapTask = "bootstrap-demo"
-		bootstrap = func() error { return server.SeedDemoDataWithConfig(store, config) }
+		bootstrap = func(ctx context.Context) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return server.SeedDemoDataWithConfig(store, config)
+		}
 	}
 	if err := store.RunClusterTask(context.Background(), bootstrapTask, server.BootstrapTaskRevision, bootstrap); err != nil {
 		log.Fatal(err)

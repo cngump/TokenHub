@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -73,23 +74,30 @@ func (s *GormStore) SaveProviderAccountOAuthSession(session providerAccountOAuth
 	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&record).Error
 }
 
-func (s *GormStore) GetProviderAccountOAuthSessionByState(state string) (providerAccountOAuthSession, bool) {
+func (s *GormStore) GetProviderAccountOAuthSessionByState(state string) (providerAccountOAuthSession, bool, error) {
 	state = strings.TrimSpace(state)
 	if state == "" {
-		return providerAccountOAuthSession{}, false
+		return providerAccountOAuthSession{}, false, nil
 	}
 	var record providerAccountOAuthSessionRecord
 	if err := s.db.First(&record, "state_hash = ? AND expires_at > ?", HashSecret(state), time.Now().UTC()).Error; err != nil {
-		return providerAccountOAuthSession{}, false
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return providerAccountOAuthSession{}, false, nil
+		}
+		return providerAccountOAuthSession{}, false, err
 	}
-	return s.providerAccountOAuthSessionFromRecord(record, state)
+	session, err := s.providerAccountOAuthSessionFromRecord(record, state)
+	if err != nil {
+		return providerAccountOAuthSession{}, false, err
+	}
+	return session, true, nil
 }
 
-func (s *GormStore) ConsumeProviderAccountOAuthSession(id string, state string) (providerAccountOAuthSession, bool) {
+func (s *GormStore) ConsumeProviderAccountOAuthSession(id string, state string) (providerAccountOAuthSession, bool, error) {
 	id = strings.TrimSpace(id)
 	state = strings.TrimSpace(state)
 	if id == "" || state == "" {
-		return providerAccountOAuthSession{}, false
+		return providerAccountOAuthSession{}, false, nil
 	}
 	var session providerAccountOAuthSession
 	consumed := false
@@ -105,9 +113,9 @@ func (s *GormStore) ConsumeProviderAccountOAuthSession(id string, state string) 
 		if err := query.First(&record, "id = ? AND state_hash = ? AND expires_at > ?", id, HashSecret(state), time.Now().UTC()).Error; err != nil {
 			return err
 		}
-		decoded, ok := s.providerAccountOAuthSessionFromRecord(record, state)
-		if !ok {
-			return gorm.ErrRecordNotFound
+		decoded, err := s.providerAccountOAuthSessionFromRecord(record, state)
+		if err != nil {
+			return err
 		}
 		if err := tx.Delete(&record).Error; err != nil {
 			return err
@@ -117,15 +125,18 @@ func (s *GormStore) ConsumeProviderAccountOAuthSession(id string, state string) 
 		return nil
 	})
 	if err != nil {
-		return providerAccountOAuthSession{}, false
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return providerAccountOAuthSession{}, false, nil
+		}
+		return providerAccountOAuthSession{}, false, err
 	}
-	return session, consumed
+	return session, consumed, nil
 }
 
-func (s *GormStore) providerAccountOAuthSessionFromRecord(record providerAccountOAuthSessionRecord, state string) (providerAccountOAuthSession, bool) {
+func (s *GormStore) providerAccountOAuthSessionFromRecord(record providerAccountOAuthSessionRecord, state string) (providerAccountOAuthSession, error) {
 	codeVerifier := s.decryptSecret(record.CodeVerifierEncrypted)
 	if strings.TrimSpace(codeVerifier) == "" {
-		return providerAccountOAuthSession{}, false
+		return providerAccountOAuthSession{}, fmt.Errorf("provider account OAuth verifier could not be decrypted")
 	}
 	return providerAccountOAuthSession{
 		ID:           record.ID,
@@ -135,7 +146,7 @@ func (s *GormStore) providerAccountOAuthSessionFromRecord(record providerAccount
 		RedirectURI:  record.RedirectURI,
 		ReturnURL:    record.ReturnURL,
 		CreatedAt:    record.CreatedAt,
-	}, true
+	}, nil
 }
 
 type providerAccountOAuthGenerateRequest struct {
@@ -247,7 +258,11 @@ func (s *Server) handleOpenAIAccountOAuthCallback(w http.ResponseWriter, r *http
 		return
 	}
 	state := strings.TrimSpace(r.URL.Query().Get("state"))
-	session, ok := s.store.GetProviderAccountOAuthSessionByState(state)
+	session, ok, err := s.store.GetProviderAccountOAuthSessionByState(state)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
 	if !ok {
 		writeError(w, r, NewHTTPError(400, "invalid_oauth_state", "OAuth state is invalid or expired"))
 		return
@@ -298,7 +313,11 @@ func (s *Server) handleAdminOpenAIAccountOAuthExchangeCode(w http.ResponseWriter
 		writeError(w, r, NewHTTPError(400, "missing_oauth_code", "OAuth authorization code is required"))
 		return
 	}
-	session, ok := s.store.ConsumeProviderAccountOAuthSession(req.SessionID, req.State)
+	session, ok, err := s.store.ConsumeProviderAccountOAuthSession(req.SessionID, req.State)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
 	if !ok {
 		writeError(w, r, NewHTTPError(400, "oauth_session_not_found", "OAuth session was not found or has expired"))
 		return
@@ -312,7 +331,10 @@ func (s *Server) handleAdminOpenAIAccountOAuthExchangeCode(w http.ResponseWriter
 		// Preserve retryability when the token endpoint fails before consuming
 		// the authorization code. Concurrent exchanges are still serialized by
 		// the atomic session consume operation.
-		_ = s.store.SaveProviderAccountOAuthSession(session)
+		if restoreErr := s.store.SaveProviderAccountOAuthSession(session); restoreErr != nil {
+			writeError(w, r, fmt.Errorf("restore OAuth session after token exchange failure: %w", restoreErr))
+			return
+		}
 		writeError(w, r, err)
 		return
 	}

@@ -37,6 +37,7 @@ services:
       timeout: 3s
       retries: 12
       start_period: 10s
+    stop_grace_period: ${TOKENHUB_STOP_GRACE_PERIOD:-180s}
     networks:
       - tokenhub
 

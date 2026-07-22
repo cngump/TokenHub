@@ -83,5 +83,4 @@ services:
       - tokenhub
 
 networks:
-  tokenhub:
-    name: tokenhub-multi-instance
+  tokenhub: {}

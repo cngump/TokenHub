@@ -110,7 +110,7 @@ type Store interface {
 	SelectRouteCandidates(modelName string) ([]RouteSelection, error)
 	MarkRouteUsed(routeID string)
 	MarkProviderResourceUsed(resourceID string)
-	StartCall(project Project, key APIKey, modelName string) (CallContext, error)
+	StartCall(ctx context.Context, project Project, key APIKey, modelName string) (CallContext, error)
 	FinishCall(call CallContext, route RouteSelection, usage Usage, statusCode int, errorCode string, clientIP string, userAgent string)
 	RecordPlaygroundRequest(call CallContext, route RouteSelection, statusCode int, errorCode string, clientIP string, userAgent string)
 	RecordRouteAttempts(requestID string, attempts []RouteAttempt)
@@ -155,12 +155,12 @@ type Store interface {
 	RestoreSQLiteBackup(id string, restoredBy string) (SQLiteBackupRecord, error)
 	DeleteSQLiteBackup(id string) error
 	AccessibleModels(key APIKey) []Model
-	CheckProviderResourceCapacity(resourceID string) (string, error)
+	CheckProviderResourceCapacity(ctx context.Context, resourceID string) (string, context.Context, error)
 	FinishProviderResourceAttempt(resourceID string, leaseID string, success bool, usage Usage)
 	RefreshProviderResourceCredentials(ctx context.Context, resourceID string, force bool) (ProviderResourceCredentials, error)
 	SaveProviderAccountOAuthSession(session providerAccountOAuthSession) error
-	GetProviderAccountOAuthSessionByState(state string) (providerAccountOAuthSession, bool)
-	ConsumeProviderAccountOAuthSession(id string, state string) (providerAccountOAuthSession, bool)
+	GetProviderAccountOAuthSessionByState(state string) (providerAccountOAuthSession, bool, error)
+	ConsumeProviderAccountOAuthSession(id string, state string) (providerAccountOAuthSession, bool, error)
 	TestProvider(id string) (Provider, error)
 	TestProviderResource(id string) (ProviderResource, error)
 	GetDatabaseStatus() (map[string]interface{}, error)
@@ -179,6 +179,13 @@ type GormStore struct {
 	dbDriver         string // "sqlite" or "postgres"
 	inFlightLeaseTTL time.Duration
 	clusterLockTTL   time.Duration
+}
+
+type leaseHeartbeat struct {
+	ctx    context.Context
+	cancel context.CancelCauseFunc
+	stop   chan struct{}
+	done   chan struct{}
 }
 
 // MemoryStore is kept as a compatibility alias for existing tests and callers.
@@ -456,34 +463,145 @@ func NewMemoryStore() *MemoryStore {
 // RunClusterTask runs fn once for the requested monotonic revision across all
 // replicas sharing the database. A failed task is not recorded and is retried
 // by the next replica.
-func (s *GormStore) RunClusterTask(ctx context.Context, name string, revision int64, fn func() error) error {
+func (s *GormStore) RunClusterTask(ctx context.Context, name string, revision int64, fn func(context.Context) error) error {
 	name = strings.TrimSpace(name)
 	if name == "" || revision <= 0 {
 		return fmt.Errorf("cluster task name and positive revision are required")
 	}
-	return s.withClusterLease(ctx, "task:"+name, func() error {
+	return s.withClusterLease(ctx, "task:"+name, func(leaseCtx context.Context) error {
 		var state ClusterTaskState
-		err := s.db.First(&state, "name = ?", name).Error
+		err := s.db.WithContext(leaseCtx).First(&state, "name = ?", name).Error
 		if err == nil && state.Revision >= revision {
 			return nil
 		}
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
-		if err := fn(); err != nil {
+		if err := fn(leaseCtx); err != nil {
+			return err
+		}
+		if err := context.Cause(leaseCtx); err != nil {
 			return err
 		}
 		state = ClusterTaskState{Name: name, Revision: revision, CompletedAt: time.Now().UTC()}
-		return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&state).Error
+		return s.db.WithContext(leaseCtx).Clauses(clause.OnConflict{UpdateAll: true}).Create(&state).Error
 	})
 }
 
-func (s *GormStore) withClusterLease(ctx context.Context, name string, fn func() error) error {
-	ownerID := NewID("lock")
-	ttl := s.clusterLockTTL
-	if ttl < 3*time.Second {
-		ttl = 180 * time.Second
+func effectiveLeaseTTL(value time.Duration, fallback time.Duration) time.Duration {
+	if value <= 0 {
+		return fallback
 	}
+	return value
+}
+
+func leaseRenewalInterval(ttl time.Duration) time.Duration {
+	interval := ttl / 3
+	if interval < 100*time.Millisecond {
+		return 100 * time.Millisecond
+	}
+	return interval
+}
+
+func leaseSafetyWindow(ttl time.Duration) time.Duration {
+	window := ttl / 10
+	if window < 100*time.Millisecond {
+		return 100 * time.Millisecond
+	}
+	if window > time.Second {
+		return time.Second
+	}
+	return window
+}
+
+func startLeaseHeartbeat(parent context.Context, ttl time.Duration, confirmedUntil time.Time, renew func(context.Context, time.Time) (bool, error)) *leaseHeartbeat {
+	if parent == nil {
+		parent = context.Background()
+	}
+	leaseCtx, cancel := context.WithCancelCause(parent)
+	heartbeat := &leaseHeartbeat{
+		ctx:    leaseCtx,
+		cancel: cancel,
+		stop:   make(chan struct{}),
+		done:   make(chan struct{}),
+	}
+	go func() {
+		defer close(heartbeat.done)
+		nextDelay := leaseRenewalInterval(ttl)
+		safetyWindow := leaseSafetyWindow(ttl)
+		for {
+			timer := time.NewTimer(nextDelay)
+			select {
+			case <-heartbeat.stop:
+				timer.Stop()
+				return
+			case <-leaseCtx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+
+			now := time.Now().UTC()
+			remaining := time.Until(confirmedUntil)
+			if remaining <= safetyWindow {
+				cancel(ErrCoordinationLeaseLost)
+				return
+			}
+			attemptTimeout := (remaining - safetyWindow) / 2
+			if attemptTimeout > 2*time.Second {
+				attemptTimeout = 2 * time.Second
+			}
+			if attemptTimeout < 50*time.Millisecond {
+				attemptTimeout = 50 * time.Millisecond
+			}
+			attemptCtx, stopAttempt := context.WithTimeout(leaseCtx, attemptTimeout)
+			retained, err := renew(attemptCtx, now)
+			stopAttempt()
+			if err == nil && retained {
+				confirmedUntil = now.Add(ttl)
+				nextDelay = leaseRenewalInterval(ttl)
+				continue
+			}
+			if err == nil {
+				cancel(ErrCoordinationLeaseLost)
+				return
+			}
+
+			remaining = time.Until(confirmedUntil)
+			if remaining <= safetyWindow {
+				cancel(ErrCoordinationLeaseLost)
+				return
+			}
+			nextDelay = (remaining - safetyWindow) / 2
+			if nextDelay > time.Second {
+				nextDelay = time.Second
+			}
+			if nextDelay < 50*time.Millisecond {
+				nextDelay = 50 * time.Millisecond
+			}
+		}
+	}()
+	return heartbeat
+}
+
+func stopLeaseHeartbeat(heartbeat *leaseHeartbeat) error {
+	if heartbeat == nil {
+		return nil
+	}
+	close(heartbeat.stop)
+	heartbeat.cancel(context.Canceled)
+	<-heartbeat.done
+	cause := context.Cause(heartbeat.ctx)
+	if errors.Is(cause, ErrCoordinationLeaseLost) {
+		return ErrCoordinationLeaseLost
+	}
+	return nil
+}
+
+func (s *GormStore) withClusterLease(ctx context.Context, name string, fn func(context.Context) error) error {
+	ownerID := NewID("lock")
+	ttl := effectiveLeaseTTL(s.clusterLockTTL, 180*time.Second)
+	var confirmedUntil time.Time
 	for {
 		now := time.Now().UTC()
 		expiresAt := now.Add(ttl)
@@ -499,6 +617,7 @@ func (s *GormStore) withClusterLease(ctx context.Context, name string, fn func()
 			return result.Error
 		}
 		if result.RowsAffected == 1 {
+			confirmedUntil = expiresAt
 			break
 		}
 		timer := time.NewTimer(100 * time.Millisecond)
@@ -510,34 +629,19 @@ func (s *GormStore) withClusterLease(ctx context.Context, name string, fn func()
 		}
 	}
 
-	stopRenewal := make(chan struct{})
-	renewalDone := make(chan struct{})
-	go func() {
-		defer close(renewalDone)
-		interval := ttl / 3
-		if interval < 100*time.Millisecond {
-			interval = 100 * time.Millisecond
-		}
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-stopRenewal:
-				return
-			case now := <-ticker.C:
-				_ = s.db.Model(&ClusterLease{}).
-					Where("name = ? AND owner_id = ?", name, ownerID).
-					Updates(map[string]any{"expires_at": now.UTC().Add(ttl), "updated_at": now.UTC()}).Error
-			}
-		}
-	}()
-
-	defer func() {
-		close(stopRenewal)
-		<-renewalDone
-		_ = s.db.Delete(&ClusterLease{}, "name = ? AND owner_id = ?", name, ownerID).Error
-	}()
-	return fn()
+	heartbeat := startLeaseHeartbeat(ctx, ttl, confirmedUntil, func(attemptCtx context.Context, now time.Time) (bool, error) {
+		result := s.db.WithContext(attemptCtx).Model(&ClusterLease{}).
+			Where("name = ? AND owner_id = ?", name, ownerID).
+			Updates(map[string]any{"expires_at": now.Add(ttl), "updated_at": now})
+		return result.RowsAffected == 1, result.Error
+	})
+	fnErr := fn(heartbeat.ctx)
+	leaseErr := stopLeaseHeartbeat(heartbeat)
+	_ = s.db.Delete(&ClusterLease{}, "name = ? AND owner_id = ?", name, ownerID).Error
+	if leaseErr != nil {
+		return leaseErr
+	}
+	return fnErr
 }
 
 func sqliteDSN(databaseURL string) (string, error) {
@@ -1312,85 +1416,65 @@ func (s *GormStore) lockScopeForUpdate(tx *gorm.DB, scopeType string, scopeID st
 	return tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", key).Error
 }
 
-func (s *GormStore) acquireInFlightLease(tx *gorm.DB, scopeType string, scopeID string, limit int64, leaseID string, now time.Time) error {
+func (s *GormStore) acquireInFlightLease(tx *gorm.DB, scopeType string, scopeID string, limit int64, leaseID string, now time.Time) (time.Time, error) {
 	if limit <= 0 {
-		return nil
+		return time.Time{}, nil
 	}
 	if err := s.lockScopeForUpdate(tx, scopeType, scopeID); err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if err := tx.Where("scope_type = ? AND scope_id = ? AND expires_at <= ?", scopeType, scopeID, now).
 		Delete(&InFlightLease{}).Error; err != nil {
-		return err
+		return time.Time{}, err
 	}
 	var count int64
 	if err := tx.Model(&InFlightLease{}).
 		Where("scope_type = ? AND scope_id = ? AND expires_at > ?", scopeType, scopeID, now).
 		Count(&count).Error; err != nil {
-		return err
+		return time.Time{}, err
 	}
 	if count >= limit {
-		return ErrRateLimitExceeded
+		return time.Time{}, ErrRateLimitExceeded
 	}
-	ttl := s.inFlightLeaseTTL
-	if ttl < 3*time.Second {
-		ttl = 300 * time.Second
-	}
+	ttl := effectiveLeaseTTL(s.inFlightLeaseTTL, 300*time.Second)
+	expiresAt := now.Add(ttl)
 	lease := InFlightLease{
 		ID:        leaseID,
 		ScopeType: scopeType,
 		ScopeID:   scopeID,
-		ExpiresAt: now.Add(ttl),
+		ExpiresAt: expiresAt,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	return tx.Create(&lease).Error
+	return expiresAt, tx.Create(&lease).Error
 }
 
-func (s *GormStore) startInFlightLeaseHeartbeat(leaseID string) {
+func (s *GormStore) startInFlightLeaseHeartbeat(parent context.Context, leaseID string, confirmedUntil time.Time) context.Context {
 	if strings.TrimSpace(leaseID) == "" {
-		return
+		return parent
 	}
-	ttl := s.inFlightLeaseTTL
-	if ttl < 3*time.Second {
-		ttl = 300 * time.Second
+	ttl := effectiveLeaseTTL(s.inFlightLeaseTTL, 300*time.Second)
+	heartbeat := startLeaseHeartbeat(parent, ttl, confirmedUntil, func(attemptCtx context.Context, now time.Time) (bool, error) {
+		result := s.db.WithContext(attemptCtx).Model(&InFlightLease{}).Where("id = ?", leaseID).
+			Updates(map[string]any{"expires_at": now.Add(ttl), "updated_at": now})
+		return result.RowsAffected == 1, result.Error
+	})
+	if previous, loaded := s.leaseHeartbeats.LoadOrStore(leaseID, heartbeat); loaded {
+		if previousHeartbeat, ok := previous.(*leaseHeartbeat); ok {
+			_ = stopLeaseHeartbeat(previousHeartbeat)
+		}
+		s.leaseHeartbeats.Store(leaseID, heartbeat)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	if previous, loaded := s.leaseHeartbeats.LoadOrStore(leaseID, cancel); loaded {
-		cancel()
-		if previousCancel, ok := previous.(context.CancelFunc); ok {
-			previousCancel()
-		}
-		s.leaseHeartbeats.Store(leaseID, cancel)
-	}
-	go func() {
-		interval := ttl / 3
-		if interval < 100*time.Millisecond {
-			interval = 100 * time.Millisecond
-		}
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case now := <-ticker.C:
-				result := s.db.Model(&InFlightLease{}).Where("id = ?", leaseID).
-					Updates(map[string]any{"expires_at": now.UTC().Add(ttl), "updated_at": now.UTC()})
-				if result.Error != nil || result.RowsAffected == 0 {
-					return
-				}
-			}
-		}
-	}()
+	return heartbeat.ctx
 }
 
-func (s *GormStore) stopInFlightLeaseHeartbeat(leaseID string) {
-	if cancel, ok := s.leaseHeartbeats.LoadAndDelete(leaseID); ok {
-		if cancelFunc, ok := cancel.(context.CancelFunc); ok {
-			cancelFunc()
+func (s *GormStore) stopInFlightLeaseHeartbeat(leaseID string) error {
+	if value, ok := s.leaseHeartbeats.LoadAndDelete(leaseID); ok {
+		if heartbeat, ok := value.(*leaseHeartbeat); ok {
+			return stopLeaseHeartbeat(heartbeat)
 		}
 	}
+	return nil
 }
 
 func (s *GormStore) providerResourceBucketForUpdate(tx *gorm.DB, resourceID string, bucket string) (ProviderResourceBucket, error) {
@@ -1409,16 +1493,20 @@ func (s *GormStore) providerResourceBucketForUpdate(tx *gorm.DB, resourceID stri
 	return item, nil
 }
 
-func (s *GormStore) CheckProviderResourceCapacity(resourceID string) (string, error) {
+func (s *GormStore) CheckProviderResourceCapacity(ctx context.Context, resourceID string) (string, context.Context, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if resourceID == "" {
-		return "", nil
+		return "", ctx, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	leaseID := NewID("lease")
 	acquiredLease := false
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	var leaseExpiresAt time.Time
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := s.lockScopeForUpdate(tx, "provider_resource", resourceID); err != nil {
 			return err
 		}
@@ -1435,12 +1523,14 @@ func (s *GormStore) CheckProviderResourceCapacity(resourceID string) (string, er
 			return NewHTTPError(http.StatusTooManyRequests, "provider_resource_cooling_down", "Provider resource is cooling down")
 		}
 		if resource.MaxConcurrency > 0 {
-			if err := s.acquireInFlightLease(tx, "provider_resource", resource.ID, resource.MaxConcurrency, leaseID, now); err != nil {
+			expiresAt, err := s.acquireInFlightLease(tx, "provider_resource", resource.ID, resource.MaxConcurrency, leaseID, now)
+			if err != nil {
 				if errors.Is(err, ErrRateLimitExceeded) {
 					return NewHTTPError(http.StatusTooManyRequests, "provider_resource_concurrency_exceeded", "Provider resource concurrency limit exceeded")
 				}
 				return err
 			}
+			leaseExpiresAt = expiresAt
 			acquiredLease = true
 		}
 		if resource.RateLimitRPM > 0 || resource.TokenLimitTPM > 0 {
@@ -1463,20 +1553,20 @@ func (s *GormStore) CheckProviderResourceCapacity(resourceID string) (string, er
 		return nil
 	})
 	if err != nil {
-		return "", err
+		return "", ctx, err
 	}
 	if acquiredLease {
-		s.startInFlightLeaseHeartbeat(leaseID)
-		return leaseID, nil
+		leaseCtx := s.startInFlightLeaseHeartbeat(ctx, leaseID, leaseExpiresAt)
+		return leaseID, leaseCtx, nil
 	}
-	return "", nil
+	return "", ctx, nil
 }
 
 func (s *GormStore) FinishProviderResourceAttempt(resourceID string, leaseID string, success bool, usage Usage) {
 	if resourceID == "" {
 		return
 	}
-	s.stopInFlightLeaseHeartbeat(leaseID)
+	_ = s.stopInFlightLeaseHeartbeat(leaseID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -1544,6 +1634,11 @@ func (s *GormStore) FinishProviderResourceAttempt(resourceID string, leaseID str
 	})
 	if err != nil {
 		log.Printf("[tokenhub] failed to finish provider resource attempt resource=%s: %v", resourceID, err)
+		if strings.TrimSpace(leaseID) != "" {
+			if releaseErr := s.db.Delete(&InFlightLease{}, "id = ?", leaseID).Error; releaseErr != nil {
+				log.Printf("[tokenhub] failed to release provider concurrency lease resource=%s lease=%s: %v", resourceID, leaseID, releaseErr)
+			}
+		}
 	}
 }
 
@@ -1921,14 +2016,18 @@ func (s *GormStore) MarkProviderResourceUsed(resourceID string) {
 		Updates(map[string]any{"last_used_at": now, "updated_at": now}).Error
 }
 
-func (s *GormStore) StartCall(project Project, key APIKey, modelName string) (CallContext, error) {
+func (s *GormStore) StartCall(ctx context.Context, project Project, key APIKey, modelName string) (CallContext, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	var call CallContext
 	requestID := NewID("req")
 	leaseAcquired := false
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	var leaseExpiresAt time.Time
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := s.lockScopeForUpdate(tx, "api_key", key.ID); err != nil {
 			return err
 		}
@@ -1955,9 +2054,11 @@ func (s *GormStore) StartCall(project Project, key APIKey, modelName string) (Ca
 			return err
 		}
 		if effectiveLimits.MaxConcurrency > 0 {
-			if err := s.acquireInFlightLease(tx, "api_key", privateKey.ID, effectiveLimits.MaxConcurrency, requestID, now); err != nil {
+			expiresAt, err := s.acquireInFlightLease(tx, "api_key", privateKey.ID, effectiveLimits.MaxConcurrency, requestID, now)
+			if err != nil {
 				return err
 			}
+			leaseExpiresAt = expiresAt
 			leaseAcquired = true
 		}
 		if exceedsRequestQuota(effectiveLimits, &dayCounter.QuotaCounter, &monthCounter.QuotaCounter) ||
@@ -1977,11 +2078,12 @@ func (s *GormStore) StartCall(project Project, key APIKey, modelName string) (Ca
 			return err
 		}
 		call = CallContext{
-			RequestID: requestID,
-			Project:   project,
-			Key:       publicKey(privateKey),
-			Model:     model,
-			StartedAt: now,
+			RequestID:      requestID,
+			Project:        project,
+			Key:            publicKey(privateKey),
+			Model:          model,
+			StartedAt:      now,
+			requestContext: ctx,
 		}
 		return nil
 	})
@@ -1989,13 +2091,13 @@ func (s *GormStore) StartCall(project Project, key APIKey, modelName string) (Ca
 		return CallContext{}, err
 	}
 	if leaseAcquired {
-		s.startInFlightLeaseHeartbeat(requestID)
+		call.requestContext = s.startInFlightLeaseHeartbeat(ctx, requestID, leaseExpiresAt)
 	}
 	return call, nil
 }
 
 func (s *GormStore) FinishCall(call CallContext, route RouteSelection, usage Usage, statusCode int, errorCode string, clientIP string, userAgent string) {
-	s.stopInFlightLeaseHeartbeat(call.RequestID)
+	_ = s.stopInFlightLeaseHeartbeat(call.RequestID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	usage = priceUsage(call.Model, usage)
