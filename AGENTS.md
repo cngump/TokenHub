@@ -1,0 +1,60 @@
+# TokenHub Agent Guide
+
+## Repository overview
+
+TokenHub is a private enterprise AI gateway with a Go backend, a Next.js admin console, SDK smoke tests, a YAML model catalog, and Docker Compose deployment files.
+
+- `backend/`: Go HTTP API, SQLite/GORM persistence, routing, authentication, administration, and backend tests.
+- `frontend/`: Next.js and React admin console.
+- `sdk/`: Node.js smoke tests for the OpenAI-compatible API and security policy endpoints.
+- `data/model-catalog.yaml`: tracked model catalog source.
+- `deploy/`: Docker Compose deployment and environment template.
+- `docs/`: English, Simplified Chinese, and Japanese documentation.
+
+## Development commands
+
+Run backend checks from `backend/`:
+
+```bash
+gofmt -w <changed-go-files>
+go test ./...
+go vet ./...
+```
+
+Run frontend checks from `frontend/`:
+
+```bash
+npm ci
+npm run typecheck
+npm run build
+```
+
+Run SDK smoke tests from `sdk/` only when a compatible backend is available and the required environment variables are configured:
+
+```bash
+npm ci
+npm run test:deepseek
+npm run test:security-policy
+```
+
+Start the full local development stack from the repository root with `./start.sh`. Start the containerized stack with the commands documented in `docs/deployment.md`.
+
+## Change guidelines
+
+- Keep changes focused and preserve unrelated work in the checkout.
+- Add or update tests for backend behavior changes. Prefer in-process fake HTTP or SMTP servers over external network dependencies.
+- Preserve API compatibility for the OpenAI-compatible `/v1` endpoints unless the task explicitly changes the contract.
+- Treat authentication, API keys, provider credentials, reset tokens, audit payloads, forwarded headers, and exported data as security-sensitive.
+- Never commit real credentials, local `.env` files, SQLite databases, generated backups, or runtime logs.
+- Keep environment variable additions synchronized across relevant `.env.example` files, `deploy/docker-compose.yml`, `start.sh`, and deployment documentation.
+- Keep user-facing documentation synchronized across English, Simplified Chinese, and Japanese when changing shared behavior.
+- `frontend/app/page.tsx` and `frontend/app/globals.css` are intentionally large. Avoid broad formatting or unrelated restructuring when making a targeted UI fix.
+- Next.js may rewrite `frontend/next-env.d.ts` during development or production builds. Do not commit incidental mode-dependent changes to that generated file.
+- Keep `data/model-catalog.yaml` tracked; other files under runtime data directories are intentionally ignored.
+
+## Validation expectations
+
+- Run the narrowest relevant test while iterating, then run the full applicable check set before handing off.
+- Run `git diff --check` before committing.
+- Report any check that could not run and distinguish new failures from failures already present on the base branch.
+- For Docker or deployment changes, validate the rendered Compose configuration with `docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config` when Docker is available.

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/hmac"
@@ -8,12 +9,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -542,6 +545,7 @@ func TestAdminImportsUsersFromExistingSystemCSV(t *testing.T) {
 	if err := BootstrapBaseData(store); err != nil {
 		t.Fatal(err)
 	}
+	messages := configureTestSMTPChannel(t, store)
 	app := New(store).Handler()
 
 	content := "username,name,email,role,team_id,status\nimported_user,导入用户,imported@example.com,user,team_platform,active\n"
@@ -556,6 +560,7 @@ func TestAdminImportsUsersFromExistingSystemCSV(t *testing.T) {
 	if !strings.Contains(resp.Body, `"created":1`) || !strings.Contains(resp.Body, `"updated":0`) {
 		t.Fatalf("expected one created user: %s", resp.Body)
 	}
+	assertPasswordResetEmail(t, messages, "imported@example.com")
 
 	update := "username,name,email,role,team_id,status\nimported_user,导入用户已更新,imported@example.com,team_leader,team_platform,active\n"
 	updated := doJSON(t, app, http.MethodPost, "/api/admin/users/import", map[string]any{
@@ -569,6 +574,7 @@ func TestAdminImportsUsersFromExistingSystemCSV(t *testing.T) {
 	if !strings.Contains(updated.Body, `"created":0`) || !strings.Contains(updated.Body, `"updated":1`) {
 		t.Fatalf("expected one updated user: %s", updated.Body)
 	}
+	assertPasswordResetEmail(t, messages, "imported@example.com")
 	users := store.ListAdminUsers()
 	var found AdminUser
 	for _, user := range users {
@@ -582,11 +588,28 @@ func TestAdminImportsUsersFromExistingSystemCSV(t *testing.T) {
 	}
 }
 
+func TestBootstrapUsesConfiguredAdminPassword(t *testing.T) {
+	store := NewMemoryStore()
+	config := ConfigFromEnv()
+	config.BootstrapAdminPassword = "configured-bootstrap-password"
+	if err := BootstrapBaseDataWithConfig(store, config); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := store.AuthenticateAdminUser("admin", config.BootstrapAdminPassword, time.Hour); err != nil {
+		t.Fatalf("expected configured bootstrap password to authenticate: %v", err)
+	}
+	if _, _, err := store.AuthenticateAdminUser("admin", "admin123456", time.Hour); AsHTTPError(err).Code != "invalid_credentials" {
+		t.Fatalf("expected hard-coded default password to be rejected, got %v", err)
+	}
+}
+
 func TestAdminImportsUsersFromHeaderlessCSV(t *testing.T) {
 	store := NewMemoryStore()
 	if err := BootstrapBaseData(store); err != nil {
 		t.Fatal(err)
 	}
+	messages := configureTestSMTPChannel(t, store)
 	app := New(store).Handler()
 
 	content := "xiemengjun,谢孟军,xiemengjun@e-lead.cn,admin,team_UK8jwEcIIoFmNVmJ,active\n" +
@@ -602,6 +625,8 @@ func TestAdminImportsUsersFromHeaderlessCSV(t *testing.T) {
 	if !strings.Contains(resp.Body, `"created":2`) || !strings.Contains(resp.Body, `"skipped":0`) {
 		t.Fatalf("expected two created users: %s", resp.Body)
 	}
+	assertPasswordResetEmail(t, messages, "xiemengjun@e-lead.cn")
+	assertPasswordResetEmail(t, messages, "lisk@e-lead.cn")
 }
 
 func TestGatewayRejectsUnauthorizedModel(t *testing.T) {
@@ -3862,12 +3887,152 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestClientIPIgnoresForwardedHeaderFromUntrustedPeer(t *testing.T) {
+	server := &Server{config: Config{TrustedProxyCIDRs: []string{"10.0.0.0/8"}}}
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	request.RemoteAddr = "198.51.100.7:4321"
+	request.Header.Set("X-Forwarded-For", "203.0.113.25")
+
+	if got := server.clientIP(request); got != "198.51.100.7" {
+		t.Fatalf("expected direct peer IP, got %q", got)
+	}
+}
+
+func TestClientIPUsesForwardedChainFromTrustedProxy(t *testing.T) {
+	server := &Server{config: Config{TrustedProxyCIDRs: []string{"10.0.0.0/8", "192.0.2.10"}}}
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	request.RemoteAddr = "10.0.0.8:4321"
+	request.Header.Set("X-Forwarded-For", "203.0.113.25, 192.0.2.10")
+
+	if got := server.clientIP(request); got != "203.0.113.25" {
+		t.Fatalf("expected first untrusted address from the right, got %q", got)
+	}
+}
+
+func TestClientIPRejectsMalformedForwardedChain(t *testing.T) {
+	server := &Server{config: Config{TrustedProxyCIDRs: []string{"10.0.0.0/8"}}}
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	request.RemoteAddr = "10.0.0.8:4321"
+	request.Header.Set("X-Forwarded-For", "203.0.113.25, not-an-ip")
+
+	if got := server.clientIP(request); got != "10.0.0.8" {
+		t.Fatalf("expected malformed chain to fall back to direct peer, got %q", got)
+	}
+}
+
 func newTestServer() http.Handler {
 	store := NewMemoryStore()
 	if err := SeedDemoData(store); err != nil {
 		panic(err)
 	}
 	return New(store).Handler()
+}
+
+func configureTestSMTPChannel(t *testing.T, store *GormStore) <-chan string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	messages := make(chan string, 10)
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go serveTestSMTPConnection(conn, messages)
+		}
+	}()
+
+	host, portText, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.CreateResource("notification-channels", AdminResource{
+		Name:   "Test SMTP",
+		Status: StatusActive,
+		Fields: map[string]any{
+			"type":      "email",
+			"smtp_host": host,
+			"smtp_port": port,
+			"smtp_from": "tokenhub@example.com",
+		},
+	})
+	return messages
+}
+
+func serveTestSMTPConnection(conn net.Conn, messages chan<- string) {
+	defer conn.Close()
+	reader := bufio.NewReader(conn)
+	writer := bufio.NewWriter(conn)
+	write := func(response string) bool {
+		if _, err := writer.WriteString(response + "\r\n"); err != nil {
+			return false
+		}
+		return writer.Flush() == nil
+	}
+	if !write("220 localhost ESMTP") {
+		return
+	}
+	var message strings.Builder
+	readingData := false
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return
+		}
+		command := strings.TrimRight(line, "\r\n")
+		if readingData {
+			if command == "." {
+				messages <- message.String()
+				message.Reset()
+				readingData = false
+				if !write("250 queued") {
+					return
+				}
+				continue
+			}
+			message.WriteString(strings.TrimPrefix(command, "."))
+			message.WriteByte('\n')
+			continue
+		}
+		switch {
+		case strings.HasPrefix(command, "EHLO "), strings.HasPrefix(command, "HELO "):
+			if !write("250 localhost") {
+				return
+			}
+		case command == "DATA":
+			readingData = true
+			if !write("354 end with <CRLF>.<CRLF>") {
+				return
+			}
+		case command == "QUIT":
+			_ = write("221 bye")
+			return
+		default:
+			if !write("250 ok") {
+				return
+			}
+		}
+	}
+}
+
+func assertPasswordResetEmail(t *testing.T, messages <-chan string, recipient string) {
+	t.Helper()
+	select {
+	case message := <-messages:
+		if !strings.Contains(message, "To: "+recipient) || !strings.Contains(message, "reset_token=") {
+			t.Fatalf("unexpected password reset email: %s", message)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for password reset email to %s", recipient)
+	}
 }
 
 type responseBody struct {

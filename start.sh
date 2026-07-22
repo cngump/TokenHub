@@ -6,8 +6,12 @@ BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 
 TOKENHUB_HTTP_ADDR="${TOKENHUB_HTTP_ADDR:-:8080}"
+TOKENHUB_ENV="${TOKENHUB_ENV:-dev}"
 TOKENHUB_PUBLIC_BASE_URL="${TOKENHUB_PUBLIC_BASE_URL:-http://localhost:8080}"
+TOKENHUB_TRUSTED_PROXY_CIDRS="${TOKENHUB_TRUSTED_PROXY_CIDRS:-}"
 TOKENHUB_ADMIN_TOKEN="${TOKENHUB_ADMIN_TOKEN:-dev_admin_token}"
+TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD="${TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD:-admin123456}"
+TOKENHUB_SECRET_KEY="${TOKENHUB_SECRET_KEY:-dev_tokenhub_secret_key}"
 # Don't force a default database URL here. If not explicitly set in shell,
 # let backend's godotenv load from backend/.env, so PostgreSQL config in .env can take effect.
 # If neither exists, backend falls back to its own default (SQLite).
@@ -109,9 +113,13 @@ log "Starting backend: $TOKENHUB_HTTP_ADDR"
   # Only pass TOKENHUB_DATABASE_URL if non-empty (explicitly set in shell),
   # otherwise let backend godotenv read from backend/.env to avoid overriding .env config.
   backend_env=(
+    TOKENHUB_ENV="$TOKENHUB_ENV"
     TOKENHUB_HTTP_ADDR="$TOKENHUB_HTTP_ADDR"
     TOKENHUB_PUBLIC_BASE_URL="$TOKENHUB_PUBLIC_BASE_URL"
+    TOKENHUB_TRUSTED_PROXY_CIDRS="$TOKENHUB_TRUSTED_PROXY_CIDRS"
     TOKENHUB_ADMIN_TOKEN="$TOKENHUB_ADMIN_TOKEN"
+    TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD="$TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD"
+    TOKENHUB_SECRET_KEY="$TOKENHUB_SECRET_KEY"
   )
   if [ -n "$TOKENHUB_DATABASE_URL" ]; then
     backend_env+=(TOKENHUB_DATABASE_URL="$TOKENHUB_DATABASE_URL")
