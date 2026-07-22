@@ -27,6 +27,7 @@ import (
 	"time"
 
 	sqlite3 "github.com/mattn/go-sqlite3"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -129,6 +130,7 @@ type Store interface {
 	RefreshProviderResourceCredentials(ctx context.Context, resourceID string, force bool) (ProviderResourceCredentials, error)
 	TestProvider(id string) (Provider, error)
 	TestProviderResource(id string) (ProviderResource, error)
+	GetDatabaseStatus() (map[string]interface{}, error)
 }
 
 type GormStore struct {
@@ -141,11 +143,114 @@ type GormStore struct {
 	cooldownDuration time.Duration
 	sqliteDSN        string
 	backupDir        string
+	dbDriver         string // "sqlite" or "postgres"
 }
 
 // MemoryStore is kept as a compatibility alias for existing tests and callers.
 // It is now backed by GORM and SQLite, not process-local maps.
 type MemoryStore = GormStore
+
+// parseDatabaseURL parses a database URL and returns the driver type and DSN.
+// Supported formats:
+//   - sqlite://path/to/db.db
+//   - file:...            (SQLite DSN, e.g. in-memory stores)
+//   - path/to/db.db       (bare path treated as SQLite)
+//   - postgres://user:pass@host:port/dbname?params
+//   - postgresql://user:pass@host:port/dbname?params
+//   - host=... user=... password=... dbname=... (PostgreSQL keyword DSN)
+//
+// The keyword DSN form is preferred when the password contains URI delimiters
+// such as #, ?, /, or %, which would otherwise be misparsed in the URL form.
+func parseDatabaseURL(databaseURL string) (driver string, dsn string, err error) {
+	if strings.TrimSpace(databaseURL) == "" {
+		return "", "", fmt.Errorf("database URL cannot be empty")
+	}
+
+	// PostgreSQL keyword DSN (e.g. "host=db user=u password=p dbname=x").
+	// It has no URL scheme, so detect it before attempting url.Parse.
+	if isPostgresKeywordDSN(databaseURL) {
+		return "postgres", databaseURL, nil
+	}
+
+	u, err := url.Parse(databaseURL)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid database URL: %w", err)
+	}
+
+	switch u.Scheme {
+	case "postgres", "postgresql":
+		// PostgreSQL URL: postgres://user:pass@host:port/dbname?params
+		// Use the original URL directly as the DSN.
+		return "postgres", databaseURL, nil
+
+	case "sqlite", "file", "":
+		// SQLite: sqlite:// URLs, file: DSNs (in-memory stores), or bare paths.
+		// sqliteDSN handles all of these for backwards compatibility.
+		dsn, err := sqliteDSN(databaseURL)
+		if err != nil {
+			return "", "", err
+		}
+		return "sqlite", dsn, nil
+
+	default:
+		return "", "", fmt.Errorf("unsupported database scheme: %s (supported: sqlite, file, postgres, postgresql)", u.Scheme)
+	}
+}
+
+// isPostgresKeywordDSN reports whether the string is a PostgreSQL keyword/value
+// DSN (e.g. "host=localhost user=tokenhub password=secret dbname=tokenhub")
+// rather than a URL. Such DSNs have no "scheme://" prefix and begin with a
+// recognized connection keyword.
+func isPostgresKeywordDSN(databaseURL string) bool {
+	trimmed := strings.TrimSpace(databaseURL)
+	if strings.Contains(trimmed, "://") {
+		return false
+	}
+	firstField := strings.SplitN(trimmed, "=", 2)
+	if len(firstField) != 2 {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(firstField[0])) {
+	case "host", "hostaddr", "user", "dbname", "port", "password", "sslmode":
+		return true
+	}
+	return false
+}
+
+// redactDatabaseURL redacts the password in database URL for safe logging
+func redactDatabaseURL(databaseURL string) string {
+	u, err := url.Parse(databaseURL)
+	if err != nil {
+		return "<invalid-url>"
+	}
+	if u.User != nil {
+		username := u.User.Username()
+		_, hasPassword := u.User.Password()
+		if hasPassword {
+			// Hide password only, preserve username
+			u.User = url.UserPassword(username, "****")
+		} else {
+			// No password in original URL, keep username only
+			u.User = url.User(username)
+		}
+	}
+	// PostgreSQL URIs also allow credentials in query parameters
+	// (for example, ?user=u&password=secret). Mask any password-bearing keys.
+	if query := u.Query(); len(query) > 0 {
+		changed := false
+		for key := range query {
+			switch strings.ToLower(key) {
+			case "password", "passwd", "pgpassword":
+				query.Set(key, "****")
+				changed = true
+			}
+		}
+		if changed {
+			u.RawQuery = query.Encode()
+		}
+	}
+	return u.String()
+}
 
 func OpenStore(databaseURL string) (*GormStore, error) {
 	return OpenStoreWithConfig(databaseURL, ConfigFromEnv())
@@ -155,19 +260,34 @@ func OpenStoreWithConfig(databaseURL string, config Config) (*GormStore, error) 
 	if strings.TrimSpace(databaseURL) == "" {
 		databaseURL = defaultConfigDatabaseURL()
 	}
-	return NewSQLiteStoreWithConfig(databaseURL, config)
+	return NewStoreWithDialect(databaseURL, config)
 }
 
 func NewSQLiteStore(databaseURL string) (*GormStore, error) {
-	return NewSQLiteStoreWithConfig(databaseURL, ConfigFromEnv())
+	return NewStoreWithDialect(databaseURL, ConfigFromEnv())
 }
 
-func NewSQLiteStoreWithConfig(databaseURL string, config Config) (*GormStore, error) {
-	dsn, err := sqliteDSN(databaseURL)
+// NewStoreWithDialect creates a Store with the appropriate driver based on the database URL.
+// It supports SQLite and PostgreSQL.
+func NewStoreWithDialect(databaseURL string, config Config) (*GormStore, error) {
+	driver, dsn, err := parseDatabaseURL(databaseURL)
 	if err != nil {
 		return nil, err
 	}
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
+
+	log.Printf("[tokenhub] initializing database: driver=%s url=%s", driver, redactDatabaseURL(databaseURL))
+
+	var dialector gorm.Dialector
+	switch driver {
+	case "sqlite":
+		dialector = sqlite.Open(dsn)
+	case "postgres":
+		dialector = postgres.Open(dsn)
+	default:
+		return nil, fmt.Errorf("unsupported database driver: %s", driver)
+	}
+
+	db, err := gorm.Open(dialector, &gorm.Config{
 		TranslateError: true,
 		Logger: gormlogger.New(
 			log.New(os.Stdout, "\r\n", log.LstdFlags),
@@ -181,17 +301,37 @@ func NewSQLiteStoreWithConfig(databaseURL string, config Config) (*GormStore, er
 	if err != nil {
 		return nil, err
 	}
+
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, err
 	}
-	sqlDB.SetMaxOpenConns(1)
-	if err := db.Exec("PRAGMA foreign_keys = ON").Error; err != nil {
-		return nil, err
+
+	// Configure the connection pool based on database type.
+	if driver == "postgres" {
+		// PostgreSQL uses connection pooling.
+		maxOpenConns := defaultInt(config.DBMaxOpenConns, 25)
+		maxIdleConns := defaultInt(config.DBMaxIdleConns, 5)
+		connMaxLifetime := time.Duration(defaultInt(config.DBConnMaxLifetimeMinutes, 30)) * time.Minute
+
+		sqlDB.SetMaxOpenConns(maxOpenConns)
+		sqlDB.SetMaxIdleConns(maxIdleConns)
+		sqlDB.SetConnMaxLifetime(connMaxLifetime)
+	} else {
+		// SQLite maintains a single connection.
+		sqlDB.SetMaxOpenConns(1)
 	}
-	if err := db.Exec("PRAGMA busy_timeout = 5000").Error; err != nil {
-		return nil, err
+
+	// SQLite-specific configuration.
+	if driver == "sqlite" {
+		if err := db.Exec("PRAGMA foreign_keys = ON").Error; err != nil {
+			return nil, err
+		}
+		if err := db.Exec("PRAGMA busy_timeout = 5000").Error; err != nil {
+			return nil, err
+		}
 	}
+
 	if err := db.AutoMigrate(
 		&Project{},
 		&APIKey{},
@@ -217,6 +357,7 @@ func NewSQLiteStoreWithConfig(databaseURL string, config Config) (*GormStore, er
 	); err != nil {
 		return nil, err
 	}
+
 	return &GormStore{
 		db:               db,
 		inFlight:         map[string]int64{},
@@ -226,7 +367,13 @@ func NewSQLiteStoreWithConfig(databaseURL string, config Config) (*GormStore, er
 		cooldownDuration: time.Duration(defaultInt(config.ResourceCooldownSeconds, 300)) * time.Second,
 		sqliteDSN:        dsn,
 		backupDir:        defaultString(config.SQLiteBackupDir, "data/backups"),
+		dbDriver:         driver,
 	}, nil
+}
+
+// NewSQLiteStoreWithConfig is retained as a compatibility alias.
+func NewSQLiteStoreWithConfig(databaseURL string, config Config) (*GormStore, error) {
+	return NewStoreWithDialect(databaseURL, config)
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -1348,7 +1495,7 @@ func (s *GormStore) SelectRouteCandidates(modelName string) ([]RouteSelection, e
 		var resources []ProviderResource
 		query := s.db.Where("provider_id = ? AND status = ? AND healthy = ?", provider.ID, StatusActive, true)
 		if strings.TrimSpace(route.ResourceGroup) != "" {
-			query = query.Where("`group` = ?", strings.TrimSpace(route.ResourceGroup))
+			query = query.Where("\"group\" = ?", strings.TrimSpace(route.ResourceGroup))
 		}
 		if err := query.Order("priority asc, weight desc, created_at asc").
 			Find(&resources).Error; err != nil {
@@ -2402,7 +2549,7 @@ func (s *GormStore) AuthenticateAdminUser(identity string, password string, ttl 
 
 	identity = strings.ToLower(strings.TrimSpace(identity))
 	var user AdminUser
-	if err := s.db.Where("lower(email) = ? OR lower(username) = ?", identity, identity).First(&user).Error; err != nil {
+	if err := s.db.Where("LOWER(email) = ? OR LOWER(username) = ?", identity, identity).First(&user).Error; err != nil {
 		return AdminUser{}, AdminSession{}, NewHTTPError(401, "invalid_credentials", "Invalid username or password")
 	}
 	if user.Status != StatusActive {
@@ -2498,6 +2645,10 @@ func (s *GormStore) RevokeAdminSession(token string) {
 }
 
 func (s *GormStore) CreateSQLiteBackup(createdBy string, expireDays int) (SQLiteBackupRecord, error) {
+	if s.IsPostgreSQL() {
+		return s.CreatePostgreSQLBackup(createdBy, expireDays)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -2574,6 +2725,10 @@ func (s *GormStore) GetSQLiteBackup(id string) (SQLiteBackupRecord, error) {
 }
 
 func (s *GormStore) RestoreSQLiteBackup(id string, restoredBy string) (SQLiteBackupRecord, error) {
+	if s.IsPostgreSQL() {
+		return s.RestorePostgreSQLBackup(id, restoredBy)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -3696,4 +3851,51 @@ func resourcePrefix(kind string) string {
 	default:
 		return "res"
 	}
+}
+
+// GetDatabaseStatus returns the database type, Docker environment, and connection status.
+func (s *GormStore) GetDatabaseStatus() (map[string]interface{}, error) {
+	status := make(map[string]interface{})
+
+	// 1. Detect the database type.
+	dbType := "sqlite"
+	if s.db.Dialector.Name() == "postgres" {
+		dbType = "postgres"
+	}
+	status["database_type"] = dbType
+
+	// 2. Detect whether running in Docker.
+	isDocker := false
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		isDocker = true
+	}
+	status["is_docker"] = isDocker
+
+	// 3. Test the database connection.
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		status["connection_ok"] = false
+		return status, nil
+	}
+
+	if err := sqlDB.Ping(); err != nil {
+		status["connection_ok"] = false
+		return status, nil
+	}
+	status["connection_ok"] = true
+
+	// 4. If PostgreSQL, retrieve the version information.
+	if dbType == "postgres" {
+		var version string
+		if err := s.db.Raw("SELECT version()").Scan(&version).Error; err == nil {
+			status["postgres_version"] = version
+		}
+	}
+
+	// 5. Get the redacted database URL.
+	if databaseURL := os.Getenv("TOKENHUB_DATABASE_URL"); databaseURL != "" {
+		status["database_url"] = redactDatabaseURL(databaseURL)
+	}
+
+	return status, nil
 }

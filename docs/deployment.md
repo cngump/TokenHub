@@ -2,7 +2,49 @@
 
 Language: English | [简体中文](zh-CN/deployment.md) | [日本語](ja/deployment.md)
 
-TokenHub is designed for private deployment with a Go backend, a Next.js admin console, and SQLite persistence.
+TokenHub is designed for private deployment with a Go backend, a Next.js admin console, and support for SQLite or PostgreSQL persistence.
+
+## Database Selection
+
+TokenHub supports two database backends:
+
+### SQLite (Default)
+
+**Advantages:**
+- Zero configuration, no separate database service required
+- Suitable for small to medium deployments
+- Simple backups (direct file copy)
+
+**Use cases:**
+- Development and testing environments
+- Deployments with fewer than 1000 users
+- Single-server deployments
+
+**Deployment:**
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d
+```
+
+### PostgreSQL (Production Recommended)
+
+**Advantages:**
+- Enterprise-grade database for high concurrency scenarios
+- Better transaction support and data integrity
+- Supports replication and high availability
+
+**Use cases:**
+- Production environments
+- Deployments with more than 1000 users
+- High-availability requirements
+
+**Deployment:**
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.postgres.yml up -d
+```
+
+For detailed PostgreSQL configuration, see the [PostgreSQL Setup Guide](postgresql-setup.md).
 
 ## Docker Compose
 
@@ -107,13 +149,16 @@ Only use `down -v` when you intentionally want to delete local data.
 | `TOKENHUB_ADMIN_TOKEN` | `change-me-tokenhub-admin-token` | Bootstrap admin token for Admin API access |
 | `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD` | `change-me-tokenhub-admin-password` | Password for the initial `admin` user; must be changed before production startup |
 | `TOKENHUB_SECRET_KEY` | `change-me-tokenhub-secret-key` | Backend secret key |
-| `TOKENHUB_DATABASE_URL` | `sqlite:///app/data/tokenhub.db` | SQLite database location inside the container |
+| `TOKENHUB_DATABASE_URL` | `sqlite:///app/data/tokenhub.db` | Database connection URL (sqlite:// or postgresql://) |
 | `TOKENHUB_SQLITE_BACKUP_DIR` | `/app/data/backups` | Backup output directory |
 | `TOKENHUB_MODEL_CATALOG_FILE` | `/app/catalog/model-catalog.yaml` | Standard model catalog file |
 | `TOKENHUB_SEED_DEMO` | `false` | Whether to seed demo data |
 | `TOKENHUB_LOG_LEVEL` | `info` | Log level |
 | `TOKENHUB_RESOURCE_FAILURE_THRESHOLD` | `3` | Provider resource failure threshold before cooldown |
 | `TOKENHUB_RESOURCE_COOLDOWN_SECONDS` | `300` | Provider resource cooldown seconds |
+| `TOKENHUB_DB_MAX_OPEN_CONNS` | `25` | Maximum open database connections (PostgreSQL only) |
+| `TOKENHUB_DB_MAX_IDLE_CONNS` | `5` | Maximum idle database connections (PostgreSQL only) |
+| `TOKENHUB_DB_CONN_MAX_LIFETIME_MINUTES` | `30` | Maximum connection lifetime in minutes (PostgreSQL only) |
 
 ## Frontend Environment Variables
 

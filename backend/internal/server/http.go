@@ -63,7 +63,7 @@ func NewWithConfig(store Store, config Config) *Server {
 }
 
 func (s *Server) Handler() http.Handler {
-	return cors(s.mux)
+	return s.cors(s.mux)
 }
 
 func (s *Server) routes() {
@@ -119,6 +119,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/admin/alert-deliveries", s.handleAdminAlertDeliveries)
 	s.mux.HandleFunc("/api/admin/approvals", s.handleAdminApprovals)
 	s.mux.HandleFunc("/api/admin/approvals/", s.handleAdminApprovalItem)
+	s.mux.HandleFunc("/api/admin/system/db-status", s.handleAdminSystemDBStatus)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -6379,9 +6380,57 @@ func ipMatchesTrustedProxy(rawIP string, trusted []string) bool {
 	return false
 }
 
-func cors(next http.Handler) http.Handler {
+func isDevEnvironment(environment string) bool {
+	switch strings.ToLower(strings.TrimSpace(environment)) {
+	case "dev", "development", "local", "test":
+		return true
+	}
+	return false
+}
+
+func (s *Server) cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("access-control-allow-origin", "*")
+		origin := r.Header.Get("Origin")
+
+		// Determine allowed origins: use explicit config if set, otherwise derive from PublicBaseURL
+		allowedOrigins := s.config.CORSAllowedOrigins
+		if len(allowedOrigins) == 0 && s.config.PublicBaseURL != "" {
+			allowedOrigins = []string{s.config.PublicBaseURL}
+		}
+
+		// If request has Origin header and we have an allowed origins list, validate it
+		if origin != "" && len(allowedOrigins) > 0 {
+			allowed := false
+			for _, allowedOrigin := range allowedOrigins {
+				if origin == strings.TrimSpace(allowedOrigin) {
+					allowed = true
+					break
+				}
+			}
+			if allowed {
+				w.Header().Set("access-control-allow-origin", origin)
+				w.Header().Set("access-control-allow-credentials", "true")
+				w.Header().Add("Vary", "Origin")
+			} else {
+				// Origin not in allowlist, deny credentials but allow simple requests
+				w.Header().Set("access-control-allow-origin", "*")
+			}
+		} else if origin != "" && isDevEnvironment(s.config.Environment) {
+			// Dev environment without an allowlist: echo origin with credentials
+			// for convenience. Never do this in production, where an explicit
+			// allowlist (or PublicBaseURL) is required to authorize credentials.
+			w.Header().Set("access-control-allow-origin", origin)
+			w.Header().Set("access-control-allow-credentials", "true")
+			w.Header().Add("Vary", "Origin")
+		} else {
+			// No Origin header, or production with no configured allowlist:
+			// allow simple cross-origin requests but never credentials.
+			w.Header().Set("access-control-allow-origin", "*")
+			if origin != "" {
+				w.Header().Add("Vary", "Origin")
+			}
+		}
+
 		w.Header().Set("access-control-allow-methods", "GET,POST,PATCH,DELETE,OPTIONS")
 		w.Header().Set("access-control-allow-headers", "authorization,content-type")
 		if r.Method == http.MethodOptions {
@@ -6390,4 +6439,31 @@ func cors(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s *Server) handleAdminSystemDBStatus(w http.ResponseWriter, r *http.Request) {
+	// Only allow GET requests.
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Verify administrator permissions.
+	if _, ok := s.requireAdmin(w, r, "system", r.Method); !ok {
+		return
+	}
+
+	// Retrieve the database status.
+	status, err := s.store.GetDatabaseStatus()
+	if err != nil {
+		log.Printf("[tokenhub] failed to get database status: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Return the JSON response.
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(status); err != nil {
+		log.Printf("[tokenhub] failed to encode database status response: %v", err)
+	}
 }

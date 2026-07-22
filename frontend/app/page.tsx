@@ -90,6 +90,14 @@ type APIKey = {
   last_used_at?: string;
 };
 
+type DatabaseStatus = {
+  database_type: "sqlite" | "postgres";
+  is_docker: boolean;
+  connection_ok: boolean;
+  postgres_version?: string;
+  database_url?: string;
+};
+
 type Provider = {
   id: string;
   name: string;
@@ -483,6 +491,7 @@ type ViewKey =
   | "security-policies"
   | "proxies"
   | "sqlite-backups"
+  | "database-status"
   | "announcements"
   | "identity-providers"
   | "settings";
@@ -518,6 +527,7 @@ const viewRoutes: Record<ViewKey, string> = {
   "security-policies": "/security-policies",
   proxies: "/proxies",
   "sqlite-backups": "/sqlite-backups",
+  "database-status": "/database-status",
   announcements: "/announcements",
   "identity-providers": "/identity-providers",
   settings: "/settings",
@@ -733,6 +743,18 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "安全策略": "Security Policies",
     "代理出口": "Proxy Egress",
     "数据备份": "Data Backups",
+    "数据库状态": "Database Status",
+    "刷新": "Refresh",
+    "加载失败": "Load failed",
+    "无数据": "No data",
+    "数据库类型": "Database Type",
+    "运行环境": "Runtime Environment",
+    "Docker 容器": "Docker Container",
+    "本地进程": "Local Process",
+    "连接状态": "Connection Status",
+    "版本": "Version",
+    "数据库连接信息": "Database Connection Info",
+    "密码已隐藏以保护敏感信息": "Password hidden to protect sensitive information",
     "公告通知": "Announcements",
     "系统设置": "System Settings",
     "新增系统设置": "Create System Setting",
@@ -744,6 +766,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "查看最近请求日志、状态码、模型路由和延迟。": "Inspect recent request logs, status codes, model routes, and latency.",
     "查看运行时触发的额度、成本和 Provider 健康告警。": "Review quota, cost, and Provider health alerts triggered at runtime.",
     "查看告警 Webhook 发送结果、目标和失败原因。": "Review alert delivery results, targets, and failure reasons.",
+    "查看数据库类型、连接状态和运行环境信息。": "View database type, connection status, and runtime environment information.",
     "处理 Key 发放、额度提升和模型开通等治理审批。": "Handle governance approvals such as key issuance, quota increases, and model access.",
     "登录控制台": "Login console",
     "使用": "Use",
@@ -1863,6 +1886,18 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "安全策略": "セキュリティポリシー",
     "代理出口": "プロキシ出口",
     "数据备份": "データバックアップ",
+    "数据库状态": "データベース状態",
+    "刷新": "更新",
+    "加载失败": "読み込み失敗",
+    "无数据": "データなし",
+    "数据库类型": "データベースタイプ",
+    "运行环境": "実行環境",
+    "Docker 容器": "Docker コンテナ",
+    "本地进程": "ローカルプロセス",
+    "连接状态": "接続状態",
+    "版本": "バージョン",
+    "数据库连接信息": "データベース接続情報",
+    "密码已隐藏以保护敏感信息": "パスワードは機密保護のため非表示",
     "公告通知": "お知らせ",
     "系统设置": "システム設定",
     "新增系统设置": "システム設定を作成",
@@ -1874,6 +1909,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "查看最近请求日志、状态码、模型路由和延迟。": "最近のリクエストログ、ステータス、モデルルート、レイテンシを確認します。",
     "查看运行时触发的额度、成本和 Provider 健康告警。": "実行時に発生したクォータ、コスト、Provider ヘルスのアラートを確認します。",
     "查看告警 Webhook 发送结果、目标和失败原因。": "アラート通知の送信結果、宛先、失敗理由を確認します。",
+    "查看数据库类型、连接状态和运行环境信息。": "データベースタイプ、接続状態、実行環境を確認します。",
     "处理 Key 发放、额度提升和模型开通等治理审批。": "Key 発行、クォータ増額、モデル開通などの承認を処理します。",
     "登录控制台": "ログインコンソール",
     "使用": "使用",
@@ -3196,6 +3232,7 @@ const adminNavGroups: NavGroup[] = [
       { view: "security-policies", label: "安全策略", icon: ShieldCheck },
       { view: "proxies", label: "代理出口", icon: Server },
       { view: "sqlite-backups", label: "数据备份", icon: Database },
+      { view: "database-status", label: "数据库状态", icon: Database },
       { view: "announcements", label: "公告通知", icon: Bell },
       { view: "settings", label: "系统设置", icon: Settings },
     ],
@@ -3271,6 +3308,10 @@ const standaloneViewMeta: Partial<Record<ViewKey, { title: string; description: 
   "alert-deliveries": {
     title: "通知记录",
     description: "查看告警 Webhook 发送结果、目标和失败原因。",
+  },
+  "database-status": {
+    title: "数据库状态",
+    description: "查看数据库类型、连接状态和运行环境信息。",
   },
   approvals: {
     title: "审批记录",
@@ -4423,6 +4464,8 @@ export default function AdminHome() {
             <BillingView data={data} user={currentUser} />
           ) : activeView === "audit" ? (
             <AuditView api={api} data={data} user={currentUser} />
+          ) : activeView === "database-status" ? (
+            <DatabaseStatusView api={api} isDark={theme === "dark"} />
           ) : activeView === "settings" ? (
             <SettingsView
               data={data}
@@ -11841,6 +11884,165 @@ function modelCatalogCompareSortValues(left: string | number | undefined, right:
     return String(left).localeCompare(String(right)) * direction;
   }
   return (left - right) * direction;
+}
+
+function DatabaseStatusView({ api, isDark }: { api: ApiContext; isDark: boolean }) {
+  const [status, setStatus] = useState<DatabaseStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchDatabaseStatus();
+  }, []);
+
+  const fetchDatabaseStatus = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${api.baseURL}/api/admin/system/db-status`, {
+        headers: {
+          "Content-Type": "application/json",
+          authorization: `Bearer ${api.adminToken}`,
+        },
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+
+      const data: DatabaseStatus = await res.json();
+      setStatus(data);
+    } catch (err) {
+      console.error("Failed to fetch database status:", err);
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <DataSection title={tx("数据库状态")}>
+        <div className="flex items-center justify-center py-12">
+          <div className="text-gray-500">{tx("加载中")}...</div>
+        </div>
+      </DataSection>
+    );
+  }
+
+  if (error) {
+    return (
+      <DataSection title={tx("数据库状态")}>
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+          <div className="flex items-center gap-2 text-red-800 dark:text-red-200">
+            <AlertCircle className="w-5 h-5" />
+            <span>{tx("加载失败")}: {error}</span>
+          </div>
+        </div>
+      </DataSection>
+    );
+  }
+
+  if (!status) {
+    return (
+      <DataSection title={tx("数据库状态")}>
+        <div className="text-gray-500">{tx("无数据")}</div>
+      </DataSection>
+    );
+  }
+
+  return (
+    <DataSection title={tx("数据库状态")}>
+      <div className="space-y-6">
+        <div className="flex justify-end">
+          <button
+            onClick={fetchDatabaseStatus}
+            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            {tx("刷新")}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Database type */}
+          <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
+            <div className="flex items-center gap-3 mb-4">
+              <Database className="w-6 h-6 text-blue-600" />
+              <h2 className="text-lg font-semibold">{tx("数据库类型")}</h2>
+            </div>
+            <div className="text-3xl font-bold">
+              {status.database_type === "postgres" ? "PostgreSQL" : "SQLite"}
+            </div>
+          </div>
+
+          {/* Runtime environment */}
+          <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
+            <div className="flex items-center gap-3 mb-4">
+              <Server className="w-6 h-6 text-purple-600" />
+              <h2 className="text-lg font-semibold">{tx("运行环境")}</h2>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className={`w-3 h-3 rounded-full ${status.is_docker ? "bg-green-500" : "bg-gray-400"}`} />
+              <span className="text-xl font-semibold">
+                {status.is_docker ? tx("Docker 容器") : tx("本地进程")}
+              </span>
+            </div>
+          </div>
+
+          {/* Connection status */}
+          <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
+            <div className="flex items-center gap-3 mb-4">
+              <Activity className="w-6 h-6 text-green-600" />
+              <h2 className="text-lg font-semibold">{tx("连接状态")}</h2>
+            </div>
+            <div className="flex items-center gap-2">
+              {status.connection_ok ? (
+                <>
+                  <Check className="w-6 h-6 text-green-500" />
+                  <span className="text-xl font-semibold text-green-600">{tx("正常")}</span>
+                </>
+              ) : (
+                <>
+                  <X className="w-6 h-6 text-red-500" />
+                  <span className="text-xl font-semibold text-red-600">{tx("异常")}</span>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* PostgreSQL version (only shown for PostgreSQL) */}
+          {status.database_type === "postgres" && status.postgres_version && (
+            <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
+              <div className="flex items-center gap-3 mb-4">
+                <Database className="w-6 h-6 text-indigo-600" />
+                <h2 className="text-lg font-semibold">PostgreSQL {tx("版本")}</h2>
+              </div>
+              <div className="text-sm text-gray-600 dark:text-gray-400 font-mono">
+                {status.postgres_version.split('\n')[0]}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Database connection info */}
+        {status.database_url && (
+          <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
+            <div className="flex items-center gap-3 mb-4">
+              <Database className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+              <h2 className="text-base font-semibold">{tx("数据库连接信息")}</h2>
+            </div>
+            <div className={`p-3 rounded-md font-mono text-sm break-all ${isDark ? "bg-gray-900 text-gray-300" : "bg-gray-100 text-gray-700"}`}>
+              {status.database_url}
+            </div>
+            <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              * {tx("密码已隐藏以保护敏感信息")}
+            </div>
+          </div>
+        )}
+      </div>
+    </DataSection>
+  );
 }
 
 function modelCatalogPriceBaseline(models: Model[]) {

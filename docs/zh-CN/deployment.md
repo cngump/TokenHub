@@ -4,6 +4,48 @@ Language: [English](../deployment.md) | 简体中文 | [日本語](../ja/deploym
 
 TokenHub 面向私有化部署，由 Go 后端、Next.js 管理后台和 SQLite 持久化组成。
 
+## 数据库选择
+
+TokenHub 支持两种数据库后端：
+
+### SQLite（默认）
+
+**优点：**
+- 零配置，无需单独的数据库服务
+- 适合中小规模部署
+- 备份简单（直接复制文件）
+
+**适用场景：**
+- 开发和测试环境
+- 少于 1000 用户的部署
+- 单机部署
+
+**部署：**
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d
+```
+
+### PostgreSQL（推荐用于生产）
+
+**优点：**
+- 企业级数据库，适合高并发场景
+- 更好的事务支持和数据完整性
+- 支持复制和高可用
+
+**适用场景：**
+- 生产环境
+- 超过 1000 用户的部署
+- 高可用需求
+
+**部署：**
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.postgres.yml up -d
+```
+
+PostgreSQL 的详细配置见 [PostgreSQL 设置指南](../postgresql-setup.md)。
+
 ## Docker Compose
 
 创建部署环境变量文件：
