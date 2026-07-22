@@ -2374,7 +2374,11 @@ func (s *GormStore) UpdateAdminUser(id string, patch AdminUser, password string)
 		user.Status = patch.Status
 	}
 	if password != "" {
-		user.PasswordHash = HashSecret(password)
+		passwordHash, err := hashPassword(password)
+		if err != nil {
+			return AdminUser{}, err
+		}
+		user.PasswordHash = passwordHash
 	}
 	if wasActivePlatformAdmin && !activePlatformAdmin(user) {
 		if err := ensureAnotherActivePlatformAdmin(s.db, user.ID); err != nil {
@@ -2473,7 +2477,11 @@ func (s *GormStore) ResetAdminUserPassword(token string, password string) (Admin
 		return AdminUser{}, notFound(err, "admin_user_not_found", "Admin user not found")
 	}
 	now := time.Now().UTC()
-	user.PasswordHash = HashSecret(password)
+	passwordHash, err := hashPassword(password)
+	if err != nil {
+		return AdminUser{}, err
+	}
+	user.PasswordHash = passwordHash
 	user.UpdatedAt = now
 	item.UsedAt = &now
 	if err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -2502,8 +2510,16 @@ func (s *GormStore) AuthenticateAdminUser(identity string, password string, ttl 
 	if user.Status != StatusActive {
 		return AdminUser{}, AdminSession{}, NewHTTPError(403, "admin_user_disabled", "Admin user is disabled")
 	}
-	if user.PasswordHash != HashSecret(password) {
+	validPassword, needsPasswordUpgrade := verifyPassword(user.PasswordHash, password)
+	if !validPassword {
 		return AdminUser{}, AdminSession{}, NewHTTPError(401, "invalid_credentials", "Invalid username or password")
+	}
+	if needsPasswordUpgrade {
+		upgradedHash, err := hashPasswordForUpgrade(password)
+		if err != nil {
+			return AdminUser{}, AdminSession{}, err
+		}
+		user.PasswordHash = upgradedHash
 	}
 	now := time.Now().UTC()
 	session := AdminSession{
@@ -3437,7 +3453,11 @@ func createAdminUser(db *gorm.DB, user AdminUser, password string) (AdminUser, e
 		return AdminUser{}, NewHTTPError(409, "admin_user_conflict", "Username or email already exists")
 	}
 	if user.PasswordHash == "" {
-		user.PasswordHash = HashSecret(password)
+		passwordHash, err := hashPassword(password)
+		if err != nil {
+			return AdminUser{}, err
+		}
+		user.PasswordHash = passwordHash
 	}
 	if user.CreatedAt.IsZero() {
 		user.CreatedAt = now

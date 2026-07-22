@@ -690,6 +690,7 @@ let activeLanguage: AppLanguage = "en";
 
 const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>> = {
   en: {
+    "请填写此字段": "Please fill out this field",
     "总览": "Overview",
     "网关概览": "Gateway Overview",
     "开始使用": "Get Started",
@@ -1832,6 +1833,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "点击启用 API Key": "Click to enable API Key",
     },
   ja: {
+    "请填写此字段": "このフィールドを入力してください",
     "总览": "概要",
     "网关概览": "ゲートウェイ概要",
     "开始使用": "はじめに",
@@ -2975,6 +2977,22 @@ function tx(value: string | undefined | null) {
   if (!value) return "";
   if (activeLanguage === "zh-CN") return value;
   return translations[activeLanguage][value] ?? translateGeneratedText(value, activeLanguage) ?? value;
+}
+
+// Localize the browser's native constraint-validation bubble (e.g. the required-field
+// message) so it follows the app language instead of the browser locale.
+function handleRequiredFieldInvalid(event: {
+  currentTarget: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+}) {
+  const el = event.currentTarget;
+  el.setCustomValidity(el.validity.valueMissing ? tx("请填写此字段") : "");
+}
+
+// Clear any custom validity message once the user edits the field, so re-validation works.
+function clearCustomValidity(event: {
+  currentTarget: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+}) {
+  event.currentTarget.setCustomValidity("");
 }
 
 function translateGeneratedText(value: string, language: Exclude<AppLanguage, "zh-CN">) {
@@ -14552,7 +14570,7 @@ function ProviderInlineField({
     return (
       <label className="field" data-field-key={field.key}>
         <span>{tx(field.label)}</span>
-        <select value={value} onChange={(event) => onChange(event.target.value)} required={field.required}>
+        <select value={value} onChange={(event) => { clearCustomValidity(event); onChange(event.target.value); }} onInvalid={handleRequiredFieldInvalid} required={field.required}>
           <option value="">{tx("请选择")}</option>
           {options.map((option) => (
             <option key={option.value} value={option.value}>{tx(option.label)}</option>
@@ -14572,7 +14590,8 @@ function ProviderInlineField({
           data-lpignore={autoComplete === "off" || autoComplete === "new-password" ? "true" : undefined}
           name={inputName}
           value={value}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => { clearCustomValidity(event); onChange(event.target.value); }}
+          onInvalid={handleRequiredFieldInvalid}
           placeholder={tx(field.placeholder)}
           required={field.required}
         />
@@ -14607,7 +14626,8 @@ function ProviderInlineField({
         name={inputName}
         value={value}
         type={field.type === "number" ? "number" : field.type === "password" ? "password" : "text"}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) => { clearCustomValidity(event); onChange(event.target.value); }}
+        onInvalid={handleRequiredFieldInvalid}
         placeholder={tx(field.placeholder)}
         required={field.required}
       />
@@ -14842,7 +14862,7 @@ function FieldInput({
     return (
       <label className="field" data-field-key={field.key}>
         <span>{tx(field.label)}</span>
-        <select value={value} onChange={(event) => onChange(event.target.value)} required={field.required} disabled={readOnly}>
+        <select value={value} onChange={(event) => { clearCustomValidity(event); onChange(event.target.value); }} onInvalid={handleRequiredFieldInvalid} required={field.required} disabled={readOnly}>
           <option value="">{tx("请选择")}</option>
           {options.map((option) => (
             <option key={option.value} value={option.value}>{tx(option.label)}</option>
@@ -14862,7 +14882,8 @@ function FieldInput({
           data-lpignore={autoComplete === "off" || autoComplete === "new-password" ? "true" : undefined}
           name={inputName}
           value={value}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => { clearCustomValidity(event); onChange(event.target.value); }}
+          onInvalid={handleRequiredFieldInvalid}
           placeholder={tx(field.placeholder)}
           required={field.required}
           readOnly={readOnly}
@@ -14912,7 +14933,8 @@ function FieldInput({
         name={inputName}
         value={value}
         type={field.type === "number" ? "number" : field.type === "password" ? "password" : "text"}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) => { clearCustomValidity(event); onChange(event.target.value); }}
+        onInvalid={handleRequiredFieldInvalid}
         placeholder={tx(field.placeholder)}
         required={field.required}
         readOnly={readOnly}

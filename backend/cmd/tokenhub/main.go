@@ -14,16 +14,19 @@ func main() {
 
 	addr := getenv("TOKENHUB_HTTP_ADDR", ":8080")
 	config := server.ConfigFromEnv()
+	if err := config.ValidateForStartup(); err != nil {
+		log.Fatal(err)
+	}
 
 	store, err := server.OpenStoreWithConfig(config.DatabaseURL, config)
 	if err != nil {
 		log.Fatal(err)
 	}
 	if config.SeedDemo {
-		if err := server.SeedDemoData(store); err != nil {
+		if err := server.SeedDemoDataWithConfig(store, config); err != nil {
 			log.Fatal(err)
 		}
-	} else if err := server.BootstrapBaseData(store); err != nil {
+	} else if err := server.BootstrapBaseDataWithConfig(store, config); err != nil {
 		log.Fatal(err)
 	}
 
