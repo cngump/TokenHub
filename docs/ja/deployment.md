@@ -56,9 +56,9 @@ cp deploy/.env.example deploy/.env
 
 起動前に `deploy/.env` を編集してください。
 
-- `TOKENHUB_ADMIN_TOKEN`: Admin API の初期 Token。強いランダム値を使用してください。
-- `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`: 初期 `admin` ユーザーの作成時にのみ使用するパスワード。
-- `TOKENHUB_SECRET_KEY`: バックエンド秘密鍵。強いランダム値を使用し、安定して保持してください。
+- `TOKENHUB_ADMIN_TOKEN`: Admin API の初期 Token。32 バイト以上のランダム値を使用してください。
+- `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`: 初期 `admin` ユーザーの作成時にのみ使用するパスワード。12 バイト以上にしてください。
+- `TOKENHUB_SECRET_KEY`: バックエンド秘密鍵。32 バイト以上のランダム値を使用し、安定して保持してください。
 - `TOKENHUB_PUBLIC_BASE_URL`: ユーザーに表示するバックエンド URL。
 - `NEXT_PUBLIC_API_BASE_URL`: ブラウザの管理コンソールが使用するバックエンド URL。
 - `TOKENHUB_BACKEND_PORT`: バックエンドのホスト側ポート。デフォルトは `8080`。
@@ -67,8 +67,18 @@ cp deploy/.env.example deploy/.env
 リポジトリルートから起動します。
 
 ```bash
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
+./deploy/install.sh
 ```
+
+スクリプトはビルド前に Compose の環境変数を検証し、秘密値を表示せずに安全でない変数を個別に報告します。Compose が失敗し、その試行で作成または再起動したバックエンドコンテナが exited、restarting、dead、unhealthy のいずれかである場合、その試行のバックエンドログを最大 100 行表示します。バックエンド以外の障害では、無関係なバックエンドログを出力しません。
+
+コンテナをビルドまたは起動せず、設定だけを検証するには次を実行します。
+
+```bash
+./deploy/install.sh --check-only
+```
+
+別の環境ファイルを使用する場合は、`./deploy/install.sh --env-file /path/to/deploy.env` を実行します。
 
 ### 任意: サーバー側のビルド高速化
 
@@ -116,9 +126,9 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml ps
 - ユーザー名: `admin`
 - パスワード: 設定した `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`
 
-`prod`、`production`、ステージングなどの非開発環境では、Admin Token、秘密鍵、初期パスワードがプレースホルダーまたは弱い値のままだと起動を拒否します。
+`prod`、`production`、ステージングなどの非開発環境では、プレースホルダー値、32 バイト未満の Admin Token または秘密鍵、12 バイト未満の初期パスワードを拒否します。
 
-ログを確認します。
+ログを手動で確認または追跡します。
 
 ```bash
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs -f

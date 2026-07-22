@@ -56,32 +56,32 @@ func (c Config) ValidateForStartup() error {
 		return nil
 	}
 	invalid := make([]string, 0, 3)
-	if weakProductionSecret(c.AdminToken, 32, "dev_admin_token", "change-me-tokenhub-admin-token") {
-		invalid = append(invalid, "TOKENHUB_ADMIN_TOKEN")
+	if reason := weakProductionSecretReason(c.AdminToken, 32, "dev_admin_token", "change-me-tokenhub-admin-token"); reason != "" {
+		invalid = append(invalid, "TOKENHUB_ADMIN_TOKEN "+reason)
 	}
-	if weakProductionSecret(c.SecretKey, 32, "dev_tokenhub_secret_key", "change-me-tokenhub-secret-key") {
-		invalid = append(invalid, "TOKENHUB_SECRET_KEY")
+	if reason := weakProductionSecretReason(c.SecretKey, 32, "dev_tokenhub_secret_key", "change-me-tokenhub-secret-key"); reason != "" {
+		invalid = append(invalid, "TOKENHUB_SECRET_KEY "+reason)
 	}
-	if weakProductionSecret(c.BootstrapAdminPassword, 12, "admin123456", "change-me-tokenhub-admin-password") {
-		invalid = append(invalid, "TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD")
+	if reason := weakProductionSecretReason(c.BootstrapAdminPassword, 12, "admin123456", "change-me-tokenhub-admin-password"); reason != "" {
+		invalid = append(invalid, "TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD "+reason)
 	}
 	if len(invalid) > 0 {
-		return fmt.Errorf("unsafe %s configuration: set strong values for %s", environment, strings.Join(invalid, ", "))
+		return fmt.Errorf("unsafe %s configuration: %s", environment, strings.Join(invalid, "; "))
 	}
 	return nil
 }
 
-func weakProductionSecret(value string, minimumLength int, blocked ...string) bool {
+func weakProductionSecretReason(value string, minimumLength int, blocked ...string) string {
 	value = strings.TrimSpace(value)
-	if len(value) < minimumLength {
-		return true
-	}
 	for _, candidate := range blocked {
 		if value == candidate {
-			return true
+			return "must not use a default placeholder value"
 		}
 	}
-	return false
+	if len(value) < minimumLength {
+		return fmt.Sprintf("must be at least %d bytes after trimming whitespace", minimumLength)
+	}
+	return ""
 }
 
 func getenvList(key string) []string {
