@@ -1,0 +1,314 @@
+import { Activity, AlertCircle, Check, Database, Server, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { type ApiContext, type AppData, type DatabaseStatus, type Model } from "../core/types";
+import { hasThirdPartyRoute, modelCategory, modelCategoryLabel } from "../domain/catalog";
+import { formatNumber, modelAvailabilitySummary } from "../domain/formatting";
+import { tx } from "../i18n/runtime";
+import { DataSection } from "../shared/ui";
+
+export function DatabaseStatusView({ api, isDark }: { api: ApiContext; isDark: boolean }) {
+  const [status, setStatus] = useState<DatabaseStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchDatabaseStatus();
+  }, []);
+
+  const fetchDatabaseStatus = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${api.baseURL}/api/admin/system/db-status`, {
+        headers: {
+          "Content-Type": "application/json",
+          authorization: `Bearer ${api.adminToken}`,
+        },
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+
+      const data: DatabaseStatus = await res.json();
+      setStatus(data);
+    } catch (err) {
+      console.error("Failed to fetch database status:", err);
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <DataSection title={tx("数据库状态")}>
+        <div className="flex items-center justify-center py-12">
+          <div className="text-gray-500">{tx("加载中")}...</div>
+        </div>
+      </DataSection>
+    );
+  }
+
+  if (error) {
+    return (
+      <DataSection title={tx("数据库状态")}>
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+          <div className="flex items-center gap-2 text-red-800 dark:text-red-200">
+            <AlertCircle className="w-5 h-5" />
+            <span>{tx("加载失败")}: {error}</span>
+          </div>
+        </div>
+      </DataSection>
+    );
+  }
+
+  if (!status) {
+    return (
+      <DataSection title={tx("数据库状态")}>
+        <div className="text-gray-500">{tx("无数据")}</div>
+      </DataSection>
+    );
+  }
+
+  return (
+    <DataSection title={tx("数据库状态")}>
+      <div className="space-y-6">
+        <div className="flex justify-end">
+          <button
+            onClick={fetchDatabaseStatus}
+            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            {tx("刷新")}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Database type */}
+          <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
+            <div className="flex items-center gap-3 mb-4">
+              <Database className="w-6 h-6 text-blue-600" />
+              <h2 className="text-lg font-semibold">{tx("数据库类型")}</h2>
+            </div>
+            <div className="text-3xl font-bold">
+              {status.database_type === "postgres" ? "PostgreSQL" : "SQLite"}
+            </div>
+          </div>
+
+          {/* Runtime environment */}
+          <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
+            <div className="flex items-center gap-3 mb-4">
+              <Server className="w-6 h-6 text-purple-600" />
+              <h2 className="text-lg font-semibold">{tx("运行环境")}</h2>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className={`w-3 h-3 rounded-full ${status.is_docker ? "bg-green-500" : "bg-gray-400"}`} />
+              <span className="text-xl font-semibold">
+                {status.is_docker ? tx("Docker 容器") : tx("本地进程")}
+              </span>
+            </div>
+          </div>
+
+          {/* Connection status */}
+          <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
+            <div className="flex items-center gap-3 mb-4">
+              <Activity className="w-6 h-6 text-green-600" />
+              <h2 className="text-lg font-semibold">{tx("连接状态")}</h2>
+            </div>
+            <div className="flex items-center gap-2">
+              {status.connection_ok ? (
+                <>
+                  <Check className="w-6 h-6 text-green-500" />
+                  <span className="text-xl font-semibold text-green-600">{tx("正常")}</span>
+                </>
+              ) : (
+                <>
+                  <X className="w-6 h-6 text-red-500" />
+                  <span className="text-xl font-semibold text-red-600">{tx("异常")}</span>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* PostgreSQL version (only shown for PostgreSQL) */}
+          {status.database_type === "postgres" && status.postgres_version && (
+            <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
+              <div className="flex items-center gap-3 mb-4">
+                <Database className="w-6 h-6 text-indigo-600" />
+                <h2 className="text-lg font-semibold">PostgreSQL {tx("版本")}</h2>
+              </div>
+              <div className="text-sm text-gray-600 dark:text-gray-400 font-mono">
+                {status.postgres_version.split('\n')[0]}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Database connection info */}
+        {status.database_url && (
+          <div className={`p-6 rounded-lg border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}>
+            <div className="flex items-center gap-3 mb-4">
+              <Database className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+              <h2 className="text-base font-semibold">{tx("数据库连接信息")}</h2>
+            </div>
+            <div className={`p-3 rounded-md font-mono text-sm break-all ${isDark ? "bg-gray-900 text-gray-300" : "bg-gray-100 text-gray-700"}`}>
+              {status.database_url}
+            </div>
+            <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              * {tx("密码已隐藏以保护敏感信息")}
+            </div>
+          </div>
+        )}
+      </div>
+    </DataSection>
+  );
+}
+
+export function modelCatalogPriceBaseline(models: Model[]) {
+  const preferred = models.find((model) => /gpt-4\.1-mini|gpt-4o-mini|deepseek-chat/i.test(model.name));
+  const preferredCost = preferred ? modelEstimatedMonthlyCost(preferred) : 0;
+  if (preferredCost > 0) return preferredCost;
+  const costs = models.map(modelEstimatedMonthlyCost).filter((cost) => cost > 0).sort((left, right) => left - right);
+  return costs[Math.floor(costs.length / 2)] || costs[0] || 1;
+}
+
+export function modelCatalogPriceRow(model: Model, data: AppData, readOnly: boolean, baseline: number) {
+  const category = modelCategory(model);
+  const inputPrice = modelCatalogInputPrice(model);
+  const outputPrice = model.output_price_usd_per_1m || undefined;
+  const cacheReadPrice = modelCachedReadPrice(model);
+  const monthlyCost = modelEstimatedMonthlyCost(model);
+  const priceIndex = monthlyCost > 0 && baseline > 0 ? monthlyCost / baseline : 0;
+  const availability = modelAvailabilitySummary(model, data, readOnly);
+  const source = modelCatalogSource(model, data);
+  const type = modelCatalogTypeBadge(model, monthlyCost, baseline);
+  return {
+    model,
+    availability,
+    category,
+    categoryLabel: modelCategoryLabel(category),
+    inputPrice,
+    outputPrice,
+    cacheReadPrice,
+    monthlyCost,
+    priceIndex,
+    contextLabel: model.context_window ? modelCatalogCompactNumber(model.context_window) : "-",
+    contextDetail: model.context_window ? tx("上下文窗口") : tx("未配置"),
+    sourceLabel: source.label,
+    sourceTone: source.tone,
+    typeLabel: type.label,
+    typeTone: type.tone,
+  };
+}
+
+export function modelCatalogInputPrice(model: Model) {
+  if (model.input_price_usd_per_1m) return model.input_price_usd_per_1m;
+  if (model.modality === "embedding" && model.embedding_price_usd_per_1m) return model.embedding_price_usd_per_1m;
+  return undefined;
+}
+
+export function modelCachedReadPrice(model: Model) {
+  const configured = readModelMetadataNumber(model, [
+    "cached_input_price_usd_per_1m",
+    "cache_read_price_usd_per_1m",
+    "cached_read_price_usd_per_1m",
+  ]);
+  if (configured > 0) return configured;
+  const input = model.input_price_usd_per_1m || 0;
+  if (!input || model.modality === "embedding") return undefined;
+  const category = modelCategory(model);
+  const cacheHint = [model.name, model.family, ...(model.capabilities ?? []), ...(model.supported_parameters ?? [])]
+    .join(" ")
+    .toLowerCase();
+  const commonlyCached = ["openai", "claude", "gemini", "deepseek"].includes(category)
+    || cacheHint.includes("cache")
+    || cacheHint.includes("prompt");
+  return commonlyCached ? input * 0.25 : undefined;
+}
+
+export function readModelMetadataNumber(model: Model, keys: string[]) {
+  for (const key of keys) {
+    const value = Number(model.metadata?.[key] ?? "");
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return 0;
+}
+
+export function modelEstimatedMonthlyCost(model: Model) {
+  const embeddingPrice = model.embedding_price_usd_per_1m || 0;
+  if (model.modality === "embedding" && embeddingPrice > 0) return embeddingPrice * 100;
+  const input = model.input_price_usd_per_1m || 0;
+  const output = model.output_price_usd_per_1m || 0;
+  return input * 100 + output * 50;
+}
+
+export function modelCatalogTypeBadge(model: Model, monthlyCost: number, baseline: number) {
+  const text = [model.name, model.family, model.modality, ...(model.capabilities ?? [])].join(" ").toLowerCase();
+  if (/code|coder|codestral|devstral|codex|build/.test(text)) return { label: "代码", tone: "code" };
+  if (/reason|thinking|r1|o1|o3/.test(text)) return { label: "推理", tone: "reasoning" };
+  if (/image|vision|video|audio|ocr|multimodal/.test(text)) return { label: "多模态", tone: "media" };
+  const index = monthlyCost > 0 && baseline > 0 ? monthlyCost / baseline : 0;
+  if (index > 0 && index <= 0.8) return { label: "低价", tone: "low" };
+  if (index >= 2.4 || /pro|opus|large|gpt-5|grok-4/.test(text)) return { label: "旗舰", tone: "flagship" };
+  return { label: "均衡", tone: "balanced" };
+}
+
+export function modelCatalogSource(model: Model, data: AppData) {
+  const hasPrice = modelEstimatedMonthlyCost(model) > 0;
+  if (!hasPrice) return { label: "未配置", tone: "missing" };
+  if (hasThirdPartyRoute(model, data)) return { label: "三方价", tone: "third" };
+  return { label: "官方价", tone: "official" };
+}
+
+export function modelBrandIconSource(category: string) {
+  const sources: Record<string, string> = {
+    openai: "/model-icons/openai.svg",
+    claude: "/model-icons/claude.svg",
+    deepseek: "/model-icons/deepseek.svg",
+    gemini: "/model-icons/gemini.svg",
+    qwen: "/model-icons/qwen.svg",
+    glm: "/model-icons/glm.svg",
+    kimi: "/model-icons/kimi.svg",
+    doubao: "/model-icons/doubao.svg",
+    ernie: "/model-icons/ernie.svg",
+    baichuan: "/model-icons/baichuan.svg",
+    minimax: "/model-icons/minimax.svg",
+    stepfun: "/model-icons/stepfun.svg",
+    wanx: "/model-icons/wanx.svg",
+    paddlepaddle: "/model-icons/paddlepaddle.svg",
+    microsoft: "/model-icons/microsoft.svg",
+    llama: "/model-icons/llama.svg",
+    mistral: "/model-icons/mistral.svg",
+    grok: "/model-icons/grok.svg",
+  };
+  return sources[category] ?? "";
+}
+
+export function modelDisplayTitle(model: Model) {
+  return model.metadata?.title || model.name;
+}
+
+export function modelCatalogPriceValue(value: number | undefined) {
+  return value && value > 0 ? `$${modelCatalogMoney(value)}` : "-";
+}
+
+export function modelCatalogMoney(value: number) {
+  const amount = Math.max(0, value || 0);
+  if (amount >= 100) return amount.toFixed(0);
+  if (amount >= 10) return amount.toFixed(1);
+  if (amount >= 1) return amount.toFixed(2);
+  return amount.toFixed(3);
+}
+
+export function modelCatalogCompactNumber(value: number) {
+  if (value >= 1_000_000) {
+    const scaled = value / 1_000_000;
+    return `${Number.isInteger(scaled) ? scaled.toFixed(0) : scaled.toFixed(1)}M`;
+  }
+  if (value >= 1_000) {
+    const scaled = value / 1_000;
+    return `${Number.isInteger(scaled) ? scaled.toFixed(0) : scaled.toFixed(1)}K`;
+  }
+  return formatNumber(value || 0);
+}
