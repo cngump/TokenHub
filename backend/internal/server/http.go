@@ -6349,6 +6349,9 @@ func cors(next http.Handler) http.Handler {
 		if origin != "" {
 			w.Header().Set("access-control-allow-origin", origin)
 			w.Header().Set("access-control-allow-credentials", "true")
+			// Signal caches that the response varies by Origin so shared caches
+			// (CDNs/proxies) do not serve one origin's response to another.
+			w.Header().Add("Vary", "Origin")
 		} else {
 			w.Header().Set("access-control-allow-origin", "*")
 		}

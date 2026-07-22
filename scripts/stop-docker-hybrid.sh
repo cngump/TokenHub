@@ -56,10 +56,14 @@ else
   log "Frontend PID file not found"
 fi
 
-# Extra cleanup: ensure ports are released
-log "Cleaning up port usage..."
-lsof -ti:8080 2>/dev/null | xargs kill -9 2>/dev/null || true
-lsof -ti:3000 2>/dev/null | xargs kill -9 2>/dev/null || true
+# Optional extra cleanup: force-release ports 8080/3000.
+# Disabled by default because it can kill unrelated processes on a dev machine.
+# Enable with FORCE_KILL_PORTS=true when you are sure nothing else uses these ports.
+if [ "${FORCE_KILL_PORTS:-false}" = "true" ]; then
+  log "FORCE_KILL_PORTS enabled: releasing ports 8080/3000..."
+  lsof -ti:8080 2>/dev/null | xargs kill -9 2>/dev/null || true
+  lsof -ti:3000 2>/dev/null | xargs kill -9 2>/dev/null || true
+fi
 
 # Stop PostgreSQL container
 if [ -n "$COMPOSE_CMD" ]; then
@@ -89,10 +93,10 @@ cat <<EOF
 │  ✅ Frontend service stopped                        │
 │  ✅ PostgreSQL container stopped                    │
 ├─────────────────────────────────────────────────────┤
-│  Tips:                                              │
-│  • Restart:    ./scripts/start-docker.sh            │
-│  • View logs:  tail -f .tmp/backend.log             │
-│  • Clean logs: CLEAN_LOGS=true ./scripts/stop-docker.sh │
-└─────────────────────────────────────────────────────┘
+│  Tips:                                                    │
+│  • Restart:    ./scripts/start-docker-hybrid.sh           │
+│  • View logs:  tail -f .tmp/backend.log                   │
+│  • Clean logs: CLEAN_LOGS=true ./scripts/stop-docker-hybrid.sh │
+└───────────────────────────────────────────────────────────┘
 
 EOF

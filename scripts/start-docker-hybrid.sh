@@ -144,10 +144,10 @@ cat <<EOF
 │    Backend: .tmp/backend.log                        │
 │    Frontend: .tmp/frontend.log                      │
 ├─────────────────────────────────────────────────────┤
-│  Stop services: ./scripts/stop-docker.sh            │
+│  Stop services: ./scripts/stop-docker-hybrid.sh     │
 └─────────────────────────────────────────────────────┘
 
 EOF
 
 log "Services started. Press Ctrl-C to exit (services will continue running in background)."
-log "Use ./scripts/stop-docker.sh to stop all services."
+log "Use ./scripts/stop-docker-hybrid.sh to stop all services."
