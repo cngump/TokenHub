@@ -1,30 +1,30 @@
-# PostgreSQL 设置指南
+# PostgreSQL Setup Guide
 
-TokenHub 支持 PostgreSQL 作为生产数据库。本指南介绍如何配置和部署 PostgreSQL 版本。
+TokenHub supports PostgreSQL as a production database. This guide explains how to configure and deploy the PostgreSQL setup.
 
-## 为什么选择 PostgreSQL？
+## Why PostgreSQL?
 
-- **生产环境** - PostgreSQL 是企业级关系数据库，适合高并发场景
-- **数据完整性** - 更强的事务支持和并发控制
-- **扩展性** - 支持水平扩展和主从复制
-- **备份恢复** - 成熟的备份工具生态系统
+- **Production environments** - PostgreSQL is an enterprise-grade relational database suited for high-concurrency scenarios
+- **Data integrity** - Stronger transaction support and concurrency control
+- **Scalability** - Supports horizontal scaling and primary-replica replication
+- **Backup and recovery** - A mature ecosystem of backup tools
 
-SQLite 仍然是默认选择，适合：
-- 开发和测试环境
-- 小规模部署（<1000 用户）
-- 简单部署需求
+SQLite remains the default choice, suitable for:
+- Development and test environments
+- Small deployments (<1000 users)
+- Simple deployment needs
 
-## 快速开始
+## Quick Start
 
-### 使用 Docker Compose
+### Using Docker Compose
 
-1. **复制环境变量配置**
+1. **Copy the environment variable configuration**
 
 ```bash
 cp deploy/.env.example deploy/.env
 ```
 
-2. **编辑 .env 文件设置 PostgreSQL 密码**
+2. **Edit the .env file to set the PostgreSQL password**
 
 ```bash
 POSTGRES_PASSWORD=your-secure-password
@@ -32,27 +32,27 @@ TOKENHUB_SECRET_KEY=your-secret-key
 TOKENHUB_ADMIN_TOKEN=your-admin-token
 ```
 
-3. **启动服务**
+3. **Start the services**
 
 ```bash
 docker compose --env-file deploy/.env -f deploy/docker-compose.postgres.yml up -d
 ```
 
-4. **访问应用**
+4. **Access the application**
 
-- 前端：http://localhost:3000
-- 后端 API：http://localhost:8080
-- 健康检查：http://localhost:8080/healthz
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8080
+- Health check: http://localhost:8080/healthz
 
-默认管理员账号：
-- 用户名：`admin`
-- 密码：`admin123456`
+Default administrator account:
+- Username: `admin`
+- Password: `admin123456`
 
-**⚠️ 立即修改默认密码！**
+**⚠️ Change the default password immediately!**
 
-### 手动安装 PostgreSQL
+### Manual PostgreSQL Installation
 
-1. **安装 PostgreSQL**
+1. **Install PostgreSQL**
 
 macOS:
 ```bash
@@ -66,7 +66,7 @@ sudo apt install postgresql-16
 sudo systemctl start postgresql
 ```
 
-2. **创建数据库和用户**
+2. **Create the database and user**
 
 ```bash
 sudo -u postgres psql
@@ -79,9 +79,9 @@ GRANT ALL PRIVILEGES ON DATABASE tokenhub TO tokenhub;
 \q
 ```
 
-3. **配置环境变量**
+3. **Configure environment variables**
 
-在 `backend/.env` 中设置：
+Set the following in `backend/.env`:
 
 ```bash
 TOKENHUB_DATABASE_URL=postgresql://tokenhub:your-password@localhost:5432/tokenhub?sslmode=disable
@@ -90,67 +90,67 @@ TOKENHUB_DB_MAX_IDLE_CONNS=5
 TOKENHUB_DB_CONN_MAX_LIFETIME_MINUTES=30
 ```
 
-4. **启动后端**
+4. **Start the backend**
 
 ```bash
 cd backend
 go run ./cmd/tokenhub
 ```
 
-## 连接池配置
+## Connection Pool Configuration
 
-PostgreSQL 支持连接池配置，根据负载调整：
+PostgreSQL supports connection pool configuration; tune it according to your load:
 
-| 环境变量 | 默认值 | 说明 |
+| Environment variable | Default | Description |
 |---------|--------|------|
-| `TOKENHUB_DB_MAX_OPEN_CONNS` | 25 | 最大打开连接数 |
-| `TOKENHUB_DB_MAX_IDLE_CONNS` | 5 | 最大空闲连接数 |
-| `TOKENHUB_DB_CONN_MAX_LIFETIME_MINUTES` | 30 | 连接最大生命周期（分钟） |
+| `TOKENHUB_DB_MAX_OPEN_CONNS` | 25 | Maximum number of open connections |
+| `TOKENHUB_DB_MAX_IDLE_CONNS` | 5 | Maximum number of idle connections |
+| `TOKENHUB_DB_CONN_MAX_LIFETIME_MINUTES` | 30 | Maximum connection lifetime (minutes) |
 
-**推荐配置：**
+**Recommended configurations:**
 
-- **小规模（<100 用户）**：MaxOpenConns=10, MaxIdleConns=2
-- **中等规模（100-1000 用户）**：MaxOpenConns=25, MaxIdleConns=5（默认）
-- **大规模（>1000 用户）**：MaxOpenConns=50, MaxIdleConns=10
+- **Small scale (<100 users)**: MaxOpenConns=10, MaxIdleConns=2
+- **Medium scale (100-1000 users)**: MaxOpenConns=25, MaxIdleConns=5 (default)
+- **Large scale (>1000 users)**: MaxOpenConns=50, MaxIdleConns=10
 
-## 数据库连接字符串格式
+## Database Connection String Format
 
 ```
 postgresql://[user[:password]@][host][:port][/dbname][?param1=value1&...]
 ```
 
-示例：
+Examples:
 
 ```bash
-# 本地开发
+# Local development
 postgresql://tokenhub:password@localhost:5432/tokenhub?sslmode=disable
 
-# 生产环境（启用 SSL）
+# Production (SSL enabled)
 postgresql://tokenhub:password@db.example.com:5432/tokenhub?sslmode=require
 
-# 连接池参数
+# Connection pool parameters
 postgresql://user:pass@host:5432/db?pool_max_conns=25&pool_min_conns=5
 ```
 
-## 备份和恢复
+## Backup and Recovery
 
-TokenHub 的内置备份功能仅支持 SQLite。对于 PostgreSQL，请使用 `pg_dump` 和 `pg_restore`。
+TokenHub's built-in backup feature only supports SQLite. For PostgreSQL, use `pg_dump` and `pg_restore`.
 
-### 备份数据库
+### Backing Up the Database
 
 ```bash
 pg_dump -h localhost -U tokenhub -d tokenhub -F c -f tokenhub_backup_$(date +%Y%m%d).dump
 ```
 
-### 恢复数据库
+### Restoring the Database
 
 ```bash
 pg_restore -h localhost -U tokenhub -d tokenhub -c tokenhub_backup_20260721.dump
 ```
 
-### 自动化备份（Cron）
+### Automated Backups (Cron)
 
-创建备份脚本 `/usr/local/bin/backup-tokenhub.sh`：
+Create a backup script at `/usr/local/bin/backup-tokenhub.sh`:
 
 ```bash
 #!/bin/bash
@@ -160,109 +160,109 @@ mkdir -p $BACKUP_DIR
 
 pg_dump -h localhost -U tokenhub -d tokenhub -F c -f $BACKUP_DIR/tokenhub_$DATE.dump
 
-# 保留最近 7 天的备份
+# Keep backups from the last 7 days
 find $BACKUP_DIR -name "tokenhub_*.dump" -mtime +7 -delete
 ```
 
-添加到 crontab（每天凌晨 2 点备份）：
+Add it to crontab (backup daily at 2 AM):
 
 ```bash
 0 2 * * * /usr/local/bin/backup-tokenhub.sh
 ```
 
-## 从 SQLite 迁移到 PostgreSQL
+## Migrating from SQLite to PostgreSQL
 
-TokenHub 当前版本不包含自动迁移工具。迁移步骤：
+The current version of TokenHub does not include an automatic migration tool. Migration steps:
 
-1. **导出 SQLite 数据为 SQL**
+1. **Export SQLite data as SQL**
 
 ```bash
 sqlite3 data/tokenhub.db .dump > tokenhub_sqlite.sql
 ```
 
-2. **转换 SQL 语法**
+2. **Convert the SQL syntax**
 
-手动编辑 `tokenhub_sqlite.sql`，调整 SQLite 特定语法为 PostgreSQL 兼容语法。
+Manually edit `tokenhub_sqlite.sql` to adjust SQLite-specific syntax to PostgreSQL-compatible syntax.
 
-3. **导入到 PostgreSQL**
+3. **Import into PostgreSQL**
 
 ```bash
 psql -h localhost -U tokenhub -d tokenhub -f tokenhub_sqlite.sql
 ```
 
-**注意**：数据迁移工具计划在未来版本中提供。
+**Note**: A data migration tool is planned for a future release.
 
-## 性能优化
+## Performance Tuning
 
-### 索引优化
+### Index Optimization
 
-TokenHub 会自动创建必要的索引，但你可以根据查询模式添加额外索引：
+TokenHub automatically creates the necessary indexes, but you can add extra indexes based on your query patterns:
 
 ```sql
--- 如果经常按 cost_center 查询项目
+-- If you frequently query projects by cost_center
 CREATE INDEX idx_projects_cost_center ON projects(cost_center);
 
--- 如果经常查询特定时间范围的使用记录
+-- If you frequently query usage records within a specific time range
 CREATE INDEX idx_usage_records_created_at ON usage_records(created_at);
 ```
 
-### 查询性能监控
+### Query Performance Monitoring
 
-启用 PostgreSQL 慢查询日志：
+Enable the PostgreSQL slow query log:
 
 ```sql
-ALTER SYSTEM SET log_min_duration_statement = 1000;  -- 记录超过 1 秒的查询
+ALTER SYSTEM SET log_min_duration_statement = 1000;  -- Log queries taking longer than 1 second
 SELECT pg_reload_conf();
 ```
 
-查看慢查询：
+View slow queries:
 
 ```bash
 tail -f /var/log/postgresql/postgresql-16-main.log | grep "duration:"
 ```
 
-## 故障排查
+## Troubleshooting
 
-### 连接失败
+### Connection Failures
 
-1. **检查 PostgreSQL 是否运行**
+1. **Check whether PostgreSQL is running**
 
 ```bash
 pg_isready -h localhost -U tokenhub
 ```
 
-2. **检查防火墙**
+2. **Check the firewall**
 
 ```bash
 sudo ufw allow 5432/tcp
 ```
 
-3. **检查 pg_hba.conf**
+3. **Check pg_hba.conf**
 
-确保允许来自应用的连接：
+Ensure connections from the application are allowed:
 
 ```
 # IPv4 local connections:
 host    tokenhub    tokenhub    127.0.0.1/32    md5
 ```
 
-### 连接池耗尽
+### Connection Pool Exhaustion
 
-如果看到 "too many connections" 错误，减少连接池大小：
+If you see "too many connections" errors, reduce the connection pool size:
 
 ```bash
 TOKENHUB_DB_MAX_OPEN_CONNS=10
 ```
 
-### 性能问题
+### Performance Issues
 
-1. **运行 VACUUM**
+1. **Run VACUUM**
 
 ```sql
 VACUUM ANALYZE;
 ```
 
-2. **检查表膨胀**
+2. **Check table bloat**
 
 ```sql
 SELECT schemaname, tablename, pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS size
@@ -271,8 +271,8 @@ WHERE schemaname = 'public'
 ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
 ```
 
-## 参考资源
+## References
 
-- [PostgreSQL 官方文档](https://www.postgresql.org/docs/)
-- [GORM PostgreSQL 驱动](https://github.com/go-gorm/postgres)
-- [pgx 驱动文档](https://github.com/jackc/pgx)
+- [PostgreSQL Official Documentation](https://www.postgresql.org/docs/)
+- [GORM PostgreSQL Driver](https://github.com/go-gorm/postgres)
+- [pgx Driver Documentation](https://github.com/jackc/pgx)

@@ -6405,18 +6405,18 @@ func cors(next http.Handler) http.Handler {
 }
 
 func (s *Server) handleAdminSystemDBStatus(w http.ResponseWriter, r *http.Request) {
-	// 仅允许 GET 请求
+	// Only allow GET requests.
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// 验证管理员权限
+	// Verify administrator permissions.
 	if _, ok := s.requireAdmin(w, r, "system", r.Method); !ok {
 		return
 	}
 
-	// 获取数据库状态
+	// Retrieve the database status.
 	status, err := s.store.GetDatabaseStatus()
 	if err != nil {
 		log.Printf("[tokenhub] failed to get database status: %v", err)
@@ -6424,7 +6424,7 @@ func (s *Server) handleAdminSystemDBStatus(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// 返回 JSON 响应
+	// Return the JSON response.
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(status); err != nil {
 		log.Printf("[tokenhub] failed to encode database status response: %v", err)

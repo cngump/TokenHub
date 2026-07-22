@@ -9,23 +9,23 @@ import (
 	"time"
 )
 
-// TestPostgreSQLIntegration 测试 PostgreSQL 数据库集成
+// TestPostgreSQLIntegration tests PostgreSQL database integration.
 func TestPostgreSQLIntegration(t *testing.T) {
-	// 跳过测试如果没有配置 PostgreSQL
+	// Skip the test if PostgreSQL is not configured.
 	pgURL := os.Getenv("TEST_POSTGRES_URL")
 	if pgURL == "" {
 		t.Skip("TEST_POSTGRES_URL not set, skipping PostgreSQL integration test")
 	}
 
 	config := Config{
-		AdminToken:                   "test_admin_token",
-		DatabaseURL:                  pgURL,
-		SecretKey:                    "test_secret_key",
-		ResourceFailureThreshold:     3,
-		ResourceCooldownSeconds:      300,
-		DBMaxOpenConns:               10,
-		DBMaxIdleConns:               2,
-		DBConnMaxLifetimeMinutes:     30,
+		AdminToken:               "test_admin_token",
+		DatabaseURL:              pgURL,
+		SecretKey:                "test_secret_key",
+		ResourceFailureThreshold: 3,
+		ResourceCooldownSeconds:  300,
+		DBMaxOpenConns:           10,
+		DBMaxIdleConns:           2,
+		DBConnMaxLifetimeMinutes: 30,
 	}
 
 	store, err := NewStoreWithDialect(pgURL, config)
@@ -33,12 +33,12 @@ func TestPostgreSQLIntegration(t *testing.T) {
 		t.Fatalf("Failed to create PostgreSQL store: %v", err)
 	}
 
-	// 验证数据库类型
+	// Verify the database type.
 	if !store.IsPostgreSQL() {
 		t.Error("Expected PostgreSQL driver, got SQLite")
 	}
 
-	// 测试基本 CRUD 操作
+	// Test basic CRUD operations.
 	t.Run("CreateProject", func(t *testing.T) {
 		project := Project{
 			ID:     NewID("prj"),
@@ -51,12 +51,12 @@ func TestPostgreSQLIntegration(t *testing.T) {
 			t.Errorf("Expected project ID %s, got %s", project.ID, created.ID)
 		}
 
-		// 清理
+		// Clean up.
 		defer store.DeleteProject(created.ID)
 	})
 
 	t.Run("CreateAndValidateAPIKey", func(t *testing.T) {
-		// 先创建项目
+		// Create the project first.
 		project := store.CreateProject(Project{
 			ID:     NewID("prj"),
 			Name:   "API Key Test Project",
@@ -64,7 +64,7 @@ func TestPostgreSQLIntegration(t *testing.T) {
 		})
 		defer store.DeleteProject(project.ID)
 
-		// 创建 API Key
+		// Create an API key.
 		key := APIKey{
 			Name:   "Test Key",
 			Status: StatusActive,
@@ -76,7 +76,7 @@ func TestPostgreSQLIntegration(t *testing.T) {
 			t.Fatalf("Failed to create API key: %v", err)
 		}
 
-		// 验证 API Key
+		// Validate the API key.
 		validatedProj, validatedKey, err := store.ValidateAPIKey(secret, "127.0.0.1")
 		if err != nil {
 			t.Fatalf("Failed to validate API key: %v", err)
@@ -90,12 +90,12 @@ func TestPostgreSQLIntegration(t *testing.T) {
 			t.Errorf("Expected key ID %s, got %s", created.ID, validatedKey.ID)
 		}
 
-		// 清理
+		// Clean up.
 		defer store.DeleteAPIKey(created.ID)
 	})
 
 	t.Run("AdminUserAuthentication", func(t *testing.T) {
-		// 创建管理员用户
+		// Create an admin user.
 		user := AdminUser{
 			Username: "testuser",
 			Email:    "test@example.com",
@@ -110,7 +110,7 @@ func TestPostgreSQLIntegration(t *testing.T) {
 		}
 		defer store.DeleteAdminUser(created.ID)
 
-		// 测试认证
+		// Test authentication.
 		authUser, session, err := store.AuthenticateAdminUser("test@example.com", "password123", 24*time.Hour)
 		if err != nil {
 			t.Fatalf("Failed to authenticate: %v", err)
@@ -120,7 +120,7 @@ func TestPostgreSQLIntegration(t *testing.T) {
 			t.Errorf("Expected user ID %s, got %s", created.ID, authUser.ID)
 		}
 
-		// 验证 session
+		// Validate the session.
 		validatedUser, valid := store.ValidateAdminSession(session.Token)
 		if !valid {
 			t.Error("Session validation failed")
@@ -130,12 +130,12 @@ func TestPostgreSQLIntegration(t *testing.T) {
 			t.Errorf("Expected user ID %s, got %s", created.ID, validatedUser.ID)
 		}
 
-		// 清理
+		// Clean up.
 		store.RevokeAdminSession(session.Token)
 	})
 
 	t.Run("BackupNotSupported", func(t *testing.T) {
-		// PostgreSQL 备份应该返回错误
+		// PostgreSQL backup should return an error.
 		_, err := store.CreateSQLiteBackup("test", 7)
 		if err == nil {
 			t.Error("Expected error for PostgreSQL backup, got nil")
@@ -148,16 +148,16 @@ func TestPostgreSQLIntegration(t *testing.T) {
 	})
 }
 
-// TestSQLiteCompatibility 确保 SQLite 功能仍然正常工作
+// TestSQLiteCompatibility ensures SQLite functionality still works correctly.
 func TestSQLiteCompatibility(t *testing.T) {
 	store := NewMemoryStore()
 
-	// 验证数据库类型
+	// Verify the database type.
 	if !store.IsSQLite() {
 		t.Error("Expected SQLite driver for memory store")
 	}
 
-	// 测试备份功能
+	// Test the backup feature.
 	t.Run("SQLiteBackup", func(t *testing.T) {
 		backup, err := store.CreateSQLiteBackup("test", 7)
 		if err != nil {

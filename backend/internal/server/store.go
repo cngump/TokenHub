@@ -222,8 +222,8 @@ func NewSQLiteStore(databaseURL string) (*GormStore, error) {
 	return NewStoreWithDialect(databaseURL, ConfigFromEnv())
 }
 
-// NewStoreWithDialect 根据数据库 URL 创建对应驱动的 Store
-// 支持 SQLite 和 PostgreSQL
+// NewStoreWithDialect creates a Store with the appropriate driver based on the database URL.
+// It supports SQLite and PostgreSQL.
 func NewStoreWithDialect(databaseURL string, config Config) (*GormStore, error) {
 	driver, dsn, err := parseDatabaseURL(databaseURL)
 	if err != nil {
@@ -262,9 +262,9 @@ func NewStoreWithDialect(databaseURL string, config Config) (*GormStore, error) 
 		return nil, err
 	}
 
-	// 根据数据库类型配置连接池
+	// Configure the connection pool based on database type.
 	if driver == "postgres" {
-		// PostgreSQL 使用连接池
+		// PostgreSQL uses connection pooling.
 		maxOpenConns := defaultInt(config.DBMaxOpenConns, 25)
 		maxIdleConns := defaultInt(config.DBMaxIdleConns, 5)
 		connMaxLifetime := time.Duration(defaultInt(config.DBConnMaxLifetimeMinutes, 30)) * time.Minute
@@ -273,11 +273,11 @@ func NewStoreWithDialect(databaseURL string, config Config) (*GormStore, error) 
 		sqlDB.SetMaxIdleConns(maxIdleConns)
 		sqlDB.SetConnMaxLifetime(connMaxLifetime)
 	} else {
-		// SQLite 保持单连接
+		// SQLite maintains a single connection.
 		sqlDB.SetMaxOpenConns(1)
 	}
 
-	// SQLite 特定配置
+	// SQLite-specific configuration.
 	if driver == "sqlite" {
 		if err := db.Exec("PRAGMA foreign_keys = ON").Error; err != nil {
 			return nil, err
@@ -326,7 +326,7 @@ func NewStoreWithDialect(databaseURL string, config Config) (*GormStore, error) 
 	}, nil
 }
 
-// NewSQLiteStoreWithConfig 保留作为兼容性别名
+// NewSQLiteStoreWithConfig is retained as a compatibility alias.
 func NewSQLiteStoreWithConfig(databaseURL string, config Config) (*GormStore, error) {
 	return NewStoreWithDialect(databaseURL, config)
 }
@@ -3808,25 +3808,25 @@ func resourcePrefix(kind string) string {
 	}
 }
 
-// GetDatabaseStatus 返回数据库类型、Docker 环境和连接状态
+// GetDatabaseStatus returns the database type, Docker environment, and connection status.
 func (s *GormStore) GetDatabaseStatus() (map[string]interface{}, error) {
 	status := make(map[string]interface{})
 
-	// 1. 检测数据库类型
+	// 1. Detect the database type.
 	dbType := "sqlite"
 	if s.db.Dialector.Name() == "postgres" {
 		dbType = "postgres"
 	}
 	status["database_type"] = dbType
 
-	// 2. 检测是否运行在 Docker 中
+	// 2. Detect whether running in Docker.
 	isDocker := false
 	if _, err := os.Stat("/.dockerenv"); err == nil {
 		isDocker = true
 	}
 	status["is_docker"] = isDocker
 
-	// 3. 测试数据库连接
+	// 3. Test the database connection.
 	sqlDB, err := s.db.DB()
 	if err != nil {
 		status["connection_ok"] = false
@@ -3839,7 +3839,7 @@ func (s *GormStore) GetDatabaseStatus() (map[string]interface{}, error) {
 	}
 	status["connection_ok"] = true
 
-	// 4. 如果是 PostgreSQL，获取版本信息
+	// 4. If PostgreSQL, retrieve the version information.
 	if dbType == "postgres" {
 		var version string
 		if err := s.db.Raw("SELECT version()").Scan(&version).Error; err == nil {
@@ -3847,7 +3847,7 @@ func (s *GormStore) GetDatabaseStatus() (map[string]interface{}, error) {
 		}
 	}
 
-	// 5. 获取已脱敏的数据库 URL
+	// 5. Get the redacted database URL.
 	if databaseURL := os.Getenv("TOKENHUB_DATABASE_URL"); databaseURL != "" {
 		status["database_url"] = redactDatabaseURL(databaseURL)
 	}
