@@ -150,9 +150,11 @@ type GormStore struct {
 // It is now backed by GORM and SQLite, not process-local maps.
 type MemoryStore = GormStore
 
-// parseDatabaseURL 解析数据库 URL 并返回驱动类型和 DSN
-// 支持格式：
+// parseDatabaseURL parses a database URL and returns the driver type and DSN.
+// Supported formats:
 //   - sqlite://path/to/db.db
+//   - file:...            (SQLite DSN, e.g. in-memory stores)
+//   - path/to/db.db       (bare path treated as SQLite)
 //   - postgres://user:pass@host:port/dbname?params
 //   - postgresql://user:pass@host:port/dbname?params
 func parseDatabaseURL(databaseURL string) (driver string, dsn string, err error) {
@@ -166,22 +168,22 @@ func parseDatabaseURL(databaseURL string) (driver string, dsn string, err error)
 	}
 
 	switch u.Scheme {
-	case "sqlite":
-		// SQLite URL: sqlite://path/to/db.db
-		// 提取文件路径（去掉 scheme）
+	case "postgres", "postgresql":
+		// PostgreSQL URL: postgres://user:pass@host:port/dbname?params
+		// Use the original URL directly as the DSN.
+		return "postgres", databaseURL, nil
+
+	case "sqlite", "file", "":
+		// SQLite: sqlite:// URLs, file: DSNs (in-memory stores), or bare paths.
+		// sqliteDSN handles all of these for backwards compatibility.
 		dsn, err := sqliteDSN(databaseURL)
 		if err != nil {
 			return "", "", err
 		}
 		return "sqlite", dsn, nil
 
-	case "postgres", "postgresql":
-		// PostgreSQL URL: postgres://user:pass@host:port/dbname?params
-		// 直接使用原始 URL 作为 DSN
-		return "postgres", databaseURL, nil
-
 	default:
-		return "", "", fmt.Errorf("unsupported database scheme: %s (supported: sqlite, postgres, postgresql)", u.Scheme)
+		return "", "", fmt.Errorf("unsupported database scheme: %s (supported: sqlite, file, postgres, postgresql)", u.Scheme)
 	}
 }
 
@@ -193,8 +195,14 @@ func redactDatabaseURL(databaseURL string) string {
 	}
 	if u.User != nil {
 		username := u.User.Username()
-		// Hide password only, preserve username
-		u.User = url.UserPassword(username, "****")
+		_, hasPassword := u.User.Password()
+		if hasPassword {
+			// Hide password only, preserve username
+			u.User = url.UserPassword(username, "****")
+		} else {
+			// No password in original URL, keep username only
+			u.User = url.User(username)
+		}
 	}
 	return u.String()
 }

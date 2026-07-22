@@ -100,7 +100,7 @@ TOKENHUB_DATABASE_URL=postgresql://user:password@localhost:5432/tokenhub?sslmode
 
 **停止服务：**
 ```bash
-./scripts/stop.sh
+./scripts/local-stop.sh
 ```
 
 ---

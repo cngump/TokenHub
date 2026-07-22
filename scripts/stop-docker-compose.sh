@@ -25,9 +25,11 @@ if [ "${REMOVE_VOLUMES:-false}" = "true" ]; then
   log "Stopping services and removing volumes..."
   $COMPOSE_CMD -f docker-compose.postgres.yml down -v
   log "⚠️  PostgreSQL data volumes removed"
+  VOLUME_STATUS="🗑️  Data volumes removed (database reset on restart)"
 else
   log "Stopping services (keeping volumes)..."
   $COMPOSE_CMD -f docker-compose.postgres.yml down
+  VOLUME_STATUS="📦 Data volumes preserved (data persists on restart)"
 fi
 
 cat <<EOF
@@ -36,7 +38,7 @@ cat <<EOF
 │  TokenHub (Docker Compose) Stopped                  │
 ├─────────────────────────────────────────────────────┤
 │  ✅ All containers stopped                          │
-│  📦 Data volumes preserved (data persists on restart)│
+│  $VOLUME_STATUS
 ├─────────────────────────────────────────────────────┤
 │  Tips:                                              │
 │  • Restart:     ./scripts/start-docker-compose.sh   │
