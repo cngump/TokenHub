@@ -41,13 +41,14 @@ func main() {
 	}
 }
 
-// loadDotEnv 从常见位置加载 .env 文件到环境变量。
-// 使用 godotenv.Load（非 Overload），已存在的系统环境变量优先，不会被 .env 覆盖。
+// loadDotEnv loads the .env file into environment variables from common locations.
+// It uses godotenv.Load (not Overload), so existing system environment variables
+// take precedence and are not overridden by .env.
 func loadDotEnv() {
 	candidates := []string{
-		".env",           // 从 backend 目录运行
-		"backend/.env",   // 从仓库根目录运行
-		"../.env",        // 从 backend/cmd 等子目录运行
+		".env",         // running from the backend directory
+		"backend/.env", // running from the repository root
+		"../.env",      // running from a subdirectory such as backend/cmd
 	}
 	for _, path := range candidates {
 		if _, err := os.Stat(path); err != nil {
