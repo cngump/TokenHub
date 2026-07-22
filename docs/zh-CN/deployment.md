@@ -14,9 +14,9 @@ cp deploy/.env.example deploy/.env
 
 启动前请编辑 `deploy/.env`：
 
-- `TOKENHUB_ADMIN_TOKEN`：Admin API 启动 Token，请使用强随机值。
-- `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`：仅用于创建初始 `admin` 用户的密码。
-- `TOKENHUB_SECRET_KEY`：后端密钥，请使用强随机值并保持稳定。
+- `TOKENHUB_ADMIN_TOKEN`：Admin API 启动 Token，请使用至少 32 字节的随机值。
+- `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`：仅用于创建初始 `admin` 用户，请设置至少 12 字节的密码。
+- `TOKENHUB_SECRET_KEY`：后端密钥，请使用至少 32 字节的随机值并保持稳定。
 - `TOKENHUB_PUBLIC_BASE_URL`：展示给用户的后端访问地址。
 - `NEXT_PUBLIC_API_BASE_URL`：浏览器管理后台访问后端的地址。
 - `TOKENHUB_BACKEND_PORT`：后端宿主机端口，默认 `8080`。
@@ -25,8 +25,18 @@ cp deploy/.env.example deploy/.env
 在仓库根目录启动：
 
 ```bash
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
+./deploy/install.sh
 ```
+
+脚本会在构建前校验 Compose 环境变量，不输出敏感值地逐项提示不安全的变量。如果 Compose 失败，且本次创建或重启的后端容器处于已退出、重启中、失效或不健康状态，脚本会打印本次启动产生的最多 100 行后端日志。后端之外的故障不会导出无关的后端日志。
+
+只校验配置，不构建或启动容器：
+
+```bash
+./deploy/install.sh --check-only
+```
+
+使用其他环境文件时，可执行 `./deploy/install.sh --env-file /path/to/deploy.env`。
 
 ### 可选：服务器侧构建加速
 
@@ -74,9 +84,9 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml ps
 - 用户名：`admin`
 - 密码：配置的 `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`
 
-在 `prod`、`production`、预发布等非开发环境中，如果 Admin Token、后端密钥或初始密码仍为占位值或强度不足，服务会拒绝启动。
+在 `prod`、`production`、预发布等非开发环境中，服务会拒绝占位值、少于 32 字节的 Admin Token 或后端密钥，以及少于 12 字节的初始密码。
 
-查看日志：
+手动查看或持续跟踪日志：
 
 ```bash
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs -f

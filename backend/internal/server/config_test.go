@@ -89,6 +89,36 @@ func TestProductionConfigRejectsPlaceholderCredentials(t *testing.T) {
 			t.Fatalf("expected validation error to mention %s: %v", name, err)
 		}
 	}
+	if !strings.Contains(err.Error(), "default placeholder value") {
+		t.Fatalf("expected validation error to explain placeholder rejection: %v", err)
+	}
+}
+
+func TestProductionConfigReportsMinimumCredentialLengths(t *testing.T) {
+	config := Config{
+		Environment:            "prod",
+		AdminToken:             "short-token",
+		SecretKey:              "short-secret",
+		BootstrapAdminPassword: "short",
+	}
+	err := config.ValidateForStartup()
+	if err == nil {
+		t.Fatal("expected short production credentials to fail")
+	}
+	for _, expected := range []string{
+		"TOKENHUB_ADMIN_TOKEN must be at least 32 bytes",
+		"TOKENHUB_SECRET_KEY must be at least 32 bytes",
+		"TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD must be at least 12 bytes",
+	} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("expected validation error to contain %q: %v", expected, err)
+		}
+	}
+	for _, secret := range []string{config.AdminToken, config.SecretKey, config.BootstrapAdminPassword} {
+		if strings.Contains(err.Error(), secret) {
+			t.Fatalf("validation error must not expose credential value %q: %v", secret, err)
+		}
+	}
 }
 
 func TestProductionConfigAcceptsStrongCredentials(t *testing.T) {

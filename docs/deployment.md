@@ -14,9 +14,9 @@ cp deploy/.env.example deploy/.env
 
 Edit `deploy/.env` before starting:
 
-- `TOKENHUB_ADMIN_TOKEN`: Admin API bootstrap token. Use a strong random value.
-- `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`: Password used only when creating the initial `admin` user.
-- `TOKENHUB_SECRET_KEY`: Backend secret key. Use a strong random value and keep it stable.
+- `TOKENHUB_ADMIN_TOKEN`: Admin API bootstrap token. Use a random value of at least 32 bytes.
+- `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`: Password used only when creating the initial `admin` user. Use at least 12 bytes.
+- `TOKENHUB_SECRET_KEY`: Backend secret key. Use a random value of at least 32 bytes and keep it stable.
 - `TOKENHUB_PUBLIC_BASE_URL`: Public backend URL shown to users.
 - `NEXT_PUBLIC_API_BASE_URL`: Backend URL used by the browser admin console.
 - `TOKENHUB_BACKEND_PORT`: Host port for the backend. Default: `8080`.
@@ -25,8 +25,18 @@ Edit `deploy/.env` before starting:
 Start the stack from the repository root:
 
 ```bash
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
+./deploy/install.sh
 ```
+
+The script validates the Compose environment before building. Validation errors name every unsafe variable without printing its value. If Compose fails and a backend container created or restarted by that attempt is exited, restarting, dead, or unhealthy, the script prints up to 100 backend log lines from that attempt. Failures outside the backend do not export unrelated backend logs.
+
+Validate without building or starting containers:
+
+```bash
+./deploy/install.sh --check-only
+```
+
+Use a different environment file with `./deploy/install.sh --env-file /path/to/deploy.env`.
 
 ### Optional server-side build acceleration
 
@@ -74,9 +84,9 @@ Initial admin login:
 - Username: `admin`
 - Password: the configured `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`
 
-For `prod`, `production`, staging, and other non-development environments, startup rejects placeholder or weak values for the admin token, secret key, and bootstrap password.
+For `prod`, `production`, staging, and other non-development environments, startup rejects placeholder values, admin tokens or secret keys shorter than 32 bytes, and bootstrap passwords shorter than 12 bytes.
 
-View logs:
+View or follow logs manually:
 
 ```bash
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs -f

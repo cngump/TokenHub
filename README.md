@@ -62,7 +62,7 @@ TokenHub separates everyday model usage, team governance, and platform administr
 ```bash
 cp deploy/.env.example deploy/.env
 # Replace every change-me value in deploy/.env with a strong secret.
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
+./deploy/install.sh
 ```
 
 Open:
@@ -76,7 +76,7 @@ Initial admin login:
 - Username: `admin`
 - Password: the value of `TOKENHUB_BOOTSTRAP_ADMIN_PASSWORD`
 
-Production startup fails while placeholder credentials remain in `deploy/.env`.
+The deployment script validates production credentials before building. It reports each unsafe variable without printing secret values. If Compose fails because a backend container created or restarted by that attempt is unhealthy, the script automatically shows only that attempt's recent backend logs.
 
 ## Local Development
 
