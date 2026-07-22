@@ -1,4 +1,5 @@
-> PR title format: `<type>: <short summary>` in English, max 72 characters. Use `feat`, `fix`, `doc`, `refactor`, `test`, or `chore` as the type.
+> PR title format: `<type>[optional scope][!]: <short summary>` in English, max 72 characters.
+> Common types include `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `style`, and `revert`. Use a lowercase imperative summary without a trailing period.
 
 ## Summary
 

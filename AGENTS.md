@@ -54,7 +54,7 @@ Start the full local development stack from the repository root with `./start.sh
 
 ## Pull request guidelines
 
-- Use an English PR title in the format `<type>: <short summary>`, limited to 72 characters. Use `feat`, `fix`, `doc`, `refactor`, `test`, or `chore` as the type.
+- Use an English Conventional Commits-style PR title in the format `<type>[optional scope][!]: <short summary>`, limited to 72 characters. Common types include `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `style`, and `revert`. Use a lowercase imperative summary without a trailing period.
 - Before creating a pull request, read and complete `.github/pull_request_template.md`.
 - Preserve every template section, replace all placeholders, and explain any skipped or non-applicable checks.
 - Do not use `gh pr create --fill` or an ad hoc body that bypasses the template; use the completed template as the final pull request body.
