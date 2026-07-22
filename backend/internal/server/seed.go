@@ -9,9 +9,20 @@ import (
 
 const defaultProjectID = "prj_default"
 
-// BootstrapTaskRevision must be increased whenever startup seed behavior needs
-// to run again on an existing cluster.
-const BootstrapTaskRevision int64 = 1
+// RunStartupBootstrap reapplies idempotent startup data on every process start
+// while serializing replicas through a cluster-wide lease. The contextual
+// store makes lease loss cancel the database operations still in progress.
+func RunStartupBootstrap(ctx context.Context, store *GormStore, config Config) error {
+	operation := "bootstrap-base"
+	seed := BootstrapBaseDataWithConfig
+	if config.SeedDemo {
+		operation = "bootstrap-demo"
+		seed = SeedDemoDataWithConfig
+	}
+	return store.RunClusterOperation(ctx, operation, func(leaseCtx context.Context) error {
+		return seed(store.WithContext(leaseCtx), config)
+	})
+}
 
 func SeedDemoData(store Store) error {
 	return SeedDemoDataWithConfig(store, ConfigFromEnv())

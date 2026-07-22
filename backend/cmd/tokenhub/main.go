@@ -26,23 +26,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	bootstrapTask := "bootstrap-base"
-	bootstrap := func(ctx context.Context) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		return server.BootstrapBaseDataWithConfig(store, config)
-	}
-	if config.SeedDemo {
-		bootstrapTask = "bootstrap-demo"
-		bootstrap = func(ctx context.Context) error {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			return server.SeedDemoDataWithConfig(store, config)
-		}
-	}
-	if err := store.RunClusterTask(context.Background(), bootstrapTask, server.BootstrapTaskRevision, bootstrap); err != nil {
+	if err := server.RunStartupBootstrap(context.Background(), store, config); err != nil {
 		log.Fatal(err)
 	}
 

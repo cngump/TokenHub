@@ -12,15 +12,15 @@ func TestLeaseHeartbeatRetriesTransientRenewalErrors(t *testing.T) {
 	const ttl = 600 * time.Millisecond
 	var attempts atomic.Int64
 	renewed := make(chan struct{})
-	heartbeat := startLeaseHeartbeat(context.Background(), ttl, time.Now().Add(ttl), func(context.Context, time.Time) (bool, error) {
+	heartbeat := startLeaseHeartbeat(context.Background(), ttl, ttl, func(context.Context) (time.Duration, bool, error) {
 		attempt := attempts.Add(1)
 		if attempt == 1 {
-			return false, errors.New("transient database error")
+			return 0, false, errors.New("transient database error")
 		}
 		if attempt == 2 {
 			close(renewed)
 		}
-		return true, nil
+		return ttl, true, nil
 	})
 
 	select {
@@ -40,8 +40,8 @@ func TestLeaseHeartbeatRetriesTransientRenewalErrors(t *testing.T) {
 
 func TestLeaseHeartbeatCancelsWhenOwnershipIsLost(t *testing.T) {
 	const ttl = 600 * time.Millisecond
-	heartbeat := startLeaseHeartbeat(context.Background(), ttl, time.Now().Add(ttl), func(context.Context, time.Time) (bool, error) {
-		return false, nil
+	heartbeat := startLeaseHeartbeat(context.Background(), ttl, ttl, func(context.Context) (time.Duration, bool, error) {
+		return 0, false, nil
 	})
 
 	select {
@@ -96,5 +96,52 @@ func TestFinishProviderAttemptReleasesLeaseAfterAccountingFailure(t *testing.T) 
 	}
 	if count != 0 {
 		t.Fatalf("provider lease remained after accounting rollback: count=%d", count)
+	}
+}
+
+func TestReleaseProviderCapacityDoesNotRecordProviderFailure(t *testing.T) {
+	store := NewMemoryStore()
+	provider := store.AddProvider(Provider{
+		ID:      "provider-neutral-release",
+		Name:    "Neutral release",
+		Type:    ProviderMock,
+		Status:  StatusActive,
+		Healthy: true,
+	})
+	resource, err := store.AddProviderResource(ProviderResource{
+		ID:             "resource-neutral-release",
+		ProviderID:     provider.ID,
+		Name:           "Neutral release",
+		ResourceType:   "mock",
+		Status:         StatusActive,
+		Healthy:        true,
+		MaxConcurrency: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Model(&ProviderResource{}).Where("id = ?", resource.ID).Update("failure_count", 2).Error; err != nil {
+		t.Fatal(err)
+	}
+	leaseID, _, err := store.CheckProviderResourceCapacity(context.Background(), resource.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store.ReleaseProviderResourceCapacity(resource.ID, leaseID)
+
+	var updated ProviderResource
+	if err := store.db.First(&updated, "id = ?", resource.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if updated.FailureCount != 2 || !updated.Healthy || updated.CooldownUntil != nil {
+		t.Fatalf("neutral release changed provider health: %+v", updated)
+	}
+	var leaseCount int64
+	if err := store.db.Model(&InFlightLease{}).Where("id = ?", leaseID).Count(&leaseCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if leaseCount != 0 {
+		t.Fatalf("neutral release left provider lease behind: count=%d", leaseCount)
 	}
 }

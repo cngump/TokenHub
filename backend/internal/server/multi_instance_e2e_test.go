@@ -37,6 +37,16 @@ func (a *multiInstanceBlockingAdapter) Chat(ctx context.Context, provider Provid
 	}
 }
 
+func (a *multiInstanceBlockingAdapter) ChatStream(ctx context.Context, provider Provider, providerModel string, req ChatCompletionRequest, w io.Writer) (Usage, error) {
+	a.once.Do(func() { close(a.started) })
+	select {
+	case <-ctx.Done():
+		return Usage{}, ctx.Err()
+	case <-a.release:
+		return a.MockAdapter.ChatStream(ctx, provider, providerModel, req, w)
+	}
+}
+
 func TestMultiInstancePostgresE2E(t *testing.T) {
 	storeA, storeB, config := openSharedPostgresStores(t)
 	t.Run("concurrent migrations work with a one-connection runtime pool", func(t *testing.T) {
@@ -50,6 +60,9 @@ func TestMultiInstancePostgresE2E(t *testing.T) {
 	})
 	t.Run("startup task revision runs once", func(t *testing.T) {
 		testClusterTaskRunsOnce(t, storeA, storeB)
+	})
+	t.Run("startup operations run on every start and serialize replicas", func(t *testing.T) {
+		testClusterOperationRunsEveryStart(t, storeA, storeB)
 	})
 	t.Run("lost cluster leases cancel guarded work", func(t *testing.T) {
 		testClusterLeaseLossCancelsWork(t, storeA, storeB)
@@ -269,6 +282,47 @@ func testClusterWideHTTPEnforcement(t *testing.T, storeA *GormStore, storeB *Gor
 			}
 		case <-time.After(3 * time.Second):
 			t.Fatal("request continued after its concurrency lease was lost")
+		}
+		var updatedResource ProviderResource
+		if err := storeB.db.First(&updatedResource, "id = ?", resource.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if updatedResource.FailureCount != 0 || !updatedResource.Healthy || updatedResource.CooldownUntil != nil {
+			t.Fatalf("coordination lease loss was counted as a provider failure: %+v", updatedResource)
+		}
+	}()
+
+	func() {
+		previousTTL := storeA.inFlightLeaseTTL
+		storeA.inFlightLeaseTTL = 600 * time.Millisecond
+		defer func() { storeA.inFlightLeaseTTL = previousTTL }()
+		lostLeaseAdapter := &multiInstanceBlockingAdapter{started: make(chan struct{}), release: make(chan struct{})}
+		serverA.adapters[ProviderMock] = lostLeaseAdapter
+		defer func() { serverA.adapters[ProviderMock] = MockAdapter{} }()
+		result := make(chan struct{}, 1)
+		go func() {
+			_, _ = postChatStream(httpA.URL, concurrencySecret, modelName)
+			result <- struct{}{}
+		}()
+		select {
+		case <-lostLeaseAdapter.started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("streaming lease-loss request did not reach the blocking upstream")
+		}
+		if err := storeB.db.Where("scope_type = ? AND scope_id = ?", "api_key", concurrencyKey.ID).Delete(&InFlightLease{}).Error; err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-result:
+		case <-time.After(3 * time.Second):
+			t.Fatal("streaming request continued after its concurrency lease was lost")
+		}
+		var updatedResource ProviderResource
+		if err := storeB.db.First(&updatedResource, "id = ?", resource.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if updatedResource.FailureCount != 0 || !updatedResource.Healthy || updatedResource.CooldownUntil != nil {
+			t.Fatalf("streaming coordination lease loss was counted as a provider failure: %+v", updatedResource)
 		}
 	}()
 
@@ -536,6 +590,53 @@ func testClusterTaskRunsOnce(t *testing.T, storeA *GormStore, storeB *GormStore)
 	}
 }
 
+func testClusterOperationRunsEveryStart(t *testing.T, storeA *GormStore, storeB *GormStore) {
+	t.Helper()
+	name := "e2e-operation-" + NewID("operation")
+	var executions atomic.Int64
+	var active atomic.Int64
+	var maxActive atomic.Int64
+	var wg sync.WaitGroup
+	errors := make(chan error, 2)
+	for _, store := range []*GormStore{storeA, storeB} {
+		wg.Add(1)
+		go func(store *GormStore) {
+			defer wg.Done()
+			errors <- store.RunClusterOperation(context.Background(), name, func(context.Context) error {
+				executions.Add(1)
+				current := active.Add(1)
+				for observed := maxActive.Load(); current > observed && !maxActive.CompareAndSwap(observed, current); observed = maxActive.Load() {
+				}
+				time.Sleep(150 * time.Millisecond)
+				active.Add(-1)
+				return nil
+			})
+		}(store)
+	}
+	wg.Wait()
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := executions.Load(); got != 2 {
+		t.Fatalf("startup operation ran %d times, want once per replica start", got)
+	}
+	if got := maxActive.Load(); got != 1 {
+		t.Fatalf("startup operations overlapped across replicas: max_active=%d", got)
+	}
+	if err := storeA.RunClusterOperation(context.Background(), name, func(context.Context) error {
+		executions.Add(1)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := executions.Load(); got != 3 {
+		t.Fatalf("later restart did not rerun startup operation: executions=%d", got)
+	}
+}
+
 func testClusterLeaseLossCancelsWork(t *testing.T, storeA *GormStore, storeB *GormStore) {
 	t.Helper()
 	previousTTL := storeA.clusterLockTTL
@@ -581,6 +682,14 @@ func postChat(baseURL string, secret string, model string) (int, string) {
 	return postJSON(baseURL+"/v1/chat/completions", secret, map[string]any{
 		"model":    model,
 		"messages": []map[string]any{{"role": "user", "content": "multi-instance e2e"}},
+	})
+}
+
+func postChatStream(baseURL string, secret string, model string) (int, string) {
+	return postJSON(baseURL+"/v1/chat/completions", secret, map[string]any{
+		"model":    model,
+		"messages": []map[string]any{{"role": "user", "content": "multi-instance streaming e2e"}},
+		"stream":   true,
 	})
 }
 

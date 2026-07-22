@@ -303,7 +303,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		preparedRoute, err := s.prepareRouteForUpstream(leaseCtx, route)
 		if err != nil {
-			s.store.FinishProviderResourceAttempt(resourceID, leaseID, false, Usage{})
+			if leaseErr := coordinationLeaseError(leaseCtx); leaseErr != nil {
+				err = leaseErr
+			}
+			finishProviderResourceAttempt(s.store, resourceID, leaseID, err, Usage{})
 			httpErr := AsHTTPError(err)
 			s.store.FinishCall(routed.Call, route, Usage{}, httpErr.Status, httpErr.Code, s.clientIP(r), r.UserAgent())
 			s.recordRequestPayload(routed.Call.RequestID, req, auditErrorPayload(err, routed.Call.RequestID))
@@ -313,7 +316,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		route = preparedRoute
 		adapter, err := s.adapterForRoute(route)
 		if err != nil {
-			s.store.FinishProviderResourceAttempt(resourceID, leaseID, false, Usage{})
+			if leaseErr := coordinationLeaseError(leaseCtx); leaseErr != nil {
+				err = leaseErr
+			}
+			finishProviderResourceAttempt(s.store, resourceID, leaseID, err, Usage{})
 			httpErr := AsHTTPError(err)
 			s.store.FinishCall(routed.Call, route, Usage{}, httpErr.Status, httpErr.Code, s.clientIP(r), r.UserAgent())
 			s.recordRequestPayload(routed.Call.RequestID, req, auditErrorPayload(err, routed.Call.RequestID))
@@ -328,7 +334,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		if leaseErr := coordinationLeaseError(leaseCtx); leaseErr != nil {
 			err = leaseErr
 		}
-		s.store.FinishProviderResourceAttempt(resourceID, leaseID, err == nil, usage)
+		finishProviderResourceAttempt(s.store, resourceID, leaseID, err, usage)
 		status, code := statusAndCode(err)
 		if err == nil {
 			s.store.MarkRouteUsed(route.Route.ID)
@@ -618,9 +624,7 @@ func executeRoutedWithStore[T any](ctx context.Context, store Store, routed Rout
 		if leaseErr := coordinationLeaseError(leaseCtx); leaseErr != nil {
 			err = leaseErr
 		}
-		if resourceID != "" {
-			store.FinishProviderResourceAttempt(resourceID, leaseID, err == nil, usage)
-		}
+		finishProviderResourceAttempt(store, resourceID, leaseID, err, usage)
 		status, code := statusAndCode(err)
 		attempts = append(attempts, RouteAttempt{
 			Selection: route,
@@ -644,6 +648,17 @@ func coordinationLeaseError(ctx context.Context) error {
 		return ErrCoordinationLeaseLost
 	}
 	return nil
+}
+
+func finishProviderResourceAttempt(store Store, resourceID string, leaseID string, err error, usage Usage) {
+	if resourceID == "" {
+		return
+	}
+	if errors.Is(err, ErrCoordinationLeaseLost) {
+		store.ReleaseProviderResourceCapacity(resourceID, leaseID)
+		return
+	}
+	store.FinishProviderResourceAttempt(resourceID, leaseID, err == nil, usage)
 }
 
 func (s *Server) finishFailedRoutedCall(r *http.Request, routed RoutedCall, attempts []RouteAttempt, err error) {
