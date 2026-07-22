@@ -204,6 +204,21 @@ func redactDatabaseURL(databaseURL string) string {
 			u.User = url.User(username)
 		}
 	}
+	// PostgreSQL URIs also allow credentials in query parameters
+	// (for example, ?user=u&password=secret). Mask any password-bearing keys.
+	if query := u.Query(); len(query) > 0 {
+		changed := false
+		for key := range query {
+			switch strings.ToLower(key) {
+			case "password", "passwd", "pgpassword":
+				query.Set(key, "****")
+				changed = true
+			}
+		}
+		if changed {
+			u.RawQuery = query.Encode()
+		}
+	}
 	return u.String()
 }
 
