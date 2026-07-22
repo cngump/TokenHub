@@ -1479,7 +1479,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "渠道商": "Provider",
     "个标准模型": "standard models",
     "自定义渠道商": "Custom Provider",
-    "搜索渠道商、ID、类型": "Search providers, IDs, or types",
+    "搜索渠道商名称或 ID": "Search provider names or IDs",
     "没有匹配的渠道商": "No matching providers",
     "使用自定义渠道商": "Use custom Provider",
     "请选择渠道商": "Select Provider",
@@ -2623,7 +2623,7 @@ const translations: Record<Exclude<AppLanguage, "zh-CN">, Record<string, string>
     "渠道商": "Provider",
     "个标准模型": "件の標準モデル",
     "自定义渠道商": "カスタム Provider",
-    "搜索渠道商、ID、类型": "Provider、ID、タイプを検索",
+    "搜索渠道商名称或 ID": "Provider 名または ID を検索",
     "没有匹配的渠道商": "一致する Provider がありません",
     "使用自定义渠道商": "カスタム Provider を使用",
     "请选择渠道商": "Provider を選択",
@@ -13753,10 +13753,6 @@ function ProviderUpsertModal({
         entry.id,
         entry.name,
         entry.display_name,
-        entry.type,
-        entry.base_url,
-        entry.doc_url,
-        ...(entry.categories ?? []),
       ].filter(Boolean).join(" ").toLowerCase().includes(normalized),
     );
   }, [categoryCatalog, catalogQuery]);
@@ -14181,7 +14177,7 @@ function ProviderUpsertModal({
               <input
                 value={catalogQuery}
                 onChange={(event) => setCatalogQuery(event.target.value)}
-                placeholder={tx("搜索渠道商、ID、类型")}
+                placeholder={tx("搜索渠道商名称或 ID")}
               />
             </div>
             <div className="provider-catalog-list compact">
