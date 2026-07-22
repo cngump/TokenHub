@@ -1,3 +1,5 @@
+> PR title format: `<type>: <short summary>` in English, max 72 characters. Use `feat`, `fix`, `doc`, `refactor`, `test`, or `chore` as the type.
+
 ## Summary
 
 <!-- What problem does this PR solve, and why is the change needed? -->
