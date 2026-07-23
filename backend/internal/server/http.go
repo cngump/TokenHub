@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -27,11 +28,10 @@ import (
 )
 
 type Server struct {
-	store                    Store
-	adapters                 map[string]ProviderAdapter
-	mux                      *http.ServeMux
-	config                   Config
-	providerAccountOAuthFlow *providerAccountOAuthSessionStore
+	store    Store
+	adapters map[string]ProviderAdapter
+	mux      *http.ServeMux
+	config   Config
 }
 
 func New(store Store) *Server {
@@ -54,9 +54,8 @@ func NewWithConfig(store Store, config Config) *Server {
 			ProviderAnthropic:        AnthropicAdapter{Client: client},
 			ProviderGemini:           GeminiAdapter{Client: client},
 		},
-		mux:                      http.NewServeMux(),
-		config:                   config,
-		providerAccountOAuthFlow: newProviderAccountOAuthSessionStore(),
+		mux:    http.NewServeMux(),
+		config: config,
 	}
 	s.routes()
 	return s
@@ -67,6 +66,8 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) routes() {
+	s.mux.HandleFunc("/livez", s.handleLive)
+	s.mux.HandleFunc("/readyz", s.handleHealth)
 	s.mux.HandleFunc("/healthz", s.handleHealth)
 	s.mux.HandleFunc("/v1/models", s.handleModels)
 	s.mux.HandleFunc("/v1/models/", s.handleModel)
@@ -122,9 +123,23 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/admin/system/db-status", s.handleAdminSystemDBStatus)
 }
 
+func (s *Server) handleLive(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "service": "tokenhub-backend"})
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, r, NewHTTPError(405, "method_not_allowed", "Method not allowed"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := s.store.Ping(ctx); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "unavailable", "service": "tokenhub-backend"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "service": "tokenhub-backend"})
@@ -274,7 +289,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if req.Stream {
 		route := routed.Routes[0]
 		resourceID := routeResourceID(route)
-		if err := s.store.CheckProviderResourceCapacity(resourceID); err != nil {
+		leaseID, leaseCtx, err := s.store.CheckProviderResourceCapacity(r.Context(), resourceID)
+		if err != nil {
 			s.finishFailedRoutedCall(r, routed, []RouteAttempt{{
 				Selection: route,
 				Status:    AsHTTPError(err).Status,
@@ -285,9 +301,12 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			writeError(w, r, err)
 			return
 		}
-		preparedRoute, err := s.prepareRouteForUpstream(r.Context(), route)
+		preparedRoute, err := s.prepareRouteForUpstream(leaseCtx, route)
 		if err != nil {
-			s.store.FinishProviderResourceAttempt(resourceID, false, Usage{})
+			if leaseErr := coordinationLeaseError(leaseCtx); leaseErr != nil {
+				err = leaseErr
+			}
+			finishProviderResourceAttempt(s.store, resourceID, leaseID, err, Usage{})
 			httpErr := AsHTTPError(err)
 			s.store.FinishCall(routed.Call, route, Usage{}, httpErr.Status, httpErr.Code, s.clientIP(r), r.UserAgent())
 			s.recordRequestPayload(routed.Call.RequestID, req, auditErrorPayload(err, routed.Call.RequestID))
@@ -297,7 +316,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		route = preparedRoute
 		adapter, err := s.adapterForRoute(route)
 		if err != nil {
-			s.store.FinishProviderResourceAttempt(resourceID, false, Usage{})
+			if leaseErr := coordinationLeaseError(leaseCtx); leaseErr != nil {
+				err = leaseErr
+			}
+			finishProviderResourceAttempt(s.store, resourceID, leaseID, err, Usage{})
 			httpErr := AsHTTPError(err)
 			s.store.FinishCall(routed.Call, route, Usage{}, httpErr.Status, httpErr.Code, s.clientIP(r), r.UserAgent())
 			s.recordRequestPayload(routed.Call.RequestID, req, auditErrorPayload(err, routed.Call.RequestID))
@@ -308,8 +330,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("cache-control", "no-cache")
 		w.Header().Set("x-request-id", routed.Call.RequestID)
 		s.writeRouteHeaders(w, routed.Call, route, 1)
-		usage, err := adapter.ChatStream(r.Context(), route.Provider, route.ProviderModel, req, w)
-		s.store.FinishProviderResourceAttempt(resourceID, err == nil, usage)
+		usage, err := adapter.ChatStream(leaseCtx, route.Provider, route.ProviderModel, req, w)
+		if leaseErr := coordinationLeaseError(leaseCtx); leaseErr != nil {
+			err = leaseErr
+		}
+		finishProviderResourceAttempt(s.store, resourceID, leaseID, err, usage)
 		status, code := statusAndCode(err)
 		if err == nil {
 			s.store.MarkRouteUsed(route.Route.ID)
@@ -424,13 +449,16 @@ func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) startRoutedCall(w http.ResponseWriter, r *http.Request, project Project, key APIKey, model string, requestPayload any) (RoutedCall, bool) {
-	call, err := s.store.StartCall(project, key, model)
+	call, err := s.store.StartCall(r.Context(), project, key, model)
 	if err != nil {
 		httpErr := AsHTTPError(err)
 		requestID := s.store.RecordRejectedRequest(project, key, model, httpErr.Status, httpErr.Code, s.clientIP(r), r.UserAgent())
 		s.recordRequestPayload(requestID, requestPayload, auditErrorPayload(err, requestID))
 		writeError(w, r, err)
 		return RoutedCall{}, false
+	}
+	if call.requestContext != nil {
+		*r = *r.WithContext(call.requestContext)
 	}
 	routes, err := s.store.SelectRouteCandidates(model)
 	if err != nil {
@@ -444,8 +472,8 @@ func (s *Server) startRoutedCall(w http.ResponseWriter, r *http.Request, project
 }
 
 func (s *Server) executeRoutedChat(r *http.Request, routed RoutedCall, req ChatCompletionRequest) (any, RouteSelection, Usage, []RouteAttempt, error) {
-	return executeRoutedWithStore(s.store, routed, func(route RouteSelection) (any, Usage, error) {
-		route, err := s.prepareRouteForUpstream(r.Context(), route)
+	return executeRoutedWithStore(r.Context(), s.store, routed, func(ctx context.Context, route RouteSelection) (any, Usage, error) {
+		route, err := s.prepareRouteForUpstream(ctx, route)
 		if err != nil {
 			return nil, Usage{}, err
 		}
@@ -453,13 +481,13 @@ func (s *Server) executeRoutedChat(r *http.Request, routed RoutedCall, req ChatC
 		if err != nil {
 			return nil, Usage{}, err
 		}
-		return adapter.Chat(r.Context(), route.Provider, route.ProviderModel, req)
+		return adapter.Chat(ctx, route.Provider, route.ProviderModel, req)
 	})
 }
 
 func (s *Server) executeRoutedResponses(r *http.Request, routed RoutedCall, req ResponsesRequest) (any, RouteSelection, Usage, []RouteAttempt, error) {
-	return executeRoutedWithStore(s.store, routed, func(route RouteSelection) (any, Usage, error) {
-		route, err := s.prepareRouteForUpstream(r.Context(), route)
+	return executeRoutedWithStore(r.Context(), s.store, routed, func(ctx context.Context, route RouteSelection) (any, Usage, error) {
+		route, err := s.prepareRouteForUpstream(ctx, route)
 		if err != nil {
 			return nil, Usage{}, err
 		}
@@ -467,13 +495,13 @@ func (s *Server) executeRoutedResponses(r *http.Request, routed RoutedCall, req 
 		if err != nil {
 			return nil, Usage{}, err
 		}
-		return adapter.Responses(r.Context(), route.Provider, route.ProviderModel, req)
+		return adapter.Responses(ctx, route.Provider, route.ProviderModel, req)
 	})
 }
 
 func (s *Server) executeRoutedEmbeddings(r *http.Request, routed RoutedCall, req EmbeddingsRequest) (any, RouteSelection, Usage, []RouteAttempt, error) {
-	return executeRoutedWithStore(s.store, routed, func(route RouteSelection) (any, Usage, error) {
-		route, err := s.prepareRouteForUpstream(r.Context(), route)
+	return executeRoutedWithStore(r.Context(), s.store, routed, func(ctx context.Context, route RouteSelection) (any, Usage, error) {
+		route, err := s.prepareRouteForUpstream(ctx, route)
 		if err != nil {
 			return nil, Usage{}, err
 		}
@@ -481,7 +509,7 @@ func (s *Server) executeRoutedEmbeddings(r *http.Request, routed RoutedCall, req
 		if err != nil {
 			return nil, Usage{}, err
 		}
-		return adapter.Embeddings(r.Context(), route.Provider, route.ProviderModel, req)
+		return adapter.Embeddings(ctx, route.Provider, route.ProviderModel, req)
 	})
 }
 
@@ -568,13 +596,17 @@ func (s *Server) handleAdminPlaygroundChat(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-func executeRoutedWithStore[T any](store Store, routed RoutedCall, call func(RouteSelection) (T, Usage, error)) (T, RouteSelection, Usage, []RouteAttempt, error) {
+func executeRoutedWithStore[T any](ctx context.Context, store Store, routed RoutedCall, call func(context.Context, RouteSelection) (T, Usage, error)) (T, RouteSelection, Usage, []RouteAttempt, error) {
 	var zero T
 	var lastErr error = ErrProviderMissing
 	attempts := make([]RouteAttempt, 0, len(routed.Routes))
 	for _, route := range routed.Routes {
+		if leaseErr := coordinationLeaseError(ctx); leaseErr != nil {
+			return zero, route, Usage{}, attempts, leaseErr
+		}
 		resourceID := routeResourceID(route)
-		if err := store.CheckProviderResourceCapacity(resourceID); err != nil {
+		leaseID, leaseCtx, err := store.CheckProviderResourceCapacity(ctx, resourceID)
+		if err != nil {
 			status, code := statusAndCode(err)
 			attempts = append(attempts, RouteAttempt{
 				Selection: route,
@@ -588,10 +620,11 @@ func executeRoutedWithStore[T any](store Store, routed RoutedCall, call func(Rou
 			}
 			continue
 		}
-		resp, usage, err := call(route)
-		if resourceID != "" {
-			store.FinishProviderResourceAttempt(resourceID, err == nil, usage)
+		resp, usage, err := call(leaseCtx, route)
+		if leaseErr := coordinationLeaseError(leaseCtx); leaseErr != nil {
+			err = leaseErr
 		}
+		finishProviderResourceAttempt(store, resourceID, leaseID, err, usage)
 		status, code := statusAndCode(err)
 		attempts = append(attempts, RouteAttempt{
 			Selection: route,
@@ -608,6 +641,24 @@ func executeRoutedWithStore[T any](store Store, routed RoutedCall, call func(Rou
 		}
 	}
 	return zero, RouteSelection{}, Usage{}, attempts, lastErr
+}
+
+func coordinationLeaseError(ctx context.Context) error {
+	if ctx != nil && errors.Is(context.Cause(ctx), ErrCoordinationLeaseLost) {
+		return ErrCoordinationLeaseLost
+	}
+	return nil
+}
+
+func finishProviderResourceAttempt(store Store, resourceID string, leaseID string, err error, usage Usage) {
+	if resourceID == "" {
+		return
+	}
+	if errors.Is(err, ErrCoordinationLeaseLost) {
+		store.ReleaseProviderResourceCapacity(resourceID, leaseID)
+		return
+	}
+	store.FinishProviderResourceAttempt(resourceID, leaseID, err == nil, usage)
 }
 
 func (s *Server) finishFailedRoutedCall(r *http.Request, routed RoutedCall, attempts []RouteAttempt, err error) {
@@ -816,6 +867,9 @@ func routeStrategy(route ModelRoute) string {
 
 func shouldFailoverProviderError(err error) bool {
 	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrCoordinationLeaseLost) {
 		return false
 	}
 	httpErr := AsHTTPError(err)

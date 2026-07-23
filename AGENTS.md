@@ -52,6 +52,14 @@ Start the full local development stack from the repository root with `./start.sh
 - Next.js may rewrite `frontend/next-env.d.ts` during development or production builds. Do not commit incidental mode-dependent changes to that generated file.
 - Keep `data/model-catalog.yaml` tracked; other files under runtime data directories are intentionally ignored.
 
+## Pull request guidelines
+
+- Use an English Conventional Commits-style PR title in the format `<type>[optional scope][!]: <short summary>`, limited to 72 characters. Common types include `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `style`, and `revert`. Use a lowercase imperative summary without a trailing period.
+- Before creating a pull request, read and complete `.github/pull_request_template.md`.
+- Preserve every template section, replace all placeholders, and explain any skipped or non-applicable checks.
+- Do not use `gh pr create --fill` or an ad hoc body that bypasses the template; use the completed template as the final pull request body.
+- Create a ready-for-review pull request by default. Use a draft only when explicitly requested.
+
 ## Validation expectations
 
 - Run the narrowest relevant test while iterating, then run the full applicable check set before handing off.
